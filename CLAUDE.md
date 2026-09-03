@@ -95,4 +95,12 @@ claude plugin validate .                 # 校验两份清单（CI 加 --strict�
 
 ## 版本管理
 
-本仓库是 git 仓库（2026-09-04 起）。改 `.claude-plugin/plugin.json` 的 `version` 后重装会落到新的 cache 目录，旧版本残留可清理；只改代码不升版本则覆盖同目录（重装前先 `--stop` 旧进程）。
+本仓库是 git 仓库（2026-09-04 起）。
+
+**铁律：每次更新 = 版本号 +1。** 任何变更（代码、前端构建产物、命令、README/文档、CLAUDE.md 规则本身、仅配置文件）一旦要同步给用户/市场，必须同步把 `.claude-plugin/plugin.json` 的 `version` +1（patch 级即可），**禁止"只改代码不升版本"**——升版本后 `claude plugin update` 会落到新的 cache 目录（`cache/.../xray/<版本>/`），旧版本残留可清理；这样每次更新都可在 cache 中追溯。配套流程（重装前先 `--stop` 旧进程）：
+
+```bash
+claude plugin validate . && claude plugin marketplace update kw-dev-plugins
+claude plugin update xray@kw-dev-plugins          # 升版本后重装到新 cache 目录
+nohup python3 ~/.claude/plugins/cache/kw-dev-plugins/xray/<新版本>/scripts/server.py &
+```
