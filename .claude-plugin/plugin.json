@@ -1,0 +1,16 @@
+{
+  "name": "xray",
+  "version": "1.2.0",
+  "description": "Claude Code Workflow 执行进度网页实时查看器。/wf-view 一键启动零依赖本地服务(Python3 stdlib,仅绑定 127.0.0.1),合并 workflow 运行落盘数据实时展示 phase/agent 状态、最近工具、tokens、耗时与完整 prompt/result,支持飞书/通用 JSON webhook 终态通知、项目筛选、全文搜索、自动刷新与双主题。",
+  "author": {
+    "name": "yanghai"
+  },
+  "keywords": [
+    "workflow",
+    "viewer",
+    "monitoring",
+    "dashboard",
+    "webhook",
+    "feishu"
+  ]
+}

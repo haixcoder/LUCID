@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111a2e"/>
+      <stop offset="1" stop-color="#0a0e18"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.65">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#0a0e18" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a5f3fc"/>
+      <stop offset="0.5" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="112" fill="url(#glow)"/>
+
+  <!-- 眼睑：杏仁形 -->
+  <path d="M56 256 C120 132 210 86 256 86 C302 86 392 132 456 256 C392 380 302 426 256 426 C210 426 120 380 56 256 Z"
+        fill="none" stroke="#4a5f8a" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M88 256 C144 154 218 114 256 114 C294 114 368 154 424 256 C368 358 294 398 256 398 C218 398 144 358 88 256 Z"
+        fill="none" stroke="#5a6f9e" stroke-width="3"/>
+
+  <!-- 虹膜 -->
+  <circle cx="256" cy="256" r="118" fill="none" stroke="url(#beam)" stroke-width="14" opacity="0.9"/>
+
+  <!-- X 光束 -->
+  <g stroke="url(#beam)" stroke-width="18" stroke-linecap="round">
+    <path d="M199 199 L313 313"/>
+    <path d="M313 199 L199 313"/>
+  </g>
+  <g stroke="#e6fbff" stroke-width="4" stroke-linecap="round" opacity="0.85">
+    <path d="M199 199 L313 313"/>
+    <path d="M313 199 L199 313"/>
+  </g>
+
+  <!-- 瞳孔中的工作流节点 -->
+  <circle cx="256" cy="256" r="16" fill="#e6fbff"/>
+
+  <!-- 心跳线：实时脉搏 -->
+  <g fill="none" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M80 468 H188 L224 444 L256 484 L288 444 L324 468 H432"
+          stroke="#8b5cf6" stroke-width="10"/>
+    <path d="M80 468 H188 L224 444 L256 484 L288 444 L324 468 H432"
+          stroke="#e9d5ff" stroke-width="3" opacity="0.8"/>
+  </g>
+</svg>
