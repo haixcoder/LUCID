@@ -1,7 +1,9 @@
 // ── 30-app.ts:装配层——主题/设置面板/轮询 tick/diff 渲染/展开态恢复/全文抽屉 ──
-const thm = $<HTMLButtonElement>('thm');
-function paintThm(): void { const n = document.body.classList.contains('night'); thm.textContent = n ? '☾ 磷光夜' : '☀ 日光台'; }
-thm.onclick = () => { document.body.classList.toggle('night'); localStorage.setItem('wfo-night', document.body.classList.contains('night') ? '1' : '0'); paintThm(); };
+const thm = $<HTMLSelectElement>('thm');
+const THEMES = ['night', 'ice', 'volt', 'ink'];
+function curTheme(): string { for (const t of THEMES) if (document.body.classList.contains(t)) return t; return 'day'; }
+function paintThm(): void { thm.value = curTheme(); }
+thm.onchange = () => { const t = thm.value; document.body.classList.remove(...THEMES); if (t !== 'day') document.body.classList.add(t); localStorage.setItem('wfo-theme', t); };
 paintThm();
 // 通知钩子面板
 const cfg = $('cfg'), hmsg = $('hmsg'), hookbtn = $<HTMLButtonElement>('hookbtn'), hsave = $<HTMLButtonElement>('hsave');

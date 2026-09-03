@@ -16,6 +16,27 @@ body.night{--bg:#141109;--pnl:#1a160e;--pnl2:#120f09;--ln:#38301c;--ln2:#5c4c2a;
 --am:#f5b33d;--amr:rgba(245,179,61,.45);--gr:#7fdc8b;--cy:#66c9dd;--rd:#ef6a5c;
 --hdr:rgba(20,17,9,.94);--scan:rgba(0,0,0,.15);--vig:radial-gradient(130% 95% at 50% -5%,transparent 55%,rgba(0,0,0,.5));
 --sh:0 0 24px rgba(245,179,61,.10);--hov:rgba(245,179,61,.045)}
+body.ice{--bg:#e9f0f4;--pnl:#f6f9fb;--pnl2:#edf3f6;--ln:#c8d9e1;--ln2:#8aa5b3;--tx:#17242e;--dim:#45626f;--dim2:#6d8795;
+--am:#0f7f8f;--amr:rgba(15,127,143,.30);--gr:#2e8b6a;--cy:#2b5f8f;--rd:#c0504a;
+--hdr:rgba(236,244,248,.95);--scan:rgba(40,84,104,.045);--vig:radial-gradient(130% 100% at 50% -8%,transparent 58%,rgba(70,110,135,.10));
+--sh:0 1px 2px rgba(60,95,115,.14);--hov:rgba(15,127,143,.07)}
+body.ice{color-scheme:light}
+body.ice .card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--am) 22%,var(--am) 78%,transparent);opacity:.8}
+body.volt{--bg:#0d0a1c;--pnl:#161130;--pnl2:#100c22;--ln:#322a5e;--ln2:#554a8c;--tx:#e7e2ff;--dim:#a89ed9;--dim2:#837bb5;
+--am:#a866ff;--amr:rgba(168,102,255,.42);--gr:#52d1a5;--cy:#55c8e8;--rd:#ff6f7e;
+--hdr:rgba(13,10,28,.94);--scan:rgba(90,60,200,.05);--vig:radial-gradient(130% 95% at 50% -5%,transparent 55%,rgba(30,12,70,.55)),linear-gradient(115deg,rgba(168,102,255,.14),transparent 45%),linear-gradient(75deg,rgba(85,200,232,.05),transparent 40%);
+--sh:0 0 24px rgba(168,102,255,.12);--hov:rgba(168,102,255,.07)}
+body.volt{color-scheme:dark}
+body.volt .b-running{text-shadow:0 0 8px var(--amr);box-shadow:0 0 12px var(--amr),inset 0 0 6px var(--amr)}
+body.ink{--bg:#181a1e;--pnl:#22252b;--pnl2:#1b1e23;--ln:#363b44;--ln2:#5a616d;--tx:#e4e7ec;--dim:#a6adb9;--dim2:#7d8692;
+--am:#d25741;--amr:rgba(210,87,65,.40);--gr:#6fbf8f;--cy:#7fa9c9;--rd:#e06858;
+--hdr:rgba(24,26,30,.95);--scan:rgba(0,0,0,.18);--vig:radial-gradient(130% 95% at 50% -5%,transparent 55%,rgba(0,0,0,.5));
+--sh:0 0 22px rgba(210,87,65,.08);--hov:rgba(210,87,65,.07)}
+body.ink{color-scheme:dark}
+body.ink .card{border-bottom:1px solid rgba(210,87,65,.18)}
+body.ink .card::before{content:'';position:absolute;right:14px;bottom:0;width:110px;height:3px;background:rgba(210,87,65,.5)}
+body.ink .b-running{border-style:dashed}
+
 html{color-scheme:light}body.night{color-scheme:dark}*{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.55 var(--mono);transition:background .3s,color .3s}
 body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:99;opacity:.5;
@@ -162,7 +183,7 @@ details.term{margin:0}
 .idle{color:var(--dim2);letter-spacing:.1em;padding:36px 0;text-align:center}
 .idle::before{content:'// '}
 </style></head><body>
-<script>if(localStorage.getItem('wfo-night')==='1')document.body.classList.add('night')</script>
+<script>(function(){var t=localStorage.getItem('wfo-theme');if(!t)t=localStorage.getItem('wfo-night')==='1'?'night':'day';if(t!=='day')document.body.classList.add(t)})()</script>
 <header><div class="wrap">
 <div class="brand"><span class="dia"></span>WORKFLOW<span class="ops">OPS</span></div>
 <div class="gauges" id="gauges"></div>
@@ -190,7 +211,7 @@ details.term{margin:0}
 <span class="modnote">改动后点右下"保存"，服务自动重启到新端口并跳转</span>
 </div></div></div>
 <div class="mod"><div class="modtag"><b>03</b>主题设置</div><div class="modbody"><div class="mrow">
-<button class="tgl" id="thm"></button>
+<select class="tgl" id="thm" title="主题"><option value="day">☀ 日光台</option><option value="night">☾ 磷光夜</option><option value="ice">❄ 冰原</option><option value="volt">⚡ 磁暴</option><option value="ink">◈ 墨铁</option></select>
 </div></div></div>
 <div class="mod"><div class="modtag"><b>04</b>自动扫描</div><div class="modbody"><div class="mrow">
 <label class="sw"><input type="checkbox" id="auto" checked><i></i><span>每 2 秒轮询刷新</span></label>

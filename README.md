@@ -25,7 +25,7 @@ XRay 是一个 **Claude Code 本地插件**：在工作流运行时打开一个�
 - **会话监控**：主 agent（running / waiting / ended）+ 全部非 workflow 子代理（task / teammate），pending 工具、权限模式、尾窗步骤表
 - **全文抽屉**：点击任意 agent / 步骤行展开详情——自动拉取完整 prompt / result（转录 + journal 深扫全文，替换截断预览），滚动位置跨轮询保持
 - **终态通知**：workflow 进入终态（completed / failed / killed）时后台线程推送**飞书**或**通用 JSON** webhook，不依赖浏览器开着
-- **仪式感细节**：项目筛选、全文搜索（名称 / runId / 任务 / 状态）、自动刷新开关、☀ 日光 / ☾ 磷光双主题（localStorage 记忆）、网页改端口保存即自动重启迁移
+- **仪式感细节**：项目筛选、全文搜索（名称 / runId / 任务 / 状态）、自动刷新开关、五主题切换：☀ 日光台 / ☾ 磷光夜 / ❄ 冰原 / ⚡ 磁暴 / ◈ 墨铁（localStorage 记忆）、网页改端口保存即自动重启迁移
 - **隐私友好**：只监听 `127.0.0.1`，只读 `~/.claude/projects/`，唯一可写目录是 `~/.claude/cc-viewer/`（配置 / PID / 去重记录）
 
 ## 原理
