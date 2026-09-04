@@ -50,7 +50,7 @@ Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<ses
 | `failed` / `killed` | run JSON 记录（agent 失败 / 用户终止） |
 | `aborted` | 孤儿运行：父会话进程已死且仍有未完成 agent |
 
-扫描范围：最近 14 天内有活动的 session 目录；已完结 run 的元数据进程内永久缓存。
+扫描范围：最近 N 天内有活动的 session 目录（N = 设置「回看窗口」，默认 14，可在 ⚙ 设置中调整）；已完结 run 的元数据进程内永久缓存。
 
 ## 安装
 
@@ -113,7 +113,7 @@ workflow 进入**终态**时由服务器后台线程（5s 扫描，不要求浏�
 | `GET /api/agent?proj=&sess=&run=&agent=` | 单 agent 完整转录 + journal 事件（运行卡抽屉数据源） |
 | `GET /api/subagent?proj=&sess=&agent=[&msg=]` | 会话层全文抽屉：`agent=main` 返回主会话最近输入/输出；加 `msg=<messageId>` 返回该步骤全文；否则返回子代理任务与结果 |
 | `GET /api/config` | 当前 webhook 配置 + 最近推送结果 |
-| `POST /api/config/save` | 保存配置（URL 须 http(s)、端口 1-65535 且空闲；改端口触发自重启） |
+| `POST /api/config/save` | 保存配置（URL 须 http(s)、端口 1-65535 且空闲、`recentDays` 1-3650 默认 14；改端口触发自重启） |
 | `POST /api/config/test` | 发送测试通知验证连通 |
 
 ```bash
@@ -185,5 +185,5 @@ python3 scripts/server.py     # 前台启动(默认 8787,config 优先)
 ## 已知边界
 
 - 会话转录默认只读**尾窗 256KB** 控制成本；步骤全文走**按 msg 反向深扫（1MB 块，至 16MB）**——截图附件是 MB 级 base64 时会把旧步骤挤出尾窗，深扫也定位不到则前端显式提示「该步已超出转录留存范围」；
-- 会话扫描只覆盖「活跃 + 近 2h」会话（上限 40）；run 扫描覆盖近 14 天；
+- 会话扫描只覆盖「活跃 + 近 2h」会话（上限 40）；run 扫描覆盖最近 N 天（近期「回看窗口」设置，默认 14）；
 - 状态推断是尾窗启发式（无权威 journal），极端时序下可能有 ±60s 的判定延迟。

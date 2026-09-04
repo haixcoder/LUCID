@@ -41,10 +41,13 @@ def main():
         sys.exit(f'tsc 失败(exit {rc}):类型错误见上,修完再构建')
     js = (dist / 'app.js').read_text(encoding='utf-8').rstrip('\n')
     html = TPL.read_text(encoding='utf-8')
-    assert '/*__APP__*/' in html
+    assert '/*__APP__*/' in html and '<!--FAVICON-->' in html
     import hashlib
+    import urllib.parse
     ver = hashlib.md5(js.encode('utf-8')).hexdigest()[:12]  # 与服务端 /api/runs 的 ver 算法一致(JS 载荷 md5)
-    html = html.replace('/*__APP__*/', js).replace('<!--VER-->', ver)
+    fav = urllib.parse.quote(  # 模板 href 已含 data:image/svg+xml, 前缀,这里只注入编码内容
+        (HERE.parent / 'assets' / 'xray-logo.svg').read_text(encoding='utf-8'), safe='')
+    html = html.replace('/*__APP__*/', js).replace('<!--VER-->', ver).replace('<!--FAVICON-->', fav)
     OUT.write_text(html, encoding='utf-8')
     print(f'构建完成:{" + ".join(f.name for f in srcs)} → {OUT} ({len(js)} 字符 JS)')
 

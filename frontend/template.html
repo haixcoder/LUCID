@@ -2,7 +2,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>XRAY · WORKFLOW OPS</title>
 <meta name="wfo-ver" content="<!--VER-->">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23141109'/%3E%3Cpath d='M5 32h54' stroke='%237fdc8b' stroke-width='4'/%3E%3Cpath d='M32 9l23 23-23 23-23-23z' fill='%23f5b33d'/%3E%3Cpath d='M32 21l11 11-11 11-11-11z' fill='%23141109'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<!--FAVICON-->"><!-- build 注入 assets/xray-logo.svg(percent 编码) -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -215,6 +215,10 @@ details.term{margin:0}
 </div></div></div>
 <div class="mod"><div class="modtag"><b>04</b>自动扫描</div><div class="modbody"><div class="mrow">
 <label class="sw"><input type="checkbox" id="auto" checked><i></i><span>每 2 秒轮询刷新</span></label>
+</div></div></div>
+<div class="mod"><div class="modtag"><b>05</b>回看窗口</div><div class="modbody"><div class="mrow">
+<input type="number" id="hdays" min="1" max="3650">
+<span class="modnote">只扫描最近 N 天内有活动的 session（1-3650，默认 14）；保存后下一轮轮询生效</span>
 </div></div></div>
 <div class="cfsave"><span class="hmsg" id="hmsg"></span><button class="save" id="hsave">保存 APPLY ▸</button></div>
 </div></div>

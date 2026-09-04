@@ -1,5 +1,5 @@
 // ── 20-render.ts:共享可变状态(全局脚本模式各文件可见)+ 运行卡 + 会话卡渲染 ──
-let runs: Run[] = [], sess: SessionState[] = [], fproj = '', fstr = '', auto = true, painted = false, spainted = false;
+let runs: Run[] = [], sess: SessionState[] = [], fproj = '', fstr = '', auto = true, painted = false, spainted = false, rdays = 14;
 const FULL: Record<string, { p: string; r: string }> = {};  // runId:agentId 或 sessionId:msgId/agentId → 全文缓存(跨轮询重建不丢失)
 const CARDS: Record<string, string> = {}, SCARDS: Record<string, string> = {}, GSTR: string[] = [''];  // runId/sessionId→上次渲染 HTML(按卡 diff);仪表串缓存
 

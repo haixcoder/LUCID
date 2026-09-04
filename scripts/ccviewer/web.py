@@ -31,7 +31,8 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == '/api/runs':
-            body = json.dumps({'now': time.time(), 'ver': VER, 'runs': scan()}, ensure_ascii=False).encode()
+            body = json.dumps({'now': time.time(), 'ver': VER, 'recentDays': load_conf()['recentDays'],
+                               'runs': scan()}, ensure_ascii=False).encode()
             ct = 'application/json; charset=utf-8'
         elif u.path == '/api/sessions':
             body = json.dumps({'now': time.time(), 'sessions': scan_sessions()}, ensure_ascii=False).encode()
@@ -83,6 +84,10 @@ class H(BaseHTTPRequestHandler):
                 port = int(data.get('port') or 0)
             except (TypeError, ValueError):
                 port = -1
+            try:
+                rdays = int(data.get('recentDays') or 14)
+            except (TypeError, ValueError):
+                rdays = -1
             out = None
             if url and not url.startswith(('http://', 'https://')):
                 out = {'ok': False, 'msg': 'URL 必须以 http(s):// 开头'}
@@ -90,9 +95,12 @@ class H(BaseHTTPRequestHandler):
                 out = {'ok': False, 'msg': f'端口非法：{data.get("port")}（需 1-65535）'}
             elif port != config.CURRENT_PORT and not port_free(port):
                 out = {'ok': False, 'msg': f'端口 {port} 已被占用，请换一个（本次未保存任何改动）'}
+            elif not 1 <= rdays <= 3650:
+                out = {'ok': False, 'msg': f'回看天数非法：{data.get("recentDays")}（需 1-3650，默认 14）'}
             if out is None:
                 c = {'enabled': bool(data.get('enabled')), 'format': 'json' if data.get('format') == 'json' else 'feishu',
-                     'url': url, 'insecure': bool(data.get('insecure')), 'port': port}
+                     'url': url, 'insecure': bool(data.get('insecure')), 'port': port,
+                     'recentDays': rdays}
                 save_conf(c)
                 if port != config.CURRENT_PORT:
                     out = {'ok': True, 'msg': f'已保存，服务 {port} 端口重启中',

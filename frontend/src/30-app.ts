@@ -7,7 +7,7 @@ thm.onchange = () => { const t = thm.value; document.body.classList.remove(...TH
 paintThm();
 // 通知钩子面板
 const cfg = $('cfg'), hmsg = $('hmsg'), hookbtn = $<HTMLButtonElement>('hookbtn'), hsave = $<HTMLButtonElement>('hsave');
-const hena = $<HTMLInputElement>('hena'), hfmt = $<HTMLSelectElement>('hfmt'), hurl = $<HTMLInputElement>('hurl'), hinsec = $<HTMLInputElement>('hinsec'), hport = $<HTMLInputElement>('hport');
+const hena = $<HTMLInputElement>('hena'), hfmt = $<HTMLSelectElement>('hfmt'), hurl = $<HTMLInputElement>('hurl'), hinsec = $<HTMLInputElement>('hinsec'), hport = $<HTMLInputElement>('hport'), hdays = $<HTMLInputElement>('hdays');
 function showLast(l?: LastHook | null): void {
   if (l && l.at) {
     const t = new Date(l.at * 1000).toLocaleTimeString('zh-CN', { hour12: false });
@@ -21,12 +21,12 @@ hookbtn.onclick = async () => {
   try {
     const d = await (await fetch('/api/config')).json() as ConfResp;
     hena.checked = !!d.conf.enabled; hfmt.value = d.conf.format; hurl.value = d.conf.url; hinsec.checked = !!d.conf.insecure;
-    hport.value = String(d.conf.port || location.port); hsave.classList.remove('dirty'); showLast(d.last);
+    hport.value = String(d.conf.port || location.port); hdays.value = String(d.conf.recentDays || 14); hsave.classList.remove('dirty'); showLast(d.last);
   } catch (e) { hmsg.textContent = '配置读取失败'; }
 };
 hsave.onclick = async () => {
   const r = await (await fetch('/api/config/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: hena.checked, format: hfmt.value, url: hurl.value.trim(), insecure: hinsec.checked, port: +hport.value || 0 }) })).json() as SaveResp;
+    body: JSON.stringify({ enabled: hena.checked, format: hfmt.value, url: hurl.value.trim(), insecure: hinsec.checked, port: +hport.value || 0, recentDays: +hdays.value || 14 }) })).json() as SaveResp;
   hmsg.textContent = (r.msg || '') + (r.ok && !r.reloc ? '，运行进入终态后自动推送' : ''); hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
   if (r.ok) hsave.classList.remove('dirty');
   if (r.reloc) { const rl = r.reloc; setTimeout(() => { location.href = rl; }, 1800); }  // 等 execv 重启落到新端口后自动跳转
@@ -49,7 +49,7 @@ async function tick(): Promise<void> {
   } catch (e) { $('gauges').innerHTML = '<div class="g er"><b>⚠</b><span>链路中断 重连中</span></div>'; return; }
   // 渲染异常不再冒充"链路中断"(历史坑:catch 同包 fetch+render,JS bug 被伪装成掉线且无痕迹)
   try {
-    runs = d.runs; sess = s.sessions || [];
+    runs = d.runs; sess = s.sessions || []; rdays = d.recentDays || 14;
     const sel = $<HTMLSelectElement>('fproj');
     const projs = [...new Set([...runs, ...sess].map(r => r.cwd || r.project))];
     if (sel.options.length - 1 !== projs.length) { sel.innerHTML = '<option value="">◆ 全部项目</option>' + projs.map(p => `<option${p === fproj ? ' selected' : ''}>${esc(p)}</option>`).join(''); }
@@ -134,7 +134,7 @@ function render(): void {
     ref = el ? el.nextElementSibling : null;
   }
   if (vis.length) { for (const x of [...list.children] as HTMLElement[]) { const rid = x.dataset.rid; if (rid && !seen.has(rid)) x.remove(); } }
-  else if (!list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? 'NO MATCH · 无匹配运行，调整搜索或筛选' : 'TELEMETRY SILENT · 近 14 天无 workflow 运行记录'}</p>`;
+  else if (!list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? 'NO MATCH · 无匹配运行，调整搜索或筛选' : 'TELEMETRY SILENT · 近 ' + rdays + ' 天无 workflow 运行记录'}</p>`;
   if (open.size) list.querySelectorAll('details').forEach(x => {
     const dk = x.dataset.k || '';
     if (open.has(dk)) { x.open = true; x.classList.add('noanim'); const v = sc[dk]; if (v) x.querySelectorAll<HTMLElement>('.rich,.pane pre').forEach((s2, i2) => { if (v[i2]) s2.scrollTop = v[i2]; }); }

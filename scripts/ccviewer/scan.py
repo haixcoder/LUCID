@@ -6,10 +6,9 @@ import re
 import time
 from pathlib import Path
 
-from .config import PROJ
+from .config import PROJ, recent_sec
 
 STALE_SEC = 30 * 60          # 运行中但超过 30min 无文件活动 -> 判定 stale
-RECENT_SEC = 14 * 24 * 3600  # 只扫 14 天内有活动的 session 目录
 TAIL = 16384
 TOOL_RE = re.compile(r'"name":"((?:mcp__)?[A-Za-z0-9_]{2,60})"')
 
@@ -257,7 +256,7 @@ def scan():
             if not sess.is_dir() or not re.fullmatch(r'[0-9a-f][0-9a-f-]{7,}', sess.name):
                 continue
             try:
-                if now - sess.stat().st_mtime > RECENT_SEC:
+                if now - sess.stat().st_mtime > recent_sec():
                     continue
             except Exception:
                 continue

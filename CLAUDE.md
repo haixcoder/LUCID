@@ -99,6 +99,8 @@ claude plugin validate .                 # 校验两份清单（CI 加 --strict�
 
 **铁律：每次更新 = 版本号 +1。** 任何变更（代码、前端构建产物、命令、README/文档、CLAUDE.md 规则本身、仅配置文件）一旦要同步给用户/市场，必须同步把 `.claude-plugin/plugin.json` 的 `version` +1（patch 级即可），**禁止"只改代码不升版本"**——升版本后 `claude plugin update` 会落到新的 cache 目录（`cache/.../xray/<版本>/`），旧版本残留可清理；这样每次更新都可在 cache 中追溯。配套流程（重装前先 `--stop` 旧进程）：
 
+**铁律：每次功能/文档更新验证通过后，自动 `git commit`，不要等用户开口。** 提交信息按既有风格（`feature:` / `docs:` / `fix:` 前缀 + 中文描述 + 版本号 `1.x.x→1.x.x`）；含未跟踪文件用 `git add -A`；只 commit 不 push（push 需用户明示）。若工作区混有历史遗留改动，一并纳入并在提交信息中注明。
+
 ```bash
 claude plugin validate . && claude plugin marketplace update kw-dev-plugins
 claude plugin update xray@kw-dev-plugins          # 升版本后重装到新 cache 目录

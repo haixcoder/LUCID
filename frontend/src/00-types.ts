@@ -27,9 +27,9 @@ interface SessionState {
   tokens: Tok; pendingTools: string[]; toolCalls: number; lastPrompt: string; lastText: string;
   steps: Step[]; subagents: Subagent[];
 }
-interface RunsResp { now: number; ver?: string; runs: Run[] }
+interface RunsResp { now: number; ver?: string; recentDays?: number; runs: Run[] }
 interface SessionsResp { now: number; sessions: SessionState[] }
-interface Conf { enabled: boolean; format: string; url: string; insecure: boolean; port: number }
+interface Conf { enabled: boolean; format: string; url: string; insecure: boolean; port: number; recentDays: number }
 interface LastHook { at: number; ok: boolean | null; status: string; reply: string }
 interface ConfResp { conf: Conf; last: LastHook }
 interface SaveResp { ok?: boolean; msg?: string; reloc?: string; conf?: Conf }

@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from .config import PROJ
-from .scan import TOOL_RE, RECENT_SEC, jlines, session_cwd
+from .scan import TOOL_RE, recent_sec, jlines, session_cwd
 
 DETAIL_CAP = 80000  # 全文端点单字段上限（对齐 api_agent）
 
@@ -327,7 +327,7 @@ def scan_sessions():
             except Exception:
                 continue
             alive = sess.name in reg
-            if not alive and (now - mt > SESSION_HOURS * 3600 or now - mt > RECENT_SEC):
+            if not alive and (now - mt > SESSION_HOURS * 3600 or now - mt > recent_sec()):
                 continue
             cands.append((mt, alive, proj, sess))
     cands.sort(key=lambda x: (-x[1], -x[0]))  # 活跃优先，其后按最近活动

@@ -24,11 +24,21 @@ def port_free(p):
 def load_conf():
     try:
         c = json.load(open(CONF_DIR / 'config.json'))
+        try:
+            rdays = max(1, min(3650, int(c.get('recentDays') or 14)))
+        except (TypeError, ValueError):
+            rdays = 14
         return {'enabled': bool(c.get('enabled')), 'format': c.get('format', 'feishu'),
                 'url': str(c.get('url', '')), 'insecure': bool(c.get('insecure')),
-                'port': int(c.get('port') or 0)}
+                'port': int(c.get('port') or 0), 'recentDays': rdays}
     except Exception:
-        return {'enabled': False, 'format': 'feishu', 'url': '', 'insecure': False, 'port': 0}
+        return {'enabled': False, 'format': 'feishu', 'url': '', 'insecure': False,
+                'port': 0, 'recentDays': 14}
+
+
+def recent_sec():
+    # 回看窗口秒数:配置里 recentDays 天(默认 14);按次读文件,改设置下一轮扫描即生效
+    return load_conf()['recentDays'] * 86400
 
 
 def save_conf(c):
