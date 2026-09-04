@@ -1,0 +1,7 @@
+[
+  {
+    "name": "xray-server",
+    "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\" --detach",
+    "description": "Ensures the local xray workflow viewer server is running (auto-start at session start, restart on crash)"
+  }
+]

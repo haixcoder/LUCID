@@ -25,6 +25,7 @@ XRay 是一个 **Claude Code 本地插件**：在工作流运行时打开一个�
 - **会话监控**：主 agent（running / waiting / ended）+ 全部非 workflow 子代理（task / teammate），pending 工具、权限模式、尾窗步骤表
 - **全文抽屉**：点击任意 agent / 步骤行展开详情——自动拉取完整 prompt / result（转录 + journal 深扫全文，替换截断预览），滚动位置跨轮询保持
 - **终态通知**：workflow 进入终态（completed / failed / killed）时后台线程推送**飞书**或**通用 JSON** webhook，不依赖浏览器开着
+- **自启动看护**：任意会话开始即检测服务、未运行自动拉起，崩溃自动重启——双触发口：官方后台 monitor（`monitors/monitors.json`，需 Claude Code ≥2.1.105 且宿主支持）＋ `SessionStart` 钩子兜底（`hooks/hooks.json`，任意版本可用）。两者都收敛到 `scripts/guard.py --detach`：按 guard.pid 幂等确保常驻看护循环在跑，服务与看护进程均独立于会话存活
 - **仪式感细节**：项目筛选、全文搜索（名称 / runId / 任务 / 状态）、自动刷新开关、五主题切换：☀ 日光台 / ☾ 磷光夜 / ❄ 冰原 / ⚡ 磁暴 / ◈ 墨铁（localStorage 记忆）、网页改端口保存即自动重启迁移
 - **隐私友好**：只监听 `127.0.0.1`，只读 `~/.claude/projects/`，唯一可写目录是 `~/.claude/cc-viewer/`（配置 / PID / 去重记录）
 
@@ -54,7 +55,7 @@ Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<ses
 
 ## 安装
 
-前提：macOS / Linux，Claude Code 2.0+，Python 3.9+（**无需 pip 任何东西**）。
+前提：macOS / Linux，Claude Code 2.0+，Python 3.9+（**无需 pip 任何东西**）。自启动主入口是插件 SessionStart 钩子（任意版本可用）；官方后台 monitor（`monitors/monitors.json`）作为同类触发口需 Claude Code ≥2.1.105 且宿主支持。
 
 **方式一（推荐，GitHub 市场）**——本仓库即标准市场，任何机器均可安装：
 
@@ -98,6 +99,11 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 4. `open http://127.0.0.1:<PORT>` 并汇报进行/完成数量。
 
 > 端口被占用时服务直接退出并提示改 config 或换 `--port`；**网页改端口保存后服务 `execv` 自重启到新端口（PID 不变），页面自动跳转**。
+
+日常其实不需要手动启动：插件的 `hooks/hooks.json`（SessionStart，任意版本生效）与
+`monitors/monitors.json`（后台 monitor，需 Claude Code ≥2.1.105 且宿主支持）都会在每次会话开始时
+通过 `guard.py --detach` 确保服务在跑、崩溃自动重启 —— `/wf-view` 只是顺便打开浏览器。
+看护循环只写 `~/.claude/cc-viewer/server.log` 与 `guard.pid`，不影响任何既有配置。
 
 ## 页面功能
 
@@ -155,8 +161,13 @@ XRay/
 │   └── dist/              # 中间产物(不进安装副本,git 忽略)
 ├── commands/
 │   └── wf-view.md         # /wf-view 斜杠命令(commands/ 自动发现,无需在清单中声明)
+├── hooks/
+│   └── hooks.json         # SessionStart 钩子:会话开始跑 guard.py --detach(自启动主入口,任意版本可用)
+├── monitors/
+│   └── monitors.json      # 官方后台 monitor 声明(同 hook 效果;需 Claude Code ≥2.1.105 且宿主支持)
 └── scripts/
     ├── server.py          # 入口:参数解析、启动/停止(核心逻辑在 ccviewer/ 包)
+    ├── guard.py           # 自启动/看护:--detach 幂等确保常驻循环;循环探活未监听→setsid 分离启动 server.py,崩溃自动重启
     ├── README.md          # webhook 通知钩子详解
     └── ccviewer/          # 内核包(仅 stdlib)
         ├── config.py      # 路径/端口/PID 与配置读写
@@ -172,6 +183,7 @@ XRay/
 
 | 层 | 入口 | 要点 |
 |----|------|------|
+| 自启动看护 | `guard.py --detach` | 双触发口（SessionStart 钩子 + 官方 monitors，入口幂等）；常驻循环写 `guard.pid` 跨会话去重；TCP 探活未监听→setsid 分离启动 server.py（独立于会话存活）；周期复查崩溃自动重启 |
 | 扫描/状态重建 | `scan.scan()` | run JSON 只在正常收尾时写；进行中状态由 journal.jsonl + agent-*.jsonl 实时重建 |
 | 存活判定 | `scan.live_session_ids()` + `parse_live()` | 权威信号 = `~/.claude/sessions/<pid>.json` 注册表且进程存活；60s 宽限防竞态 |
 | Webhook 通知 | `notify.notify_loop()` | 守护线程 5s 一轮；启动首轮静默播种防刷屏；去重靠 `sent.json`（保留 800 条） |

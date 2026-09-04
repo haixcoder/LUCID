@@ -7,6 +7,7 @@ from pathlib import Path
 PROJ = Path.home() / '.claude/projects'
 CONF_DIR = Path.home() / '.claude/cc-viewer'
 PIDF = CONF_DIR / 'server.pid'
+GUARDPID = CONF_DIR / 'guard.pid'  # 常驻看护循环 pid(guard.py),跨会话去重用
 CURRENT_PORT = 8787  # 入口启动时校正；保存端口时据此判断"是否变更"
 
 

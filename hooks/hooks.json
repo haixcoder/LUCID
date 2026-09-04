@@ -1,0 +1,15 @@
+{
+  "description": "xray 服务自启动: 每次会话开始确保常驻看护循环在跑(guard.py --detach 幂等;monitors 机制在部分宿主不可用,由本钩子兜底)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/guard.py\" --detach"
+          }
+        ]
+      }
+    ]
+  }
+}

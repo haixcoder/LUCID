@@ -45,6 +45,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 | 模块 | 职责 |
 |------|------|
 | `config.py` | `PROJ`/`CONF_DIR`/`PIDF` 路径、`CURRENT_PORT`（入口赋值，web 请求期以 `config.CURRENT_PORT` 属性读取）、`load_conf`/`save_conf`/`port_free` |
+| `guard.py` | 自启动/看护：双触发口——`hooks/hooks.json` 的 SessionStart 钩子（主入口，任意版本可用）+ `monitors/monitors.json` 官方后台 monitor（需 CC ≥2.1.105 且宿主支持，实测第三方网关宿主会静默跳过）；两者都跑 `--detach`：guard.pid 跨会话幂等确保常驻看护循环，循环 TCP 探活 `127.0.0.1:<port>` 未监听→setsid 分离启动 `server.py`（独立于会话存活），周期复查崩溃自动重启；循环仅状态变化输出一行（落 server.log），常稳态零输出 |
 | `scan.py` | 扫描与状态重建（下表"扫描/存活"两层） |
 | `agent.py` | `api_agent()` 单 agent 全文 |
 | `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:注册表 pid 存活且 120s 内有写入=running，活但更久=waiting，进程亡=ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白） |
@@ -86,6 +87,9 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 python3 frontend/build.py                # 前端:TS→tsc --strict→注入产物(首次自动抽 template.html)
 python3 scripts/server.py                # 前台启动（默认 8787，config 优先）
 python3 scripts/server.py --stop         # 按 PID 优雅停止
+python3 scripts/guard.py --once          # 看护:确保服务在跑(不跑则 setsid 拉起)并退出,调试用
+python3 scripts/guard.py --detach        # 会话开始入口(函数自身):确保常驻循环在跑(无则 setsid 拉起)并退出
+python3 scripts/guard.py --interval 3    # 看护循环(自启动/崩溃自动重启;由 hooks+monitors 双机制 --detach 拉起)
 curl -s http://127.0.0.1:8787/api/runs | python3 -m json.tool | head   # 快照结构
 curl -s http://127.0.0.1:8787/api/config                              # webhook 配置+最近推送
 claude plugin validate .                 # 校验两份清单（CI 加 --strict）
