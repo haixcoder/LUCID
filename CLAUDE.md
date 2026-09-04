@@ -77,6 +77,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 - **outerHTML 后 `ref` 同步**：替换节点若正被 `ref`（insertBefore 锚点）引用，必须指向新节点，否则抛 NotFoundError 打断整轮渲染（曾伪装成"链路中断"）。
 - **tick 的 try/catch 分离**：fetch 失败与 render 失败必须分开报告——JS bug 不许冒充掉线（见 `tick()` 注释）。
 - **详情抽屉滚动位置 / details 展开态**跨轮询保持（`sc` 快照 + `open` 集合恢复）；全文靠 `FULL` 缓存 + `/api/agent` 首次展开拉取。
+- **筛选/视图状态必须 localStorage 持久化**（`wfo-fproj`/`wfo-fstr`/`wfo-auto`）：项目筛选/搜索词/自动刷新只存内存模块变量 → 刷新(含部署自动 reload)后全丢（真实用户 bug）；启动恢复 + 选项重建带 `selected`，保存值已不在数据源时清空回落。新增筛选字段同理。
 - `mdLite` 用 \u0001 控制字符做占位符抽取围栏/表格，改动分段逻辑注意转义。
 
 ## 开发/验证速查

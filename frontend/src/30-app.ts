@@ -5,6 +5,12 @@ function curTheme(): string { for (const t of THEMES) if (document.body.classLis
 function paintThm(): void { thm.value = curTheme(); }
 thm.onchange = () => { const t = thm.value; document.body.classList.remove(...THEMES); if (t !== 'day') document.body.classList.add(t); localStorage.setItem('wfo-theme', t); };
 paintThm();
+// 筛选/视图状态 localStorage 恢复:项目/搜索/自动刷新——刷新(含部署自动 reload)后不丢失(历史 bug,教训见 CLAUDE.md)
+fproj = localStorage.getItem('wfo-fproj') || '';
+fstr = localStorage.getItem('wfo-fstr') || '';
+$<HTMLInputElement>('fq').value = fstr;
+auto = localStorage.getItem('wfo-auto') !== '0';
+$<HTMLInputElement>('auto').checked = auto;
 // 通知钩子面板
 const cfg = $('cfg'), hmsg = $('hmsg'), hookbtn = $<HTMLButtonElement>('hookbtn'), hsave = $<HTMLButtonElement>('hsave');
 const hena = $<HTMLInputElement>('hena'), hfmt = $<HTMLSelectElement>('hfmt'), hurl = $<HTMLInputElement>('hurl'), hinsec = $<HTMLInputElement>('hinsec'), hport = $<HTMLInputElement>('hport'), hdays = $<HTMLInputElement>('hdays');
@@ -52,6 +58,7 @@ async function tick(): Promise<void> {
     runs = d.runs; sess = s.sessions || []; rdays = d.recentDays || 14;
     const sel = $<HTMLSelectElement>('fproj');
     const projs = [...new Set([...runs, ...sess].map(r => r.cwd || r.project))];
+    if (fproj && !projs.includes(fproj)) { fproj = ''; localStorage.setItem('wfo-fproj', ''); }  // 已保存的项目不在数据源(窗口滑动/被删)→ 回落全部项目,避免永久 NO MATCH
     if (sel.options.length - 1 !== projs.length) { sel.innerHTML = '<option value="">◆ 全部项目</option>' + projs.map(p => `<option${p === fproj ? ' selected' : ''}>${esc(p)}</option>`).join(''); }
     renderSessions();
     render();
@@ -145,9 +152,9 @@ function render(): void {
   }
   painted = true;
 }
-$<HTMLSelectElement>('fproj').onchange = e => { fproj = (e.target as HTMLSelectElement).value; renderSessions(); render(); };
-$<HTMLInputElement>('fq').oninput = e => { fstr = (e.target as HTMLInputElement).value.trim(); renderSessions(); render(); };
-$<HTMLInputElement>('auto').onchange = e => { auto = (e.target as HTMLInputElement).checked; };
+$<HTMLSelectElement>('fproj').onchange = e => { fproj = (e.target as HTMLSelectElement).value; localStorage.setItem('wfo-fproj', fproj); renderSessions(); render(); };
+$<HTMLInputElement>('fq').oninput = e => { fstr = (e.target as HTMLInputElement).value.trim(); localStorage.setItem('wfo-fstr', fstr); renderSessions(); render(); };
+$<HTMLInputElement>('auto').onchange = e => { auto = (e.target as HTMLInputElement).checked; localStorage.setItem('wfo-auto', auto ? '1' : '0'); };
 // 首次展开:按 agentId 拉全文(transcript+journal),替换截断预览;FULL 缓存跨轮询重建存活
 // data-src 两种形态:proj|sess|run|agent(workflow) 或 S|proj|sess|agent(主/子会话,agent=main#msgId 为主会话单步)
 const onToggle = (e: Event) => {
