@@ -56,6 +56,17 @@ Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<ses
 
 前提：macOS / Linux，Claude Code 2.0+，Python 3.9+（**无需 pip 任何东西**）。
 
+**方式一（推荐，GitHub 市场）**——本仓库即标准市场，任何机器均可安装：
+
+```bash
+claude plugin marketplace add haixcoder/XRay                 # 即本仓库(marketplace.json, source="./")
+claude plugin install xray@kw-dev-plugins                    # 安装插件
+# 版本锁定装法（可选，装 tag 快照）：
+# claude plugin marketplace add haixcoder/XRay#v1.2.5   后同 install
+```
+
+**方式二（本地开发）**：
+
 ```bash
 claude plugin marketplace add ~/projectDir/cc-viewer     # 注册本地市场(本目录兼作市场 kw-dev-plugins)
 claude plugin install xray@kw-dev-plugins                # 安装插件
