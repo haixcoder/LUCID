@@ -11,7 +11,13 @@
 --am:#8f5509;--amr:rgba(143,85,9,.30);--gr:#276b39;--cy:#0d6272;--rd:#a4382a;
 --hdr:rgba(233,225,204,.95);--scan:rgba(90,68,20,.05);--vig:radial-gradient(130% 100% at 50% -8%,transparent 58%,rgba(120,90,30,.13));
 --sh:0 1px 2px rgba(120,90,30,.12);--hov:rgba(143,85,9,.06);
---mono:'IBM Plex Mono',ui-monospace,Menlo,"PingFang SC",monospace;--disp:'Chakra Petch','PingFang SC',var(--mono)}
+--mono:'IBM Plex Mono',ui-monospace,Menlo,"PingFang SC",monospace;--disp:'Chakra Petch','PingFang SC',var(--mono);
+/* CSS content 里的少量文案走变量:html[lang] 覆盖(与 JS 字典 T() 各自一份,勿在此重复中文以外的语言逻辑) */
+--tr-more:'全文';--tr-less:'收起'}
+html[lang="en"]{--tr-more:'full text';--tr-less:'collapse'}
+html[lang="es"]{--tr-more:'texto completo';--tr-less:'cerrar'}
+html[lang="fr"]{--tr-more:'texte complet';--tr-less:'replier'}
+html[lang="de"]{--tr-more:'Volltext';--tr-less:'einklappen'}
 body.night{--bg:#141109;--pnl:#1a160e;--pnl2:#120f09;--ln:#38301c;--ln2:#5c4c2a;--tx:#ece1c9;--dim:#9a8a6b;--dim2:#6f6247;
 --am:#f5b33d;--amr:rgba(245,179,61,.45);--gr:#7fdc8b;--cy:#66c9dd;--rd:#ef6a5c;
 --hdr:rgba(20,17,9,.94);--scan:rgba(0,0,0,.15);--vig:radial-gradient(130% 95% at 50% -5%,transparent 55%,rgba(0,0,0,.5));
@@ -65,6 +71,7 @@ header::after{content:'';display:block;height:2px;background:linear-gradient(90d
 .cfsub{margin-left:auto;font:400 9px var(--mono);letter-spacing:.04em;color:var(--dim2)}
 .mod{display:grid;grid-template-columns:128px 1fr;gap:14px;padding:13px 16px;border-bottom:1px dashed var(--ln);align-items:start;animation:rise .32s both}
 .mod:nth-child(3){animation-delay:.04s}.mod:nth-child(4){animation-delay:.08s}.mod:nth-child(5){animation-delay:.12s}
+.mod:nth-child(6){animation-delay:.16s}.mod:nth-child(7){animation-delay:.2s}
 .modtag{font:600 11px var(--disp);letter-spacing:.12em;color:var(--tx);display:flex;align-items:baseline;gap:9px;padding-top:1px}
 .modtag b{font:700 16px/1 var(--disp);color:var(--am);opacity:.42;min-width:20px;letter-spacing:0;font-variant-numeric:tabular-nums}
 .modbody{display:flex;flex-direction:column;gap:9px}
@@ -120,8 +127,8 @@ h2{margin:0;font:600 17px var(--disp);letter-spacing:.05em}
 .taskd{margin:9px 0 0}
 summary.task{cursor:pointer;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 summary.task::-webkit-details-marker{display:none}
-summary.task::after{content:' 全文 ▾';color:var(--cy);font:500 10px var(--mono);letter-spacing:.1em}
-details[open]>summary.task::after{content:' 收起 ▴'}
+summary.task::after{content:' ' var(--tr-more) ' ▾';color:var(--cy);font:500 10px var(--mono);letter-spacing:.1em}
+details[open]>summary.task::after{content:' ' var(--tr-less) ' ▴'}
 .task.full{margin-top:8px;border-left-color:var(--ln2)}
 .strip{display:flex;align-items:center;gap:20px;margin:12px 0 0;flex-wrap:wrap}
 .ph{font:500 10px var(--mono);letter-spacing:.16em;color:var(--dim2);border:1px solid var(--ln);padding:2.5px 10px;position:relative}
@@ -188,39 +195,43 @@ details.term{margin:0}
 <div class="brand"><span class="dia"></span>WORKFLOW<span class="ops">OPS</span></div>
 <div class="gauges" id="gauges"></div>
 <div class="tools">
-<select id="fproj"><option value="">◆ 全部项目</option></select>
-<input id="fq" placeholder="⌕ 搜索 名称/run/任务/状态" autocomplete="off" spellcheck="false">
-<button class="tgl" id="hookbtn">⚙ 设置</button>
+<select id="fproj"><option value="" data-i18n="◆ 全部项目">◆ 全部项目</option></select>
+<input id="fq" placeholder="⌕ 搜索 名称/run/任务/状态" data-i18n-ph="⌕ 搜索 名称/run/任务/状态" autocomplete="off" spellcheck="false">
+<button class="tgl" id="hookbtn" data-i18n="⚙ 设置">⚙ 设置</button>
 <span class="rid" id="verB" style="align-self:center"></span>
 </div></div></header>
 <div class="wrap" style="padding:0 16px"><div class="cfgp" id="cfg" style="width:100%" hidden>
-<div class="cfhead"><span class="led"></span>SYSTEM CONFIG<span class="cfsub">全局配置 · 修改后由底栏「保存」统一写入 · 主题/扫描即点即生效</span></div>
-<div class="mod"><div class="modtag"><b>01</b>通知钩子</div><div class="modbody">
+<div class="cfhead"><span class="led"></span>SYSTEM CONFIG<span class="cfsub" data-i18n="全局配置 · 修改后由底栏「保存」统一写入 · 主题/语言/扫描即点即生效">全局配置 · 修改后由底栏「保存」统一写入 · 主题/语言/扫描即点即生效</span></div>
+<div class="mod"><div class="modtag"><b>01</b><span data-i18n="通知钩子">通知钩子</span></div><div class="modbody">
 <div class="mrow">
-<label class="sw"><input type="checkbox" id="hena"><i></i><span>启用</span></label>
-<select id="hfmt"><option value="feishu">飞书机器人</option><option value="json">通用 JSON</option></select>
-<label class="sw"><input type="checkbox" id="hinsec"><i></i><span>跳过证书校验(公司代理兜底)</span></label>
+<label class="sw"><input type="checkbox" id="hena"><i></i><span data-i18n="启用">启用</span></label>
+<select id="hfmt"><option value="feishu" data-i18n="飞书机器人">飞书机器人</option><option value="json" data-i18n="通用 JSON">通用 JSON</option></select>
+<label class="sw"><input type="checkbox" id="hinsec"><i></i><span data-i18n="跳过证书校验(公司代理兜底)">跳过证书校验(公司代理兜底)</span></label>
 </div>
 <div class="mrow">
-<input type="text" id="hurl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxx（群设置→群机器人→自定义机器人）" spellcheck="false">
-<button class="tgl" id="htest">发送测试</button>
+<input type="text" id="hurl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxx（群设置→群机器人→自定义机器人）" data-i18n-ph="https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxx（群设置→群机器人→自定义机器人）" spellcheck="false">
+<button class="tgl" id="htest" data-i18n="发送测试">发送测试</button>
 </div>
 </div></div>
-<div class="mod"><div class="modtag"><b>02</b>端口设置</div><div class="modbody"><div class="mrow">
+<div class="mod"><div class="modtag"><b>02</b><span data-i18n="端口设置">端口设置</span></div><div class="modbody"><div class="mrow">
 <input type="number" id="hport" min="1" max="65535">
-<span class="modnote">改动后点右下"保存"，服务自动重启到新端口并跳转</span>
+<span class="modnote" data-i18n="改动后点右下「保存」，服务自动重启到新端口并跳转">改动后点右下「保存」，服务自动重启到新端口并跳转</span>
 </div></div></div>
-<div class="mod"><div class="modtag"><b>03</b>主题设置</div><div class="modbody"><div class="mrow">
-<select class="tgl" id="thm" title="主题"><option value="day">☀ 日光台</option><option value="night">☾ 磷光夜</option><option value="ice">❄ 冰原</option><option value="volt">⚡ 磁暴</option><option value="ink">◈ 墨铁</option></select>
+<div class="mod"><div class="modtag"><b>03</b><span data-i18n="主题设置">主题设置</span></div><div class="modbody"><div class="mrow">
+<select class="tgl" id="thm"><option value="day" data-i18n="☀ 日光台">☀ 日光台</option><option value="night" data-i18n="☾ 磷光夜">☾ 磷光夜</option><option value="ice" data-i18n="❄ 冰原">❄ 冰原</option><option value="volt" data-i18n="⚡ 磁暴">⚡ 磁暴</option><option value="ink" data-i18n="◈ 墨铁">◈ 墨铁</option></select>
 </div></div></div>
-<div class="mod"><div class="modtag"><b>04</b>自动扫描</div><div class="modbody"><div class="mrow">
-<label class="sw"><input type="checkbox" id="auto" checked><i></i><span>每 2 秒轮询刷新</span></label>
+<div class="mod"><div class="modtag"><b>04</b><span data-i18n="语言设置">语言设置</span></div><div class="modbody"><div class="mrow">
+<select class="tgl" id="langsel"><option value="zh">简体中文</option><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option></select>
+<span class="modnote" data-i18n="界面文案语言，即时生效(仅存本机浏览器)">界面文案语言，即时生效(仅存本机浏览器)</span>
 </div></div></div>
-<div class="mod"><div class="modtag"><b>05</b>回看窗口</div><div class="modbody"><div class="mrow">
+<div class="mod"><div class="modtag"><b>05</b><span data-i18n="自动扫描">自动扫描</span></div><div class="modbody"><div class="mrow">
+<label class="sw"><input type="checkbox" id="auto" checked><i></i><span data-i18n="每 2 秒轮询刷新">每 2 秒轮询刷新</span></label>
+</div></div></div>
+<div class="mod"><div class="modtag"><b>06</b><span data-i18n="回看窗口">回看窗口</span></div><div class="modbody"><div class="mrow">
 <input type="number" id="hdays" min="1" max="3650">
-<span class="modnote">只扫描最近 N 天内有活动的 session（1-3650，默认 14）；保存后下一轮轮询生效</span>
+<span class="modnote" data-i18n="只扫描最近 N 天内有活动的 session（1-3650，默认 14）；保存后下一轮轮询生效">只扫描最近 N 天内有活动的 session（1-3650，默认 14）；保存后下一轮轮询生效</span>
 </div></div></div>
-<div class="cfsave"><span class="hmsg" id="hmsg"></span><button class="save" id="hsave">保存 APPLY ▸</button></div>
+<div class="cfsave"><span class="hmsg" id="hmsg"></span><button class="save" id="hsave" data-i18n="保存 APPLY ▸">保存 APPLY ▸</button></div>
 </div></div>
 <div class="secttl" id="secttl" hidden></div>
 <main id="sess" class="sesstop"></main>

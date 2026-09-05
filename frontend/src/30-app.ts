@@ -5,6 +5,10 @@ function curTheme(): string { for (const t of THEMES) if (document.body.classLis
 function paintThm(): void { thm.value = curTheme(); }
 thm.onchange = () => { const t = thm.value; document.body.classList.remove(...THEMES); if (t !== 'day') document.body.classList.add(t); localStorage.setItem('wfo-theme', t); };
 paintThm();
+// 语言:与主题同为"视图状态"(localStorage wfo-lang),即点即生效;切换后 setLang 清 diff 缓存 → 整屏重绘
+const langsel = $<HTMLSelectElement>('langsel');
+langsel.value = lang;
+langsel.onchange = () => { setLang(langsel.value as Lang); renderSessions(); render(); };
 // 筛选/视图状态 localStorage 恢复:项目/搜索/自动刷新——刷新(含部署自动 reload)后不丢失(历史 bug,教训见 CLAUDE.md)
 fproj = localStorage.getItem('wfo-fproj') || '';
 fstr = localStorage.getItem('wfo-fstr') || '';
@@ -16,9 +20,9 @@ const cfg = $('cfg'), hmsg = $('hmsg'), hookbtn = $<HTMLButtonElement>('hookbtn'
 const hena = $<HTMLInputElement>('hena'), hfmt = $<HTMLSelectElement>('hfmt'), hurl = $<HTMLInputElement>('hurl'), hinsec = $<HTMLInputElement>('hinsec'), hport = $<HTMLInputElement>('hport'), hdays = $<HTMLInputElement>('hdays');
 function showLast(l?: LastHook | null): void {
   if (l && l.at) {
-    const t = new Date(l.at * 1000).toLocaleTimeString('zh-CN', { hour12: false });
-    hmsg.textContent = `最近推送 ${t} ${l.ok ? '✓' : '✗'} ${String(l.reply || '').slice(0, 90)}`; hmsg.style.color = l.ok ? 'var(--gr)' : 'var(--rd)';
-  } else hmsg.textContent = '终态运行自动推送；通知依赖本服务进程存活';
+    const t = new Date(l.at * 1000).toLocaleTimeString(loc(), { hour12: false });
+    hmsg.textContent = `${T('最近推送')} ${t} ${l.ok ? '✓' : '✗'} ${String(l.reply || '').slice(0, 90)}`; hmsg.style.color = l.ok ? 'var(--gr)' : 'var(--rd)';
+  } else hmsg.textContent = T('终态运行自动推送；通知依赖本服务进程存活');
 }
 cfg.addEventListener('input', () => hsave.classList.add('dirty'));  // 全局保存:任何字段改动→APPLY 亮未存红点
 hookbtn.onclick = async () => {
@@ -28,20 +32,20 @@ hookbtn.onclick = async () => {
     const d = await (await fetch('/api/config')).json() as ConfResp;
     hena.checked = !!d.conf.enabled; hfmt.value = d.conf.format; hurl.value = d.conf.url; hinsec.checked = !!d.conf.insecure;
     hport.value = String(d.conf.port || location.port); hdays.value = String(d.conf.recentDays || 14); hsave.classList.remove('dirty'); showLast(d.last);
-  } catch (e) { hmsg.textContent = '配置读取失败'; }
+  } catch (e) { hmsg.textContent = T('配置读取失败'); }
 };
 hsave.onclick = async () => {
   const r = await (await fetch('/api/config/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled: hena.checked, format: hfmt.value, url: hurl.value.trim(), insecure: hinsec.checked, port: +hport.value || 0, recentDays: +hdays.value || 14 }) })).json() as SaveResp;
-  hmsg.textContent = (r.msg || '') + (r.ok && !r.reloc ? '，运行进入终态后自动推送' : ''); hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
+  hmsg.textContent = T(r.msg || '') + (r.ok && !r.reloc ? T('，运行进入终态后自动推送') : ''); hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
   if (r.ok) hsave.classList.remove('dirty');
   if (r.reloc) { const rl = r.reloc; setTimeout(() => { location.href = rl; }, 1800); }  // 等 execv 重启落到新端口后自动跳转
   else if (r.ok) { cfg.hidden = true; hookbtn.classList.remove('on'); }  // 设置完成即收起;失败留在面板内看红字
 };
 $('htest').onclick = async () => {
-  hmsg.textContent = '发送中…'; hmsg.style.color = 'var(--dim)';
+  hmsg.textContent = T('发送中…'); hmsg.style.color = 'var(--dim)';
   const r = await (await fetch('/api/config/test', { method: 'POST' })).json() as TestResp;
-  hmsg.textContent = (r.ok ? '✓ 测试消息已送达 ' : '✗ ' + (r.msg || '失败')) + String((r.last && r.last.reply) || '').slice(0, 80);
+  hmsg.textContent = (r.ok ? T('✓ 测试消息已送达 ') : '✗ ' + T(r.msg || '失败')) + String((r.last && r.last.reply) || '').slice(0, 80);
   hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
 };
 const VER = (($('wfo-ver') as HTMLMetaElement) && $('wfo-ver').getAttribute('content')) || '';
@@ -52,20 +56,20 @@ async function tick(): Promise<void> {
     d = a; s = b;
     // 部署后旧标签页自动换代码:服务端 JS 载荷 md5 ≠ 本页构建时戳 → 整页重载(一次即可,新页戳必匹配)
     if (d.ver && VER && d.ver !== VER) { location.reload(); return; }
-  } catch (e) { $('gauges').innerHTML = '<div class="g er"><b>⚠</b><span>链路中断 重连中</span></div>'; return; }
+  } catch (e) { $('gauges').innerHTML = `<div class="g er"><b>⚠</b><span>${T('⚠ 链路中断 重连中')}</span></div>`; return; }
   // 渲染异常不再冒充"链路中断"(历史坑:catch 同包 fetch+render,JS bug 被伪装成掉线且无痕迹)
   try {
     runs = d.runs; sess = s.sessions || []; rdays = d.recentDays || 14;
     const sel = $<HTMLSelectElement>('fproj');
     const projs = [...new Set([...runs, ...sess].map(r => r.cwd || r.project))];
     if (fproj && !projs.includes(fproj)) { fproj = ''; localStorage.setItem('wfo-fproj', ''); }  // 已保存的项目不在数据源(窗口滑动/被删)→ 回落全部项目,避免永久 NO MATCH
-    if (sel.options.length - 1 !== projs.length) { sel.innerHTML = '<option value="">◆ 全部项目</option>' + projs.map(p => `<option${p === fproj ? ' selected' : ''}>${esc(p)}</option>`).join(''); }
+    if (sel.options.length - 1 !== projs.length) { sel.innerHTML = `<option value="">${T('◆ 全部项目')}</option>` + projs.map(p => `<option${p === fproj ? ' selected' : ''}>${esc(p)}</option>`).join(''); }
     renderSessions();
     render();
   } catch (e) {
     console.error('render error:', e);
     const msg = (e && (e as Error).message) || String(e);
-    $('gauges').innerHTML = '<div class="g er"><b>⚠</b><span>渲染异常(见F12控制台): ' + esc(String(msg)).slice(0, 80) + '</span></div>';
+    $('gauges').innerHTML = '<div class="g er"><b>⚠</b><span>' + T('渲染异常(见F12控制台): ') + esc(String(msg)).slice(0, 80) + '</span></div>';
   }
 }
 function renderSessions(): void {
@@ -75,8 +79,8 @@ function renderSessions(): void {
   const q = fstr.toLowerCase();
   const hit = (s: SessionState) => (!fproj || (s.cwd || s.project) === fproj) && (!q || (s.title + ' ' + s.sessionId + ' ' + (s.cwd || s.project) + ' ' + s.status + ' ' + (s.lastPrompt || '') + ' ' + (s.subagents || []).map(a => a.label + ' ' + (a.description || '')).join(' ')).toLowerCase().includes(q));
   const vis = sess.filter(hit), live = sess.filter(s => s.alive).length;
-  tt.innerHTML = `AGENT 状态 · 会话(主+子) ${vis.length}${live ? ' · 活跃 ' + live : ''}`;
-  if (!vis.length) { el.innerHTML = '<p class="idle">NO MATCH · 无匹配会话</p>'; spainted = true; return; }
+  tt.innerHTML = `${T('AGENT 状态 · 会话(主+子)')} ${vis.length}${live ? ' · ' + T('活跃') + ' ' + live : ''}`;
+  if (!vis.length) { el.innerHTML = `<p class="idle">${T('NO MATCH · 无匹配会话')}</p>`; spainted = true; return; }
   if (el.querySelector('.idle')) el.innerHTML = '';
   // 展开态与 pane 滚动位置快照:活跃会话卡每轮 HTML 都会变→outerHTML 重建→不恢复则"点开即关"(与 render() 同契约)
   const open = new Set([...el.querySelectorAll<HTMLDetailsElement>('details[open]')].map(x => x.dataset.k || ''));
@@ -141,7 +145,7 @@ function render(): void {
     ref = el ? el.nextElementSibling : null;
   }
   if (vis.length) { for (const x of [...list.children] as HTMLElement[]) { const rid = x.dataset.rid; if (rid && !seen.has(rid)) x.remove(); } }
-  else if (!list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? 'NO MATCH · 无匹配运行，调整搜索或筛选' : 'TELEMETRY SILENT · 近 ' + rdays + ' 天无 workflow 运行记录'}</p>`;
+  else if (!list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? T('NO MATCH · 无匹配运行，调整搜索或筛选') : T('TELEMETRY SILENT · 近 %1 天无 workflow 运行记录', rdays)}</p>`;
   if (open.size) list.querySelectorAll('details').forEach(x => {
     const dk = x.dataset.k || '';
     if (open.has(dk)) { x.open = true; x.classList.add('noanim'); const v = sc[dk]; if (v) x.querySelectorAll<HTMLElement>('.rich,.pane pre').forEach((s2, i2) => { if (v[i2]) s2.scrollTop = v[i2]; }); }
@@ -181,12 +185,12 @@ const onToggle = (e: Event) => {
     const cur = ((x.ownerDocument || document).querySelector(`details[data-k="${CSS.escape(k)}"]`) as HTMLElement | null) || x;
     cur.querySelectorAll<HTMLElement>('.pane').forEach(pn => {
       const t = pn.dataset.t || '', rich = pn.querySelector('.rich'); if (!rich) return;
-      if (t.startsWith('IN') && FULL[k].p) { rich.innerHTML = mdLite(wrapLong(unent(FULL[k].p))); pn.dataset.t = 'IN · 全文'; }
-      else if (t.startsWith('IN') && d.miss) { rich.textContent = '⚠ 该步已超出转录留存范围，无法回取全文'; pn.dataset.t = 'IN · 不可回取'; }
-      if (t.startsWith('OUT') && FULL[k].r) { rich.innerHTML = mdLite(pretty(unent(FULL[k].r))); pn.dataset.t = 'OUT · 全文'; }
-      else if (t.startsWith('OUT') && d.miss) { rich.textContent = '⚠ 该步已超出转录留存范围，无法回取全文'; pn.dataset.t = 'OUT · 不可回取'; }
+      if (t.startsWith('IN') && FULL[k].p) { rich.innerHTML = mdLite(wrapLong(unent(FULL[k].p))); pn.dataset.t = 'IN · ' + T('全文'); }
+      else if (t.startsWith('IN') && d.miss) { rich.textContent = T('⚠ 该步已超出转录留存范围，无法回取全文'); pn.dataset.t = 'IN · ' + T('不可回取'); }
+      if (t.startsWith('OUT') && FULL[k].r) { rich.innerHTML = mdLite(pretty(unent(FULL[k].r))); pn.dataset.t = 'OUT · ' + T('全文'); }
+      else if (t.startsWith('OUT') && d.miss) { rich.textContent = T('⚠ 该步已超出转录留存范围，无法回取全文'); pn.dataset.t = 'OUT · ' + T('不可回取'); }
     });
-  }).catch(err => { note('⚠ 全文加载失败: ' + String((err && (err as Error).message) || err)); });
+  }).catch(err => { note(T('⚠ 全文加载失败: ') + String((err && (err as Error).message) || err)); });
 };
 $('list').addEventListener('toggle', onToggle, true);
 $('sess').addEventListener('toggle', onToggle, true);

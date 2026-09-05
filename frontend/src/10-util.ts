@@ -8,7 +8,7 @@ const PH = (i: number): string => SOH + i + SOH + '\n';
 const esc = (s: unknown): string => String(s ?? '').replace(/[&<>"]/g, (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as Record<string, string>)[c]);
 const fmtT = (ms?: number | null): string => ms == null ? '—' : ms < 1000 ? ms + 'ms' : ms < 60000 ? (ms / 1000).toFixed(0) + 's' : ms < 3600000 ? (ms / 60000).toFixed(1) + 'm' : (ms / 3600000).toFixed(1) + 'h';
 const fmtN = (n?: number | null): string => n == null ? '' : Number(n).toLocaleString('en-US');
-const fmtC = (t?: number | null): string => t ? new Date(t).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
+const fmtC = (t?: number | null): string => t ? new Date(t).toLocaleTimeString(loc(), { hour12: false }) : '—';
 const inlineMd = (s: unknown): string => esc(s).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
 // IN 类 prompt 常是一整行无换行长文(mdLite 逐行分段失灵成文字墙):足够长且几乎无换行时按。；断行
 const wrapLong = (sv: unknown): string => { const s = String(sv ?? ''); return s.length < 420 || s.split('\n').filter(x => x.trim()).length > 3 ? s : s.replace(/([。；])(?=\S)/g, '$1\n'); };

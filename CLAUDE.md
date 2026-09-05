@@ -52,7 +52,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 | `notify.py` | webhook 通知线程（下表） |
 | `web.py` | HTTP handler `class H`、`make_server()`，启动时读入 `static/index.html` |
 | `static/index.html` | 前端运行时文件：**HTML/CSS 壳 = `frontend/template.html`，脚本块 = `frontend/src/*.ts` 的 tsc 编译产物**（禁手改，见铁律 6） |
-| `frontend/src/*.ts`（仓库根） | 前端 TS 源码：00-types(类型契约/共享状态) 10-util(mdLite 渲染器) 20-render(运行卡/会话卡) 30-app(轮询/diff 装配)；`build.py` 构建，`dist/` 为中间产物 |
+| `frontend/src/*.ts`（仓库根） | 前端 TS 源码：00-types(类型契约/共享状态) 05-i18n(多语言文案层) 10-util(mdLite 渲染器) 20-render(运行卡/会话卡) 30-app(轮询/diff 装配)；`build.py` 构建，`dist/` 为中间产物 |
 
 分四层的行为要点：
 
@@ -79,6 +79,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 - **tick 的 try/catch 分离**：fetch 失败与 render 失败必须分开报告——JS bug 不许冒充掉线（见 `tick()` 注释）。
 - **详情抽屉滚动位置 / details 展开态**跨轮询保持（`sc` 快照 + `open` 集合恢复）；全文靠 `FULL` 缓存 + `/api/agent` 首次展开拉取。
 - **筛选/视图状态必须 localStorage 持久化**（`wfo-fproj`/`wfo-fstr`/`wfo-auto`）：项目筛选/搜索词/自动刷新只存内存模块变量 → 刷新(含部署自动 reload)后全丢（真实用户 bug）；启动恢复 + 选项重建带 `selected`，保存值已不在数据源时清空回落。新增筛选字段同理。
+- **多语言：新增用户可见文案一律走 `T()`（`frontend/src/05-i18n.ts`）** —— key 就是简体中文原文（源语言，zh 不入字典），插值 `%1..%n`；查不到自动回落 key，所以漏译显示中文而非空白。静态壳文案挂 `data-i18n`（换 textContent）/`data-i18n-ph`（换 placeholder），由 `applyI18n()` 统一刷；`<b>01</b>` 这类编号必须包到内层 `<span>`，否则整块被覆盖。CSS `content:` 里的文案走 `html[lang=x]{--tr-more:…}` 变量（与 JS 字典各一份）。语种存 `localStorage.wfo-lang`（与 `wfo-theme` 同为"视图状态"，**不进服务端 config.json**），首访按 `navigator.language` 猜。切语言必须走 `setLang()`：它清 `CARDS/SCARDS/GSTR` 与旧 `.idle` 节点后整屏重绘，漏清则该语言下 diff 陈旧。后端 `msg` 只做精确命中（`已保存` 等静息文案），含插值数字的校验错回落原文，不为此加模糊匹配。
 - `mdLite` 用 \u0001 控制字符做占位符抽取围栏/表格，改动分段逻辑注意转义。
 
 ## 开发/验证速查

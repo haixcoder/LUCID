@@ -26,6 +26,7 @@ XRay 是一个 **Claude Code 本地插件**：在工作流运行时打开一个�
 - **全文抽屉**：点击任意 agent / 步骤行展开详情——自动拉取完整 prompt / result（转录 + journal 深扫全文，替换截断预览），滚动位置跨轮询保持
 - **终态通知**：workflow 进入终态（completed / failed / killed）时后台线程推送**飞书**或**通用 JSON** webhook，不依赖浏览器开着
 - **自启动看护**：任意会话开始即检测服务、未运行自动拉起，崩溃自动重启——双触发口：官方后台 monitor（`monitors/monitors.json`，需 Claude Code ≥2.1.105 且宿主支持）＋ `SessionStart` 钩子兜底（`hooks/hooks.json`，任意版本可用）。两者都收敛到 `scripts/guard.py --detach`：按 guard.pid 幂等确保常驻看护循环在跑，服务与看护进程均独立于会话存活
+- **多语言界面**：⚙ 设置 → 语言，五种常用语种（简体中文 / English / Español / Français / Deutsch），即点即生效、localStorage 记忆，首次访问跟随浏览器语言；界面文案（含卡片标签、pane 标题、空态、设置面板、通知回执）全部走同一文案层，缺译自动回落中文，不会出现空白
 - **仪式感细节**：项目筛选、全文搜索（名称 / runId / 任务 / 状态）、自动刷新开关、五主题切换：☀ 日光台 / ☾ 磷光夜 / ❄ 冰原 / ⚡ 磁暴 / ◈ 墨铁（localStorage 记忆）、网页改端口保存即自动重启迁移
 - **隐私友好**：只监听 `127.0.0.1`，只读 `~/.claude/projects/`，唯一可写目录是 `~/.claude/cc-viewer/`（配置 / PID / 去重记录）
 
@@ -107,7 +108,7 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 
 ## 页面功能
 
-**顶部**：仪表盘（RUNS / LIVE / DONE / ALERT 计数）、项目筛选、全文搜索、自动刷新开关、版本角标；右上「⚙ 设置」：通知钩子、端口、主题，底栏统一保存。
+**顶部**：仪表盘（RUNS / LIVE / DONE / ALERT 计数）、项目筛选、全文搜索、自动刷新开关、版本角标；右上「⚙ 设置」：01 通知钩子 / 02 端口 / 03 主题 / 04 语言 / 05 自动扫描 / 06 回看窗口，其中主题·语言·自动扫描即点即生效，其余由底栏统一保存。
 
 **运行列表**（进行中置顶）：状态徽章（running / completed / failed / killed / stale / aborted）、phase 条、agent 表格（状态 / 最近工具 / tokens / 用时）、任务详情、系统日志尾、运行产物。
 
@@ -155,7 +156,7 @@ XRay/
 │   ├── xray-logo.svg      # 图标(X 射线透视眼 + 心跳线)
 │   └── screenshot.png     # 界面截图
 ├── frontend/              # 前端源码(TS,仅开发用;运行时零依赖不变)
-│   ├── src/*.ts           # 00-types/10-util/20-render/30-app,按名序拼接为全局脚本
+│   ├── src/*.ts           # 00-types/05-i18n/10-util/20-render/30-app,按名序拼接为全局脚本
 │   ├── template.html      # HTML/CSS 壳(手写;含 3 行主题 boot 内联脚本)
 │   ├── build.py           # 构建:拼接→tsc --strict→注入产物到 scripts/ccviewer/static/index.html
 │   └── dist/              # 中间产物(不进安装副本,git 忽略)
