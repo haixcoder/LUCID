@@ -128,10 +128,13 @@ claude plugin validate .                 # 校验两份清单（CI 加 --strict�
 
 **铁律：每次更新 = 版本号 +1。** 任何变更（代码、前端构建产物、命令、README/文档、CLAUDE.md 规则本身、仅配置文件）一旦要同步给用户/市场，必须同步把 `.claude-plugin/plugin.json` 的 `version` +1（patch 级即可），**禁止"只改代码不升版本"**——升版本后 `claude plugin update` 会落到新的 cache 目录（`cache/.../xray/<版本>/`），旧版本残留可清理；这样每次更新都可在 cache 中追溯。配套流程（重装前先 `--stop` 旧进程）：
 
-**铁律：每次功能/文档更新验证通过后，自动 `git commit`，不要等用户开口。** 提交信息按既有风格（`feature:` / `docs:` / `fix:` 前缀 + 中文描述 + 版本号 `1.x.x→1.x.x`）；含未跟踪文件用 `git add -A`；只 commit 不 push（push 需用户明示）。若工作区混有历史遗留改动，一并纳入并在提交信息中注明。
+**铁律：每次功能/文档更新验证通过后，自动 `git commit`，不要等用户开口。** 提交信息按既有风格（`feature:` / `docs:` / `fix:` 前缀 + 中文描述 + 版本号 `1.x.x→1.x.x`）；含未跟踪文件用 `git add -A`；默认只 commit 不 push。若工作区混有历史遗留改动，一并纳入并在提交信息中注明。
+
+**术语："发布" = 将最新内容推送到 GitHub。** 用户说"发布 / 发布到 github / 上线"等，一律理解为 `git commit`（若有未提交改动）+ `git push origin <当前分支>`，把本地领先的提交全部推到远端 `origin`（本仓库远端为 `git@github.com:haixcoder/XRay.git`，走 SSH，无 `gh` CLI 时用 `git push`）；**无需再逐次征求 push 同意**——"发布"这个指令本身即明示。推送前先确认工作区已提交、`git status -sb` 无冲突，推后用 `git fetch && git status -sb` 验证 `main...origin/main` 不再 ahead。仅 commit（默认自动行为）不触发推送，只有"发布"指令才推送。
 
 ```bash
 claude plugin validate . && claude plugin marketplace update kw-dev-plugins
 claude plugin update xray@kw-dev-plugins          # 升版本后重装到新 cache 目录
 nohup python3 ~/.claude/plugins/cache/kw-dev-plugins/xray/<新版本>/scripts/server.py &
+git push origin main                              # "发布"=推送到 GitHub（详见上条术语定义）
 ```
