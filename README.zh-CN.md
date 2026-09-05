@@ -65,10 +65,10 @@ Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<ses
 **方式一（推荐，GitHub 市场）**——本仓库即标准市场，任何机器均可安装：
 
 ```bash
-claude plugin marketplace add haixcoder/XRay                 # 即本仓库(marketplace.json, source="./")
+claude plugin marketplace add haixcoder/LUCID                 # 即本仓库(marketplace.json, source="./")
 claude plugin install lucid@kw-dev-plugins                    # 安装插件
 # 版本锁定装法（可选，装 tag 快照）：
-# claude plugin marketplace add haixcoder/XRay#v1.2.5   后同 install
+# claude plugin marketplace add haixcoder/LUCID#v1.2.5   后同 install
 ```
 
 **方式二（本地开发）**：

@@ -62,10 +62,10 @@ Prerequisites: macOS / Linux, Claude Code 2.0+, Python 3.9+ (**no pip installs, 
 **Option 1 (recommended, GitHub marketplace)** — this repository is a standard marketplace, installable from any machine:
 
 ```bash
-claude plugin marketplace add haixcoder/XRay                 # this repo (marketplace.json, source "./")
+claude plugin marketplace add haixcoder/LUCID                 # this repo (marketplace.json, source "./")
 claude plugin install lucid@kw-dev-plugins                    # install the plugin
 # Version-pinned install (optional, installs a tag snapshot):
-# claude plugin marketplace add haixcoder/XRay#v1.2.5   then the same install as above
+# claude plugin marketplace add haixcoder/LUCID#v1.2.5   then the same install as above
 ```
 
 **Option 2 (local development)**:

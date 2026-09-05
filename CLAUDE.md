@@ -132,7 +132,7 @@ claude plugin validate .                 # 校验两份清单（CI 加 --strict�
 
 **铁律：每次功能/文档更新验证通过后，自动 `git commit`，不要等用户开口。** 提交信息按既有风格（`feature:` / `docs:` / `fix:` 前缀 + 中文描述 + 版本号 `1.x.x→1.x.x`）；含未跟踪文件用 `git add -A`；默认只 commit 不 push。若工作区混有历史遗留改动，一并纳入并在提交信息中注明。
 
-**术语："发布" = 将最新内容推送到 GitHub。** 用户说"发布 / 发布到 github / 上线"等，一律理解为 `git commit`（若有未提交改动）+ `git push origin <当前分支>`，把本地领先的提交全部推到远端 `origin`（本仓库远端为 `git@github.com:haixcoder/XRay.git`，走 SSH，无 `gh` CLI 时用 `git push`）；**无需再逐次征求 push 同意**——"发布"这个指令本身即明示。推送前先确认工作区已提交、`git status -sb` 无冲突，推后用 `git fetch && git status -sb` 验证 `main...origin/main` 不再 ahead。仅 commit（默认自动行为）不触发推送，只有"发布"指令才推送。
+**术语："发布" = 将最新内容推送到 GitHub。** 用户说"发布 / 发布到 github / 上线"等，一律理解为 `git commit`（若有未提交改动）+ `git push origin <当前分支>`，把本地领先的提交全部推到远端 `origin`（本仓库远端为 `git@github.com:haixcoder/LUCID.git`，走 SSH，无 `gh` CLI 时用 `git push`）；**无需再逐次征求 push 同意**——"发布"这个指令本身即明示。推送前先确认工作区已提交、`git status -sb` 无冲突，推后用 `git fetch && git status -sb` 验证 `main...origin/main` 不再 ahead。仅 commit（默认自动行为）不触发推送，只有"发布"指令才推送。
 
 ```bash
 claude plugin validate . && claude plugin marketplace update kw-dev-plugins
