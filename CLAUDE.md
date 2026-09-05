@@ -128,7 +128,9 @@ claude plugin validate .                 # 校验两份清单（CI 加 --strict�
 
 本仓库是 git 仓库（2026-09-04 起）。
 
-**铁律：每次更新 = 版本号 +1。** 任何变更（代码、前端构建产物、命令、README/文档、CLAUDE.md 规则本身、仅配置文件）一旦要同步给用户/市场，必须同步把 `.claude-plugin/plugin.json` 的 `version` +1（patch 级即可），**禁止"只改代码不升版本"**——升版本后 `claude plugin update` 会落到新的 cache 目录（`cache/.../lucid/<版本>/`），旧版本残留可清理；这样每次更新都可在 cache 中追溯。配套流程（重装前先 `--stop` 旧进程）：
+**铁律：每次更新 = 版本号 +1。** 任何变更（代码、前端构建产物、命令、README/文档、CLAUDE.md 规则本身、仅配置文件）一旦要同步给用户/市场，必须同步把 `.claude-plugin/plugin.json` 的 `version` +1（patch 级即可），**禁止"只改代码不升版本"**——升版本后 `claude plugin update` 会落到新的 cache 目录（`cache/.../lucid/<版本>/`），旧版本残留可清理；这样每次更新都可在 cache 中追溯。**npm 通道（1.2.30 起）：`package.json` 的 version 必须与 plugin.json 相等**，且运行时新增目录要同时进 `package.json.files` 与 `bin/install.js` 的 `COMPONENTS`，否则装出来的副本缺组件——`tests/test_packaging.py` 钉死这两条。
+
+**npm 发布通道（kw-lucid）**：npm 包即"插件+自足市场"——tarball 根目录带 `.claude-plugin/marketplace.json`（source `"./"` 相对被 add 的目录解析，与仓库目录市场同一语义），用户 `npx -y kw-lucid` 或 `npm install -g kw-lucid` + `marketplace add "$(npm root -g)/kw-lucid"` 完成安装；`bin/install.js` 把包同步到稳定路径 `~/.claude/plugins/marketplaces/kw-lucid-npm/` 再走 claude CLI（避开 npx 缓存失效）。发布流程（需 `npm login`，手动执行）：`python3 tests/run_all.py && claude plugin validate . && npm pack --dry-run` 全绿后 `npm publish`。注意 CLI 的 `{"source":"npm"}` 插件源与 npm marketplace-add 亦存在/缺失（marketplace add npm 官方标注 not yet implemented），本通道刻意不依赖它们，保持本地开发流不变。配套流程（重装前先 `--stop` 旧进程）：
 
 **铁律：每次功能/文档更新验证通过后，自动 `git commit`，不要等用户开口。** 提交信息按既有风格（`feature:` / `docs:` / `fix:` 前缀 + 中文描述 + 版本号 `1.x.x→1.x.x`）；含未跟踪文件用 `git add -A`；默认只 commit 不 push。若工作区混有历史遗留改动，一并纳入并在提交信息中注明。
 

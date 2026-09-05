@@ -68,12 +68,24 @@ claude plugin install lucid@kw-dev-plugins                    # install the plug
 # claude plugin marketplace add haixcoder/LUCID#v1.2.5   then the same install as above
 ```
 
-**Option 2 (local development)**:
+**Option 2 (npm)** — same plugin, distributed via the npm registry as a self-contained marketplace. Needs Node.js ≥16.7 for the installer only (the plugin itself stays zero-dependency Python):
+
+```bash
+npx -y kw-lucid                      # one-liner: registers the bundled marketplace + installs (idempotent; rerun to upgrade)
+# or explicit global install:
+npm install -g kw-lucid
+claude plugin marketplace add "$(npm root -g)/kw-lucid"
+claude plugin install lucid@kw-dev-plugins
+```
+
+**Option 3 (local development)**:
 
 ```bash
 claude plugin marketplace add ~/projectDir/cc-viewer     # register the local marketplace (this dir doubles as kw-dev-plugins)
 claude plugin install lucid@kw-dev-plugins                # install the plugin
 ```
+
+> The GitHub and npm channels share the marketplace name `kw-dev-plugins` — pick one (the `npx` script detects a name clash and keeps whichever channel is already registered).
 
 Verify:
 

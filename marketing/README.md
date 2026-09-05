@@ -8,7 +8,7 @@
 
 ## P0 发布前必办(不做会翻车)
 
-1. **补 LICENSE 文件**。仓库当前无许可证 = 法律上"保留所有权利",GitHub 页显示 "No license",宣传"开源"会被懂行的社区成员当场指出(HN/Reddit 尤其敏感)。建议 MIT(与零依赖的轻量气质一致),但**许可类型是作者的法律决定,须本人确认后再加**。
+1. ~~补 LICENSE 文件~~ ✅ 已办(1.2.30):作者确认采用 **Apache-2.0**,LICENSE 已入库,package.json 同步声明。
 2. **GitHub 仓库设置**:About 填一句简介(下方"一句话定位"直接用)、加 topics(`claude-code`, `claude-plugin`, `workflow`, `dashboard`, `devtools`, `ai-agent`, `monitoring`, `python`, `zero-dependency`)、确认 README 首屏(logo + 截图 + 双语文链)展示正常。
 3. **备一张 15~30s 屏幕录制 GIF**(跑一个真实 workflow,演示 2s 刷新 + 点开全文抽屉)。X / 小红书 / Product Hunt 没动图基本没有曝光;截 `assets/screenshot.png` 可作静态 fallback。
 4. **英文截图/文案里避免暴露个人信息**:GIF 和截图会带项目路径、会话标题,发布前打码或换演示项目。

@@ -71,12 +71,24 @@ claude plugin install lucid@kw-dev-plugins                    # 安装插件
 # claude plugin marketplace add haixcoder/LUCID#v1.2.5   后同 install
 ```
 
-**方式二（本地开发）**：
+**方式二（npm）**——同一个插件经 npm registry 分发，包内自带市场。安装器需 Node.js ≥16.7（仅安装时用；插件本体仍是零依赖 Python）：
+
+```bash
+npx -y kw-lucid                      # 一行装:注册包内市场 + 安装(幂等,重跑即升级)
+# 或显式全局安装:
+npm install -g kw-lucid
+claude plugin marketplace add "$(npm root -g)/kw-lucid"
+claude plugin install lucid@kw-dev-plugins
+```
+
+**方式三（本地开发）**：
 
 ```bash
 claude plugin marketplace add ~/projectDir/cc-viewer     # 注册本地市场(本目录兼作市场 kw-dev-plugins)
 claude plugin install lucid@kw-dev-plugins                # 安装插件
 ```
+
+> GitHub 与 npm 两个渠道共用市场名 `kw-dev-plugins`,二选一即可(`npx` 脚本检测到同名市场会保留已注册渠道)。
 
 验证：
 
