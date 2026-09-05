@@ -20,12 +20,13 @@ PROJ = redirect(HOME)
 from ccviewer import sessions
 
 
-def sub_agent(sess_dir, aid, stop, blocks, name='research'):
+def sub_agent(sess_dir, aid, stop, blocks, name='research', model='claude-fable-5'):
     """写 <sess>/subagents/agent-<aid>.jsonl + .meta.json,返回文件路径(mtime 由调用方定)。
-    _subagents 读 f.with_name(f.name+'.meta.json'),故 meta 文件名带 .jsonl 后缀。"""
+    _subagents 读 f.with_name(f.name+'.meta.json'),故 meta 文件名带 .jsonl 后缀。
+    model 默认取真实模型名;传 '<synthetic>' 模拟 Claude Code 本地合成的错误注入(非模型成功应答)。"""
     sdir = sess_dir / 'subagents'
     sdir.mkdir(parents=True, exist_ok=True)
-    recs = [user('分析任务'), asst('m-' + aid, stop, blocks)]
+    recs = [user('分析任务'), asst('m-' + aid, stop, blocks, text_model=model)]
     f = sdir / ('agent-' + aid + '.jsonl')
     f.write_text('\n'.join(__import__('json').dumps(r, ensure_ascii=False) for r in recs) + '\n', encoding='utf-8')
     (sdir / ('agent-' + aid + '.jsonl.meta.json')).write_text(
@@ -51,10 +52,17 @@ a = sub_agent(sess_dir, 'doneEturn', 'end_turn', TEXT)         # 传统 end_turn
 b = sub_agent(sess_dir, 'doneSeq', 'stop_sequence', TEXT)      # 真机 <synthetic> 的收束方式(bug 触发点)
 c = sub_agent(sess_dir, 'working', 'end_turn', TEXT)           # 刚刚还在写(90s 内)= 运行中
 d = sub_agent(sess_dir, 'stuckIdle', 'tool_use', PENDING)      # 末条挂起工具且早已静默 = 无权威信号 → idle
-set_age(a, 3600); set_age(b, 3600); set_age(c, 5); set_age(d, 3600)
+# E ★ 真机踩到(用户 1.2.24→1.2.25 报):模型调不到(如"Model not exist"),Claude Code 注入一条
+#   本地合成(model='<synthetic>')的末条,stop_reason 恰为 stop_sequence、文本是 API 错误正文。
+#   1.2.24 只看 stop_reason∈TURN_END 就判 done → 失败的子 agent 显示成绿色"完成"。应判 error(✕ 红)。
+APIERR = [{'type': 'text', 'text': 'API Error: 400 event:error\ndata:{"code":"InvalidParameter","message":"Model not exist."}'}]
+e = sub_agent(sess_dir, 'apiError', 'stop_sequence', APIERR, model='<synthetic>')
+# F 反例守卫:合成注入若发生在久静默且无 TURN_END(如中断)——仍归 error,不被 idle 吞掉。
+f = sub_agent(sess_dir, 'synthIdle', 'tool_use', APIERR, model='<synthetic>')
+set_age(a, 3600); set_age(b, 3600); set_age(c, 5); set_age(d, 3600); set_age(e, 3600); set_age(f, 3600)
 
 subs = {x['agentId']: x for x in sessions._subagents(sess_dir, time.time())}
-for k in ('doneEturn', 'doneSeq', 'working', 'stuckIdle'):
+for k in ('doneEturn', 'doneSeq', 'working', 'stuckIdle', 'apiError', 'synthIdle'):
     if k not in subs:
         ck('子 agent %s 出现' % k, False, str(sorted(subs)))
 
@@ -69,6 +77,16 @@ ck('C 90s 内仍在写的子 agent → running', subs.get('working', {}).get('st
    'got ' + repr(subs.get('working', {}).get('state')))
 ck('D 挂起工具且久无动静 → idle(不谎报完成,也不谎报失败)', subs.get('stuckIdle', {}).get('state') == 'idle',
    'got ' + repr(subs.get('stuckIdle', {}).get('state')))
+# ★ RED(修复前 1.2.24 会判成 done):本地合成的末条 = API 错误注入,不是模型成功应答 → error。
+ck('E 末条 <synthetic> 携带 API Error(stop_sequence)→ error(不显示绿色完成)',
+   subs.get('apiError', {}).get('state') == 'error',
+   'got ' + repr(subs.get('apiError', {}).get('state')))
+ck('F 合成注入 + 无 TURN_END(中断)→ 仍 error,不被 idle 吞',
+   subs.get('synthIdle', {}).get('state') == 'error',
+   'got ' + repr(subs.get('synthIdle', {}).get('state')))
+# 错误正文须可见(铁律7:摘要 + 可展开全文)——lastText 即注入的错误串,前端抽屉据此回显。
+ck('E 错误正文进 lastText(展开可看全)', 'API Error' in subs.get('apiError', {}).get('lastText', ''),
+   repr(subs.get('apiError', {}).get('lastText')))
 
 # 全链路复核:经 scan_sessions() 出口,子 agent 也带着 done 状态出现在会话负载里(不只单测中间层)。
 out = {s['sessionId']: s for s in sessions.scan_sessions()}
@@ -76,5 +94,8 @@ sub_list = {x['agentId']: x for x in out.get(sid, {}).get('subagents', [])}
 ck('scan_sessions 出口:doneSeq 子 agent 以 done 呈现(全链路)',
    sub_list.get('doneSeq', {}).get('state') == 'done',
    'got ' + repr(sub_list.get('doneSeq', {}).get('state')))
+ck('scan_sessions 出口:apiError 子 agent 以 error 呈现(全链路)',
+   sub_list.get('apiError', {}).get('state') == 'error',
+   'got ' + repr(sub_list.get('apiError', {}).get('state')))
 
 done()

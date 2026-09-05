@@ -23,6 +23,8 @@ MAX_SESSIONS = 40
 ASK_TOOLS = ('AskUserQuestion', 'ExitPlanMode')
 # 模型主动交回话轮的 stop_reason(其余 tool_use=等工具，None=尾窗没采到)
 TURN_END = ('end_turn', 'stop_sequence')
+# Claude Code 本地合成的末条标记(model 值):API 调用失败/中断时注入,非模型真实应答 → 判失败用(见 _subagents)。
+SYNTHETIC_MODEL = '<synthetic>'
 
 
 def _texts(content):
@@ -207,12 +209,17 @@ def _subagents(sess_dir, now):
             pass
         age = now - st.st_mtime
         info = _analyze(tail_text(f, 131072))
-        if age < SUB_ACTIVE_SEC:
+        if info['model'] == SYNTHETIC_MODEL:
+            # 末条是 Claude Code 本地合成的注入(model='<synthetic>')= API 调用失败/中断,不是模型成功应答。
+            # 真机踩坑(1.2.24→1.2.25):模型调不到(如"Model not exist")时,失败的子 agent 末条
+            # stop_reason 恰为 stop_sequence、文本是"API Error:..."正文,只看 stop_reason∈TURN_END 会把
+            # 失败误判成 done(绿"完成")。合成标记才是权威失败信号(真机 60 条:real-model 全是 end_turn,
+            # stop_sequence 全是 <synthetic> 错误,零反例)→ 归 error(✕ 红),错误正文留在 lastText 可展开。
+            state = 'error'
+        elif age < SUB_ACTIVE_SEC:
             state = 'running'
         elif info['stopReason'] in TURN_END:
-            # 完成判定与主 agent main_state 同源(TURN_END):回合可正常收在 end_turn 或 stop_sequence。
-            # 曾硬编码只认 end_turn → 收在 stop_sequence 的子 agent(真机 <synthetic> 研究子 agent)被误归
-            # idle(◌ 浅灰空心圈),页面读作"左侧没有运行状态";补上 stop_sequence 后归 done(◆ 绿)。
+            # 完成判定与主 agent main_state 同源(TURN_END):真人模型回合可正常收在 end_turn / stop_sequence。
             state = 'done'
         else:
             state = 'idle'
