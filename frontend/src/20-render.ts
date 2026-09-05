@@ -1,6 +1,6 @@
 // ── 20-render.ts:共享可变状态(全局脚本模式各文件可见)+ 运行卡 + 会话卡渲染 ──
 let runs: Run[] = [], sess: SessionState[] = [], fproj = '', fstr = '', auto = true, painted = false, spainted = false, rdays = 14;
-const FULL: Record<string, { p: string; r: string }> = {};  // runId:agentId 或 sessionId:msgId/agentId → 全文缓存(跨轮询重建不丢失)
+const FULL: Record<string, Fu> = {};  // runId:agentId 或 sessionId:msgId/agentId → 全文缓存(跨轮询重建不丢失)
 const CARDS: Record<string, string> = {}, SCARDS: Record<string, string> = {}, GSTR: string[] = [''];  // runId/sessionId→上次渲染 HTML(按卡 diff);仪表串缓存
 
 function card(r: Run, i: number): string {
@@ -41,14 +41,21 @@ function sessCard(r: SessionState, i: number): string {
   // 否则每轮 diff 必失配 → 展开的步骤抽屉"点开即关"(见 CLAUDE.md 前端不变量)。
   const wait = r.status === 'input_required';
   const wlab = r.waitReason === 'ask' ? T('等待回答') : r.waitReason === 'permission' ? T('等待授权') : T('等待输入');
-  const wtxt = (r.lastText || '').replace(/\s+/g, ' ').trim();   // 摘要不再定长裁切：省略号只是折叠，展开即看全(见"日志可看全"铁律)
+  const wtxt = (r.lastText || '').replace(/\s+/g, ' ').trim();   // 摘要不再定长裁切：省略号只是折叠，展开即拉全文(见"日志可看全"铁律)
+  // 等待行全文抽屉:后端回传 lastTextMid → data-src=main#<id> 懒拉整步全文(FULL 缓存跨轮询存活),
+  // 与步骤行/子代理行同一契约;无 mid 的老转录回落到 300 字摘要+指引文案。
+  const wkey = r.sessionId + ':wait', wf: Fu = FULL[wkey] || {}, wmid = r.lastTextMid || '';
+  const wsrc = wmid && r.lastText ? ` data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(wmid)}"` : '';
+  const wbody = wf.r ? mdLite(wrapLong(unent(wf.r))) : wf.m ? `<i style="opacity:.7">${esc(T('⚠ 该步已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(r.lastText || '')));
+  const wtag = wf.r ? T('全文') : wf.m ? T('不可回取') : T('最后输出');
+  const whint = (wf.r || wf.m) ? '' : `<div class="hint">${wmid ? T('展开后自动拉取整步全文(超出转录留存范围会显式提示)') : T('转录留存字段有上限；整步全文请展开下方对应步骤行(超出留存范围会显式提示)')}</div>`;
   return `<div class="card${r.alive ? ' live' : ''}${wait ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
   <div class="hd"><span class="b b-${esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
   <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
   <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
   <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${T('尾窗工具调用')} ${r.toolCalls}</div>
-  ${wait ? `<details class="term waitline" data-k="${esc(r.sessionId)}:wait"${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${T('在等')} · ${r.waitTool ? esc(r.waitTool) : T('你的回复')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
-  <div class="term-body solo"><div class="pane" data-t="OUT · ${T('最后输出')}"><div class="rich">${mdLite(wrapLong(unent(r.lastText || '')))}</div><div class="hint">${T('转录留存字段有上限；整步全文请展开下方对应步骤行(超出留存范围会显式提示)')}</div></div></div></details>` : ''}
+  ${wait ? `<details class="term waitline" data-k="${esc(r.sessionId)}:wait"${wsrc}${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${T('在等')} · ${r.waitTool ? esc(r.waitTool) : T('你的回复')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
+  <div class="term-body solo"><div class="pane" data-t="OUT · ${wtag}"><div class="rich">${wbody}</div>${whint}</div></div></details>` : ''}
   <div class="strip"><span class="ph ${r.pendingTools.length ? 'on' : ''}">${T('最近工具')} ${esc(r.pendingTools[0] || '—')}${r.pendingTools.length > 1 ? ' ' + T('等%1项', r.pendingTools.length) : ''}</span>
   <span class="ph fin">tok in ${fmtN(tk.input)} / out ${fmtN(tk.output)} / cacheR ${fmtN(tk.cacheRead)}</span>
   <span class="ph ${done < sa.length ? 'on' : 'fin'}">subagents ${done}/${sa.length}</span></div>

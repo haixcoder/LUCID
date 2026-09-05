@@ -26,6 +26,7 @@ interface SessionState {
   ageSec: number; model?: string | null; stopReason?: string | null; permissionMode?: string | null;
   waitReason?: string | null; waitTool?: string | null;  // status=input_required 时的成因:ask|permission|turn
   tokens: Tok; pendingTools: string[]; toolCalls: number; lastPrompt: string; lastText: string;
+  lastTextMid?: string;  // lastText 所在消息 id;等待行全文抽屉 data-src=main#<id> 的回取锚点
   steps: Step[]; subagents: Subagent[];
 }
 interface RunsResp { now: number; ver?: string; recentDays?: number; runs: Run[] }
@@ -36,6 +37,6 @@ interface ConfResp { conf: Conf; last: LastHook }
 interface SaveResp { ok?: boolean; msg?: string; reloc?: string; conf?: Conf }
 interface TestResp { ok?: boolean; msg?: string; last?: LastHook }
 interface FullResp { prompt: string; result: string; miss?: boolean }
-// 全文抽屉缓存值(p=输入/工具入参, r=输出/结果; r 是否 in 决定 截断预览/全文 标签)
-type Fu = Partial<{ p: string; r: string }>;
+// 全文抽屉缓存值(p=输入/工具入参, r=输出/结果; r 是否 in 决定 截断预览/全文 标签; m=超出留存不可回取)
+type Fu = Partial<{ p: string; r: string; m: boolean }>;
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;

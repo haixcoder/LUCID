@@ -28,7 +28,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
    - ① 详情抽屉：`<details class="term">` + `data-src` 懒拉全文（结果缓存进 `FULL`，跨轮询不重取）；
    - ② 定高展示框 + 纵向滚动：复用既有 `.rich,.pane pre{max-height:clamp(300px,45vh,560px);overflow:auto}`；**新增滚动容器必须一并纳入 `render()`/`renderSessions()` 的 scrollTop 快照选择器**，否则轮询重建后滚动位置丢失；
    - ③ 内容本身就是短的（单行结构化字段）。
-   - 禁止「只裁不展」：`slice()` / `text-overflow:ellipsis` / `-webkit-line-clamp` 只能作为**摘要**出现在同一信息已有展开入口的地方；摘要行自己必须可展开（会话卡 `.waitline` 即 details）或紧邻全文抽屉。
+   - 禁止「只裁不展」：`slice()` / `text-overflow:ellipsis` / `-webkit-line-clamp` 只能作为**摘要**出现在同一信息已有展开入口的地方；摘要行自己必须可展开且**展开即全文**（会话卡 `.waitline` 即 details + `data-src="S|proj|sess|main#lastTextMid"` 懒拉整步全文；只展开一个仍被裁的摘要=违规，1.2.11 就栽在这）。
    - 禁止在展示层二次砍数据源已给的量（历史坑：后端给 30 行日志、前端 `slice(-15)`，另 15 行永久看不见）。要省空间就限高滚动，不要限条数/限字符。
    - 数据源有硬上限时**必须在界面上写明**（日志尾标注「近 N 行·单行≤M 字」；尾窗 256KB / `DETAIL_CAP` 取不到全文时走 `miss:True` → 「⚠ 该步已超出转录留存范围」），不许让用户误以为看到的就是全部。
    - 非页面通道（飞书通知正文、`server.log` 单行）没有滚动：必须自带定位锚（项目 + runId/会话前 8 位）让人回页面看全，且**错误类宁可不截**（webhook 回执/异常串保留 2000 字）。
@@ -57,7 +57,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 | `guard.py` | 自启动/看护：双触发口——`hooks/hooks.json` 的 SessionStart 钩子（主入口，任意版本可用）+ `monitors/monitors.json` 官方后台 monitor（需 CC ≥2.1.105 且宿主支持，实测第三方网关宿主会静默跳过）；两者都跑 `--detach`：guard.pid 跨会话幂等确保常驻看护循环，循环 TCP 探活 `127.0.0.1:<port>` 未监听→setsid 分离启动 `server.py`（独立于会话存活），周期复查崩溃自动重启；循环仅状态变化输出一行（落 server.log），常稳态零输出 |
 | `scan.py` | 扫描与状态重建（下表"扫描/存活"两层） |
 | `agent.py` | `api_agent()` 单 agent 全文 |
-| `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:`main_state()` 四态 running / **input_required**(等待用户，`waitReason`=ask〔挂起 AskUserQuestion/ExitPlanMode〕\| permission〔挂起普通工具且静默 ≥120s，"疑似"，与长命令同形〕\| turn〔无挂起、末条 assistant 且 `stop_reason`∈end_turn/stop_sequence〕) / waiting / ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。候选 = **转录 `<sess>.jsonl` ∪ 会话目录**（只遍历目录会漏掉无子代理的纯交互会话，即"在等你"的那个）；`scan_sessions_cached(6)` 供通知线程复用。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白） |
+| `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:`main_state()` 四态 running / **input_required**(等待用户，`waitReason`=ask〔挂起 AskUserQuestion/ExitPlanMode〕\| permission〔挂起普通工具且静默 ≥120s，"疑似"，与长命令同形〕\| turn〔无挂起、末条 assistant 且 `stop_reason`∈end_turn/stop_sequence〕) / waiting / ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。候选 = **转录 `<sess>.jsonl` ∪ 会话目录**（只遍历目录会漏掉无子代理的纯交互会话，即"在等你"的那个）；`scan_sessions_cached(6)` 供通知线程复用。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；`lastText` 为 300 字摘要且同回 `lastTextMid`（该摘要所在消息 id——前端等待行 data-src 的全文锚点，摘要+可拉全文=合规，只给摘要无锚点=违规）；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白） |
 | `notify.py` | webhook 通知线程（下表） |
 | `web.py` | HTTP handler `class H`、`make_server()`，启动时读入 `static/index.html` |
 | `static/index.html` | 前端运行时文件：**HTML/CSS 壳 = `frontend/template.html`，脚本块 = `frontend/src/*.ts` 的 tsc 编译产物**（禁手改，见铁律 6） |

@@ -194,7 +194,7 @@ const onToggle = (e: Event) => {
   fetch(url).then(r => r.json()).then(rd => {
     const d = rd as FullResp;
     if (FULL[k]) return;
-    FULL[k] = { p: d.prompt || '', r: d.result || '' };
+    FULL[k] = { p: d.prompt || '', r: d.result || '', m: !!d.miss };
     // fetch 期间轮询可能已重建卡片(x 成孤儿节点):按 data-k 重查活节点再写入;
     // 且 card/sessCard 均为 FULL 感知渲染,重建卡自带全文——不再出现"闪一下变空白"
     const cur = ((x.ownerDocument || document).querySelector(`details[data-k="${CSS.escape(k)}"]`) as HTMLElement | null) || x;

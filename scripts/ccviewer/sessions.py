@@ -53,6 +53,7 @@ def _analyze(text):
     pend = {}
     last_model = last_stop = last_perm = last_kind = None
     last_text = last_prompt = ''
+    last_text_mid = ''   # lastText 所在消息 id —— 等待行全文抽屉(data-src=main#<id>)的回取锚点
     tool_calls = 0
     for ln in text.splitlines():
         try:
@@ -90,6 +91,7 @@ def _analyze(text):
             ts = _texts(content)
             if ts:
                 last_text = ts[-1]
+                last_text_mid = m.get('id') or ''
         elif d.get('type') == 'user':
             ts = _texts(content)
             if ts:
@@ -102,7 +104,7 @@ def _analyze(text):
         tot['cacheWrite'] += u.get('cache_creation_input_tokens') or 0
     return {'model': last_model, 'stopReason': last_stop, 'permissionMode': last_perm, 'lastKind': last_kind,
             'tokens': tot, 'pendingTools': list(pend.values())[:8], 'toolCalls': tool_calls,
-            'lastText': (last_text or '')[:300], 'lastPrompt': (last_prompt or '')[:300]}
+            'lastText': (last_text or '')[:300], 'lastTextMid': last_text_mid, 'lastPrompt': (last_prompt or '')[:300]}
 
 
 def main_state(info, alive, age):
@@ -405,6 +407,7 @@ def scan_sessions():
                     'permissionMode': info['permissionMode'], 'tokens': info['tokens'],
                     'pendingTools': info['pendingTools'], 'toolCalls': info['toolCalls'],
                     'lastPrompt': info['lastPrompt'], 'lastText': info['lastText'],
+                    'lastTextMid': info['lastTextMid'],
                     'steps': _main_steps(tpath), 'subagents': subs})
     return out
 
