@@ -47,14 +47,57 @@ def _texts(content):
             if isinstance(x, dict) and x.get('type') == 'text' and (x.get('text') or '').strip()]
 
 
+# ── 用户输入提示词提取 ──
+# 转录里 type=user 的不全是"人打的字":工具回执、meta 注入、本地命令包装都混在其中。
+# 斜杠命令的真实输入在 <command-args>(如 /goal 的参数);无参命令(/clear)不是提示词。
+UUID_RE = re.compile(r'[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}')
+_NOISE_PREFIX = ('<local-command-caveat>', '<local-command-stdout>', '<local-command-message>',
+                 '<teammate-message', '<task-notification', '<system-reminder', '<command-message>')
+PROMPT_MAX = 30  # 尾窗最多回传条数(窗口本身即留存上限,界面以"尾窗"字样摊明)
+
+
+def _user_prompt(d):
+    """该记录是否"用户真的输入了字":是→返回文本;否(tool_result 回执/isMeta 注入/无参命令/噪声包装)→''"""
+    if not isinstance(d, dict) or d.get('type') != 'user' or d.get('isMeta'):
+        return ''
+    c = (d.get('message') or {}).get('content')
+    if isinstance(c, str):
+        t = c.strip()
+    else:
+        ts = _texts(c)
+        if not ts:
+            return ''
+        t = '\n'.join(ts).strip()
+    if not t or t.startswith(_NOISE_PREFIX):
+        return ''
+    if t.startswith('<command-name>'):
+        nm = re.search(r'<command-name>\s*(\S.*?)\s*</command-name>', t, re.S)
+        ar = re.search(r'<command-args>(.*?)</command-args>', t, re.S)
+        name = nm.group(1) if nm else ''
+        args = ar.group(1).strip() if ar else ''
+        return (name + ' ' + args).strip() if (name and args) else ''
+    return t
+
+
+def _merge_prompts(tail, first):
+    """尾窗条目(时间序)+ 头扫首条:首条已含于尾窗则不补,否则挂 f:1 置顶 —— 摘要与全文同一提取器,保证一致"""
+    fu, ft, fts = first or ('', '', '')
+    if not fu or not ft:
+        return tail
+    if any(p['u'] == fu for p in tail):
+        return tail
+    return [{'u': fu, 't': ft[:300], 'ts': fts, 'f': 1}] + tail
+
+
 def _analyze(text):
-    """从转录尾窗提取:模型/usage 合计/pending 工具/最近文本/最近用户输入/权限模式/末条消息角色"""
+    """从转录尾窗提取:模型/usage 合计/pending 工具/最近文本/最近用户输入/权限模式/末条消息角色/用户输入提示词列表"""
     usage, seen_mid = {}, {}
     pend = {}
     last_model = last_stop = last_perm = last_kind = None
     last_text = last_prompt = ''
     last_text_mid = ''   # lastText 所在消息 id —— 等待行全文抽屉(data-src=main#<id>)的回取锚点
     tool_calls = 0
+    prompts = []         # 尾窗内"用户真的输入"的提示词 [{u,t,ts}](uuid 锚点供前端懒拉全文;无 uuid 不回收,锚不住即不可达)
     for ln in text.splitlines():
         try:
             d = json.loads(ln)
@@ -96,6 +139,10 @@ def _analyze(text):
             ts = _texts(content)
             if ts:
                 last_prompt = ts[-1]
+            pu = d.get('uuid') or ''
+            pt = _user_prompt(d)
+            if pu and pt:
+                prompts.append({'u': pu, 't': pt[:300], 'ts': d.get('timestamp') or ''})
     tot = {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}
     for u in seen_mid.values():
         tot['input'] += u.get('input_tokens') or 0
@@ -104,7 +151,8 @@ def _analyze(text):
         tot['cacheWrite'] += u.get('cache_creation_input_tokens') or 0
     return {'model': last_model, 'stopReason': last_stop, 'permissionMode': last_perm, 'lastKind': last_kind,
             'tokens': tot, 'pendingTools': list(pend.values())[:8], 'toolCalls': tool_calls,
-            'lastText': (last_text or '')[:300], 'lastTextMid': last_text_mid, 'lastPrompt': (last_prompt or '')[:300]}
+            'lastText': (last_text or '')[:300], 'lastTextMid': last_text_mid, 'lastPrompt': (last_prompt or '')[:300],
+            'prompts': prompts[-PROMPT_MAX:]}
 
 
 def main_state(info, alive, age):
@@ -223,6 +271,36 @@ def _rev_texts(path, kind, back=200000):
     return ''
 
 
+def _first_prompt(path, head=120):
+    """会话首条"人打的字"(头扫):长会话首条会掉出读取尾窗,这里兜住它 —— 返回 (uuid, 全文, ts)"""
+    for rec in jlines(path, head):
+        t = _user_prompt(rec)
+        if t and rec.get('uuid'):
+            return rec['uuid'], t, rec.get('timestamp') or ''
+    return '', '', ''
+
+
+def _prompt_detail(path, uu):
+    """单条用户输入全文(按记录 uuid 回取):头扫优先(首条常在头部),再反向深扫(尾窗条目靠尾,快速命中)"""
+    for rec in jlines(path, 120):
+        if rec.get('type') == 'user' and rec.get('uuid') == uu:
+            t = _user_prompt(rec)
+            return {'prompt': t[:DETAIL_CAP], 'result': ''} if t else {'prompt': '', 'result': '', 'miss': True}
+    scanned = 0
+    for ln in _rev_lines(path):
+        scanned += 1
+        if scanned > 400000:  # 病态大会话的止损线(同 _step_detail)
+            break
+        try:
+            d = json.loads(ln)
+        except Exception:
+            continue
+        if d.get('type') == 'user' and d.get('uuid') == uu:
+            t = _user_prompt(d)
+            return {'prompt': t[:DETAIL_CAP], 'result': ''} if t else {'prompt': '', 'result': '', 'miss': True}
+    return {'prompt': '', 'result': '', 'miss': True}
+
+
 def _first_user_text(path):
     for rec in jlines(path, 40):
         if rec.get('type') != 'user':
@@ -337,6 +415,9 @@ def agent_detail(proj, sess, agent, msg=''):
         return {'prompt': '', 'result': ''}
     if agent == 'main':
         if msg:
+            # uuid 形态 = 用户输入提示词的回取锚点(用户记录没有 message.id,靠记录 uuid 定位);msg_* = assistant 步骤全文
+            if UUID_RE.fullmatch(msg):
+                return _prompt_detail(p, msg)
             return _step_detail(p, msg) if re.fullmatch(r'[0-9a-zA-Z_-]{1,64}', msg) else {'prompt': '', 'result': ''}
         return {'prompt': _rev_texts(p, 'user'), 'result': _rev_texts(p, 'assistant')}
     return {'prompt': _first_user_text(p), 'result': _rev_texts(p, 'assistant')}
@@ -408,6 +489,7 @@ def scan_sessions():
                     'pendingTools': info['pendingTools'], 'toolCalls': info['toolCalls'],
                     'lastPrompt': info['lastPrompt'], 'lastText': info['lastText'],
                     'lastTextMid': info['lastTextMid'],
+                    'prompts': _merge_prompts(info['prompts'], _first_prompt(tpath)),
                     'steps': _main_steps(tpath), 'subagents': subs})
     return out
 

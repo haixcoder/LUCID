@@ -28,7 +28,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
    - ① 详情抽屉：`<details class="term">` + `data-src` 懒拉全文（结果缓存进 `FULL`，跨轮询不重取）；
    - ② 定高展示框 + 纵向滚动：复用既有 `.rich,.pane pre{max-height:clamp(300px,45vh,560px);overflow:auto}`；**新增滚动容器必须一并纳入 `render()`/`renderSessions()` 的 scrollTop 快照选择器**，否则轮询重建后滚动位置丢失；
    - ③ 内容本身就是短的（单行结构化字段）。
-   - 禁止「只裁不展」：`slice()` / `text-overflow:ellipsis` / `-webkit-line-clamp` 只能作为**摘要**出现在同一信息已有展开入口的地方；摘要行自己必须可展开且**展开即全文**（会话卡 `.waitline` 即 details + `data-src="S|proj|sess|main#lastTextMid"` 懒拉整步全文；只展开一个仍被裁的摘要=违规，1.2.11 就栽在这）。
+   - 禁止「只裁不展」：`slice()` / `text-overflow:ellipsis` / `-webkit-line-clamp` 只能作为**摘要**出现在同一信息已有展开入口的地方；摘要行自己必须可展开且**展开即全文**（会话卡 `.waitline` = details + `data-src="S|proj|sess|main#lastTextMid"` 懒拉整步全文，`.promptline` = `main#<记录uuid>` 懒拉整条用户输入全文；只展开一个仍被裁的摘要=违规，1.2.11 就栽在这）。
    - 禁止在展示层二次砍数据源已给的量（历史坑：后端给 30 行日志、前端 `slice(-15)`，另 15 行永久看不见）。要省空间就限高滚动，不要限条数/限字符。
    - 数据源有硬上限时**必须在界面上写明**（日志尾标注「近 N 行·单行≤M 字」；尾窗 256KB / `DETAIL_CAP` 取不到全文时走 `miss:True` → 「⚠ 该步已超出转录留存范围」），不许让用户误以为看到的就是全部。
    - 非页面通道（飞书通知正文、`server.log` 单行）没有滚动：必须自带定位锚（项目 + runId/会话前 8 位）让人回页面看全，且**错误类宁可不截**（webhook 回执/异常串保留 2000 字）。
@@ -57,7 +57,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 | `guard.py` | 自启动/看护：双触发口——`hooks/hooks.json` 的 SessionStart 钩子（主入口，任意版本可用）+ `monitors/monitors.json` 官方后台 monitor（需 CC ≥2.1.105 且宿主支持，实测第三方网关宿主会静默跳过）；两者都跑 `--detach`：guard.pid 跨会话幂等确保常驻看护循环，循环 TCP 探活 `127.0.0.1:<port>` 未监听→setsid 分离启动 `server.py`（独立于会话存活），周期复查崩溃自动重启；循环仅状态变化输出一行（落 server.log），常稳态零输出 |
 | `scan.py` | 扫描与状态重建（下表"扫描/存活"两层） |
 | `agent.py` | `api_agent()` 单 agent 全文 |
-| `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:`main_state()` 四态 running / **input_required**(等待用户，`waitReason`=ask〔挂起 AskUserQuestion/ExitPlanMode〕\| permission〔挂起普通工具且静默 ≥120s，"疑似"，与长命令同形〕\| turn〔无挂起、末条 assistant 且 `stop_reason`∈end_turn/stop_sequence〕) / waiting / ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。候选 = **转录 `<sess>.jsonl` ∪ 会话目录**（只遍历目录会漏掉无子代理的纯交互会话，即"在等你"的那个）；`scan_sessions_cached(6)` 供通知线程复用。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；`lastText` 为 300 字摘要且同回 `lastTextMid`（该摘要所在消息 id——前端等待行 data-src 的全文锚点，摘要+可拉全文=合规，只给摘要无锚点=违规）；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白） |
+| `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:`main_state()` 四态 running / **input_required**(等待用户，`waitReason`=ask〔挂起 AskUserQuestion/ExitPlanMode〕\| permission〔挂起普通工具且静默 ≥120s，"疑似"，与长命令同形〕\| turn〔无挂起、末条 assistant 且 `stop_reason`∈end_turn/stop_sequence〕) / waiting / ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。候选 = **转录 `<sess>.jsonl` ∪ 会话目录**（只遍历目录会漏掉无子代理的纯交互会话，即"在等你"的那个）；`scan_sessions_cached(6)` 供通知线程复用。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；`lastText` 为 300 字摘要且同回 `lastTextMid`（该摘要所在消息 id——前端等待行 data-src 的全文锚点，摘要+可拉全文=合规，只给摘要无锚点=违规）；`prompts`＝卡顶「❯ 你输入」回显（`_user_prompt` 判"真·用户输入"→tool_result/isMeta/`<local-command-*>`/无参命令全剔除,`/goal` 取 `<command-args>`；条目 {u,t≤300,ts}=尾窗最近 30 条+头扫首条 `f:1`，用户记录无 message.id，全文锚点=记录 uuid 走 `_prompt_detail`）；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白） |
 | `notify.py` | webhook 通知线程（下表） |
 | `web.py` | HTTP handler `class H`、`make_server()`，启动时读入 `static/index.html` |
 | `static/index.html` | 前端运行时文件：**HTML/CSS 壳 = `frontend/template.html`，脚本块 = `frontend/src/*.ts` 的 tsc 编译产物**（禁手改，见铁律 6） |
@@ -88,7 +88,8 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 - **tick 的 try/catch 分离**：fetch 失败与 render 失败必须分开报告——JS bug 不许冒充掉线（见 `tick()` 注释）。
 - **详情抽屉滚动位置 / details 展开态**跨轮询保持（`sc` 快照 + `open` 集合恢复）；全文靠 `FULL` 缓存 + `/api/agent` 首次展开拉取。
 - **筛选/视图状态必须 localStorage 持久化**（`wfo-fproj`/`wfo-fstr`/`wfo-auto`）：项目筛选/搜索词/自动刷新只存内存模块变量 → 刷新(含部署自动 reload)后全丢（真实用户 bug）；启动恢复 + 选项重建带 `selected`，保存值已不在数据源时清空回落。新增筛选字段同理。
-- **会话等待态（3.2）**：`input_required` 的判定只在后端 `sessions.main_state()` 一处（三分 `waitReason`），前端只做展示与高亮，不许再推断；卡 HTML 里放的是 `wlab`/`wtxt` 等**每轮稳定**字段，绝不放 `ageSec`（同上一条不变量）。新增等待成因只改 `main_state` + 前端 `wlab` 三分支 + `notify.WAIT_ZH` + i18n 四处，缺一处即出现"页面说等待授权、推送写未知"。
+- **会话等待态（3.2）**：`input_required` 的判定只在后端 `sessions.main_state()` 一处（三分 `waitReason`），前端只做展示与高亮，不许再推断；**告警/安静的显示分级也只有一个判定点 `sessStuck`**（20-render）——ask/permission=真卡住→反白 ⏸ 闪烁告警+色条+计入区标题 ⏸ N；turn=执行完成正常交回→安静青色「回合已完」、无告警视觉（用户据此报过 bug:"关了通知还提示等待输入"——通知档位从来只管推送,页面显示曾把 turn 一律渲染成 ⏸ 才是根因,1.2.13 分档）。卡 HTML 里放的是 `wlab`/`wtxt` 等**每轮稳定**字段，绝不放 `ageSec` 或 `AD()` 毫秒相位（1.2.13 曾给告警徽标加 `AD(1.8)`→冻结数据每轮 diff 失配→"点开即关"复发,测试 `diff/stable` 拦下）。新增等待成因只改 `main_state` + 前端 `wlab`/`sessStuck` + `notify.WAIT_ZH` + i18n 四处，缺一处即出现"页面说等待授权、推送写未知"。
+- **提示词回显（1.2.13）**：「什么算用户输入」只在后端 `sessions._user_prompt()` 一处判定（剔除 tool_result/isMeta/`<local-command-*>`/无参命令，`<command-name>/x</command-name>`+`<command-args>` 合成 `/x args`），摘要（`_analyze.prompts`）与全文（`_prompt_detail` 按记录 uuid 反查）共用它，不许前端再过滤；用户记录**没有 message.id**，锚点一律用转录记录 uuid。
 - **多语言：新增用户可见文案一律走 `T()`（`frontend/src/05-i18n.ts`）** —— key 就是简体中文原文（源语言，zh 不入字典），插值 `%1..%n`；查不到自动回落 key，所以漏译显示中文而非空白。静态壳文案挂 `data-i18n`（换 textContent）/`data-i18n-ph`（换 placeholder），由 `applyI18n()` 统一刷；`<b>01</b>` 这类编号必须包到内层 `<span>`，否则整块被覆盖。CSS `content:` 里的文案走 `html[lang=x]{--tr-more:…}` 变量（与 JS 字典各一份）。语种存 `localStorage.wfo-lang`（与 `wfo-theme` 同为"视图状态"，**不进服务端 config.json**），首访按 `navigator.language` 猜。切语言必须走 `setLang()`：它清 `CARDS/SCARDS/GSTR` 与旧 `.idle` 节点后整屏重绘，漏清则该语言下 diff 陈旧。后端 `msg` 只做精确命中（`已保存` 等静息文案），含插值数字的校验错回落原文，不为此加模糊匹配。
 - `mdLite` 用 \u0001 控制字符做占位符抽取围栏/表格，改动分段逻辑注意转义。
 

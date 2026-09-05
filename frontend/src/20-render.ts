@@ -35,12 +35,18 @@ function card(r: Run, i: number): string {
   </div>`;
 }
 
+// 等待显示策略(单一判定处;renderSessions 的 ⏸ 计数复用):ask/permission=真卡住、该你动手 → 琥珀闪烁告警;
+// turn=模型说完、正常交回话轮(执行完成)→ 安静"回合已完",不再占用告警视觉。notifyInput 档位只门控推送、
+// 从不管页面显示 —— "关了通知仍被提示等待输入"的根因即 turn 曾被一律渲染成 ⏸ 等待输入(1.2.13 修)。
+const sessStuck = (s: SessionState): boolean => s.status === 'input_required' && (s.waitReason === 'ask' || s.waitReason === 'permission');
+
 function sessCard(r: SessionState, i: number): string {
   const tk = r.tokens || ({} as Tok), sa = r.subagents || [], st = r.steps || [], done = sa.filter(a => a.state === 'done').length;
   // 等待用户输入(3.2)：徽标换成中文短标签 + 反白高亮，另起一行交代"在等什么"。串内不放逐秒变化字段(ageSec)，
   // 否则每轮 diff 必失配 → 展开的步骤抽屉"点开即关"(见 CLAUDE.md 前端不变量)。
   const wait = r.status === 'input_required';
-  const wlab = r.waitReason === 'ask' ? T('等待回答') : r.waitReason === 'permission' ? T('等待授权') : T('等待输入');
+  const stuck = sessStuck(r);
+  const wlab = r.waitReason === 'ask' ? T('等待回答') : r.waitReason === 'permission' ? T('等待授权') : stuck ? T('等待输入') : T('回合已完');
   const wtxt = (r.lastText || '').replace(/\s+/g, ' ').trim();   // 摘要不再定长裁切：省略号只是折叠，展开即拉全文(见"日志可看全"铁律)
   // 等待行全文抽屉:后端回传 lastTextMid → data-src=main#<id> 懒拉整步全文(FULL 缓存跨轮询存活),
   // 与步骤行/子代理行同一契约;无 mid 的老转录回落到 300 字摘要+指引文案。
@@ -49,12 +55,26 @@ function sessCard(r: SessionState, i: number): string {
   const wbody = wf.r ? mdLite(wrapLong(unent(wf.r))) : wf.m ? `<i style="opacity:.7">${esc(T('⚠ 该步已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(r.lastText || '')));
   const wtag = wf.r ? T('全文') : wf.m ? T('不可回取') : T('最后输出');
   const whint = (wf.r || wf.m) ? '' : `<div class="hint">${wmid ? T('展开后自动拉取整步全文(超出转录留存范围会显式提示)') : T('转录留存字段有上限；整步全文请展开下方对应步骤行(超出留存范围会显式提示)')}</div>`;
-  return `<div class="card${r.alive ? ' live' : ''}${wait ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
-  <div class="hd"><span class="b b-${esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
+  // 输入寄存器(卡顶):❯=终端提示符 —— 机器等你(⏸ 琥珀)对仗你已给出(❯ 青)。尾窗上限写进眉标(铁律7);
+  // 摘要行=折叠,展开即按记录 uuid 懒拉全文(IN pane,FULL 缓存跨轮询存活),与等待行/步骤行同一契约。
+  const ps = (r.prompts || []).filter(p => p.u);
+  const pblk = ps.length ? `<div class="phead"><span>${T('你输入 · 尾窗 %1 条', ps.length)}</span></div>
+  ${ps.map(p => {
+    const k = r.sessionId + ':prompt:' + p.u, pf: Fu = FULL[k] || {};
+    const ptag = pf.p ? T('全文') : pf.m ? T('不可回取') : T('截断预览');
+    const pbody = pf.p ? mdLite(wrapLong(unent(pf.p))) : pf.m ? `<i style="opacity:.7">${esc(T('⚠ 该条输入已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(p.t || '')));
+    const phint = (pf.p || pf.m) ? '' : `<div class="hint">${T('展开后自动拉取整条输入全文(超出转录留存范围会显式提示)')}</div>`;
+    return `<details class="term promptline" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(p.u)}">
+  <summary><span class="pk">${p.ts ? fmtC(Date.parse(p.ts)) : '—'}</span>${p.f ? `<span class="fchip">${T('最初')}</span>` : ''}<span class="pt">${esc((p.t || '').replace(/\s+/g, ' ').trim())}</span></summary>
+  <div class="term-body solo"><div class="pane" data-t="IN · ${ptag}"><div class="rich">${pbody}</div>${phint}</div></div></details>`;
+  }).join('')}` : '';
+  return `<div class="card${r.alive ? ' live' : ''}${stuck ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
+  <div class="hd"><span class="b b-${wait ? (stuck ? 'input_required' : 'turn') : esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
   <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
   <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
   <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${T('尾窗工具调用')} ${r.toolCalls}</div>
-  ${wait ? `<details class="term waitline" data-k="${esc(r.sessionId)}:wait"${wsrc}${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${T('在等')} · ${r.waitTool ? esc(r.waitTool) : T('你的回复')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
+  ${pblk}
+  ${wait ? `<details class="term waitline${stuck ? '' : ' turn'}" data-k="${esc(r.sessionId)}:wait"${wsrc}${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${stuck ? T('在等') + ' · ' + (r.waitTool ? esc(r.waitTool) : T('你的回复')) : T('最后输出')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
   <div class="term-body solo"><div class="pane" data-t="OUT · ${wtag}"><div class="rich">${wbody}</div>${whint}</div></div></details>` : ''}
   <div class="strip"><span class="ph ${r.pendingTools.length ? 'on' : ''}">${T('最近工具')} ${esc(r.pendingTools[0] || '—')}${r.pendingTools.length > 1 ? ' ' + T('等%1项', r.pendingTools.length) : ''}</span>
   <span class="ph fin">tok in ${fmtN(tk.input)} / out ${fmtN(tk.output)} / cacheR ${fmtN(tk.cacheRead)}</span>

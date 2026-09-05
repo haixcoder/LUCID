@@ -22,7 +22,8 @@ XRay 是一个 **Claude Code 本地插件**：在工作流运行时打开一个�
 
 - **实时透视**：进行中的运行由 journal + agent 转录实时重建，前端每 2 秒轮询刷新；已完成的读完整 run JSON（全量富数据）
 - **Workflow 全景**：phase 条、agent 表格（状态 / 最近工具 / tokens / 用时）、运行产物、系统日志尾
-- **会话监控**：主 agent（running / **input_required 等待用户** / waiting / ended）+ 全部非 workflow 子代理（task / teammate），pending 工具、权限模式、尾窗步骤表。等待原因再细分三档：**等待回答**（挂起 AskUserQuestion / ExitPlanMode）、**等待授权**（工具挂起且已静默 ≥2min，疑似卡在授权确认）、**等待输入**（回合结束、无挂起工具，模型在等你下一句）——命中即用反白 ⏸ 高亮徽标 + 左侧色条 +「在等 …」一行显示它在等什么
+- **会话监控**：主 agent（running / **input_required 等待用户** / waiting / ended）+ 全部非 workflow 子代理（task / teammate），pending 工具、权限模式、尾窗步骤表。等待原因再细分三档：**等待回答**（挂起 AskUserQuestion / ExitPlanMode）、**等待授权**（工具挂起且已静默 ≥2min，疑似卡在授权确认）——这两类是"真卡住、该你动手"，用反白 ⏸ 高亮徽标 + 左侧色条 +「在等 …」一行显示它在等什么；而**回合已完**（模型说完、正常交回话轮 = 执行完成，无挂起工具）只是"空闲等你下一句",不占用告警视觉：青色静态徽标、无色条、区标题 ⏸ 计数也不计（`notifyInput` 通知档位管的是推送，与页面显示各管各的）
+- **提示词回显**：会话卡顶部单列「❯ 你输入」区——把"用户真正打进来的话"从转录里提出来（自动剔除工具回执 / 系统注入 / 无参命令，`/goal …` 取 `<command-args>`），尾窗内每条一行摘要、时间戳标注，展开即懒拉整条输入全文（记录 uuid 锚定，与步骤行同契约）；掉出尾窗的首条单独以「最初」标出。方便一眼看清"这个会话到底被要求做什么"
 - **纯交互会话也在列**：会话候选 = 转录 `<sess>.jsonl` ∪ 会话目录，没有子代理的会话同样出现在监控里（此前只遍历目录，恰恰漏掉最该提醒"在等你"的那个会话）
 - **全文抽屉**：点击任意 agent / 步骤行展开详情——自动拉取完整 prompt / result（转录 + journal 深扫全文，替换截断预览），滚动位置跨轮询保持
 - **分型通知**：后台线程推两类**飞书**或**通用 JSON** webhook（不依赖浏览器开着）——① workflow 进入终态（completed / failed / killed）；② 会话进入 `input_required`「在等你」，独立一档可关可放宽（关闭 / 仅卡住时 / 全部含回合结束，默认**仅卡住时**），通用 JSON 里带 `kind` 字段供消费方分流。真痛点是「卡住了在等我」，不是「跑完了让我看」
@@ -113,7 +114,7 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 
 **运行列表**（进行中置顶）：状态徽章（running / completed / failed / killed / stale / aborted）、phase 条、agent 表格（状态 / 最近工具 / tokens / 用时）、任务详情、系统日志尾、运行产物。
 
-**AGENT 状态区**（会话层）：主 agent 状态 / pending 工具 / 尾窗 tokens / 权限模式 / 最近输入输出 + 子代理表（类型 / 模型 / 状态 / 最近工具 / tokens / 最后活动）+ 尾窗 30 条执行步骤表（工具 / 输出预览 / tokens / 时间）。会话卡在「等你」时置顶高亮：反白 ⏸ 徽标（等待回答 / 等待授权 / 等待输入）+ 左侧色条 + 一行「在等 · 你的回复 / Bash」并带最后输出；区标题右侧计数 `⏸ 等待输入 N`。
+**AGENT 状态区**（会话层）：主 agent 状态 / pending 工具 / 尾窗 tokens / 权限模式 / 最近输入输出 + 卡顶「❯ 你输入」提示词区（尾窗内每条一行摘要 + 展开懒拉全文 + 首条「最初」标出）+ 子代理表（类型 / 模型 / 状态 / 最近工具 / tokens / 最后活动）+ 尾窗 30 条执行步骤表（工具 / 输出预览 / tokens / 时间）。会话**真卡住**（等回答 / 等授权）时置顶高亮：反白 ⏸ 徽标 + 左侧色条 + 一行「在等 · 你的回复 / Bash」并带最后输出，区标题右侧计数 `⏸ 等待输入 N`；回合结束型（`waitReason=turn`）显示安静的青色「回合已完」、最后输出单行可展开，不计入 ⏸、不闪烁——**执行完成 ≠ 等待输入**。
 
 **详情抽屉**：点击任意 agent / 步骤行全宽展开——自动从 `/api/agent` / `/api/subagent` 拉取**完整** prompt / result（转录 + journal 深扫，替换截断预览），pane 内可滚动且滚动位置跨轮询保持；由实体转义还原（`unent`）后经迷你 markdown 渲染器呈现（分段 / 列表 / 标题 / 围栏 / 表格）。
 
@@ -137,9 +138,9 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 | 端点 | 说明 |
 |------|------|
 | `GET /api/runs` | 全量运行快照（`{now, runs[]}`；进行中由 journal/转录实时重建） |
-| `GET /api/sessions` | 会话状态：主 agent（注册表判活 + 转录尾窗推断，status 含 `input_required` + `waitReason`/`waitTool`）+ 执行步骤 + 全部非 workflow 子代理；候选 = 转录 ∪ 会话目录，含活跃会话与最近 2h 会话，上限 40 |
+| `GET /api/sessions` | 会话状态：主 agent（注册表判活 + 转录尾窗推断，status 含 `input_required` + `waitReason`/`waitTool`）+ `prompts`（卡顶提示词回显：尾窗用户输入摘要 + uuid + 首条 `f:1`）+ 执行步骤 + 全部非 workflow 子代理；候选 = 转录 ∪ 会话目录，含活跃会话与最近 2h 会话，上限 40 |
 | `GET /api/agent?proj=&sess=&run=&agent=` | 单 agent 完整转录 + journal 事件（运行卡抽屉数据源） |
-| `GET /api/subagent?proj=&sess=&agent=[&msg=]` | 会话层全文抽屉：`agent=main` 返回主会话最近输入/输出；加 `msg=<messageId>` 返回该步骤全文；否则返回子代理任务与结果 |
+| `GET /api/subagent?proj=&sess=&agent=[&msg=]` | 会话层全文抽屉：`agent=main` 返回主会话最近输入/输出；加 `msg=<messageId>` 返回该步骤全文，`msg=<uuid>` 返回该条用户输入全文（提示词回显锚点）；否则返回子代理任务与结果 |
 | `GET /api/config` | 当前 webhook 配置 + 最近推送结果 |
 | `POST /api/config/save` | 保存配置（URL 须 http(s)、端口 1-65535 且空闲、`recentDays` 1-3650 默认 14、`notifyInput` ∈ off/blocked/all（缺省不改）；改端口触发自重启） |
 | `POST /api/config/test` | 发送测试通知验证连通；body `{"kind":"input_required"}` 则按等待型发一条 |

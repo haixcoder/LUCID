@@ -1,0 +1,176 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XRAY demo · 输入寄存器(会话卡顶部「你输入 ❯」区块)</title>
+<!-- 设计演示:五个主题下同一张会话卡的新「用户输入提示词」区。样式规则与 frontend/template.html 一致,
+     新块(.phead/.promptline/.fchip)即本次设计提案,选定后原样并入 template.html。 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e9e1cc;--pnl:#f4edda;--pnl2:#eee6cf;--ln:#d2c4a0;--ln2:#a8946a;--tx:#2b2313;--dim:#6d5e40;--dim2:#94835d;
+--am:#8f5509;--amr:rgba(143,85,9,.30);--gr:#276b39;--cy:#0d6272;--rd:#a4382a;
+--hdr:rgba(233,225,204,.95);--scan:rgba(90,68,20,.05);--vig:radial-gradient(130% 100% at 50% -8%,transparent 58%,rgba(120,90,30,.13));
+--sh:0 1px 2px rgba(120,90,30,.12);--hov:rgba(143,85,9,.06);
+--mono:'IBM Plex Mono',ui-monospace,Menlo,"PingFang SC",monospace;--disp:'Chakra Petch','PingFang SC',var(--mono);
+--tr-more:'全文';--tr-less:'收起'}
+body.night{--bg:#141109;--pnl:#1a160e;--pnl2:#120f09;--ln:#38301c;--ln2:#5c4c2a;--tx:#ece1c9;--dim:#9a8a6b;--dim2:#6f6247;
+--am:#f5b33d;--amr:rgba(245,179,61,.45);--gr:#7fdc8b;--cy:#66c9dd;--rd:#ef6a5c;
+--hdr:rgba(20,17,9,.94);--scan:rgba(0,0,0,.15);--vig:radial-gradient(130% 95% at 50% -5%,transparent 55%,rgba(0,0,0,.5));
+--sh:0 0 24px rgba(245,179,61,.10);--hov:rgba(245,179,61,.045)}
+body.ice{--bg:#e9f0f4;--pnl:#f6f9fb;--pnl2:#edf3f6;--ln:#c8d9e1;--ln2:#8aa5b3;--tx:#17242e;--dim:#45626f;--dim2:#6d8795;
+--am:#0f7f8f;--amr:rgba(15,127,143,.30);--gr:#2e8b6a;--cy:#2b5f8f;--rd:#c0504a;
+--hdr:rgba(236,244,248,.95);--scan:rgba(40,84,104,.045);--vig:radial-gradient(130% 100% at 50% -8%,transparent 58%,rgba(70,110,135,.10));
+--sh:0 1px 2px rgba(60,95,115,.14);--hov:rgba(15,127,143,.07)}
+body.ice{color-scheme:light}
+body.ice .card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--am) 22%,var(--am) 78%,transparent);opacity:.8}
+body.volt{--bg:#0d0a1c;--pnl:#161130;--pnl2:#100c22;--ln:#322a5e;--ln2:#554a8c;--tx:#e7e2ff;--dim:#a89ed9;--dim2:#837bb5;
+--am:#a866ff;--amr:rgba(168,102,255,.42);--gr:#52d1a5;--cy:#55c8e8;--rd:#ff6f7e;
+--hdr:rgba(13,10,28,.94);--scan:rgba(90,60,200,.05);--vig:radial-gradient(130% 95% at 50% -5%,transparent 55%,rgba(30,12,70,.55)),linear-gradient(115deg,rgba(168,102,255,.14),transparent 45%),linear-gradient(75deg,rgba(85,200,232,.05),transparent 40%);
+--sh:0 0 24px rgba(168,102,255,.12);--hov:rgba(168,102,255,.07)}
+body.volt{color-scheme:dark}
+body.volt .b-running{text-shadow:0 0 8px var(--amr);box-shadow:0 0 12px var(--amr),inset 0 0 6px var(--amr)}
+body.ink{--bg:#181a1e;--pnl:#22252b;--pnl2:#1b1e23;--ln:#363b44;--ln2:#5a616d;--tx:#e4e7ec;--dim:#a6adb9;--dim2:#7d8692;
+--am:#d25741;--amr:rgba(210,87,65,.40);--gr:#6fbf8f;--cy:#7fa9c9;--rd:#e06858;
+--hdr:rgba(24,26,30,.95);--scan:rgba(0,0,0,.18);--vig:radial-gradient(130% 95% at 50% -5%,transparent 55%,rgba(0,0,0,.5));
+--sh:0 0 22px rgba(210,87,65,.08);--hov:rgba(210,87,65,.07)}
+body.ink{color-scheme:dark}
+body.ink .card{border-bottom:1px solid rgba(210,87,65,.18)}
+body.ink .card::before{content:'';position:absolute;right:14px;bottom:0;width:110px;height:3px;background:rgba(210,87,65,.5)}
+html{color-scheme:light}body.night{color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.55 var(--mono)}
+main{padding:18px 16px 70px;display:flex;flex-direction:column;gap:16px;max-width:1150px;margin:0 auto}
+.card{background:var(--pnl);border:1px solid var(--ln);padding:14px 16px;position:relative;box-shadow:var(--sh)}
+.card.live{border-color:var(--am)}
+.card.wait{box-shadow:inset 3px 0 0 var(--am),var(--sh)}
+.hd{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.b{font:600 10px var(--mono);letter-spacing:.2em;padding:2.5px 9px;border:1px solid}
+.b::before{content:'■ ';font-size:8px;vertical-align:1px}
+.b-running{color:var(--am);border-color:var(--am);animation:blink 1.8s infinite}
+.b-input_required{color:var(--pnl);background:var(--am);border-color:var(--am);animation:blink 1.8s infinite}
+.b-input_required::before{content:'⏸ '}
+h2{margin:0;font:600 17px var(--disp);letter-spacing:.05em}
+.rid{font-size:10px;color:var(--dim2);letter-spacing:.08em}
+.meta{margin-left:auto;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;text-align:right}
+.cwd{font-size:10px;color:var(--dim2);letter-spacing:.08em;margin-top:5px}
+.cwd::before{content:'▚ ';color:var(--ln2)}
+.strip{display:flex;align-items:center;gap:20px;margin:12px 0 0;flex-wrap:wrap}
+.ph{font:500 10px var(--mono);letter-spacing:.16em;color:var(--dim2);border:1px solid var(--ln);padding:2.5px 10px;position:relative}
+.ph:not(:last-child)::after{content:'';position:absolute;left:calc(100% + 4px);top:50%;width:12px;height:1px;background:var(--ln2)}
+.ph.on{color:var(--am);border-color:var(--am);animation:blink 1.8s infinite}
+.ph.fin{color:var(--gr);border-color:color-mix(in srgb,var(--gr) 45%,transparent)}.ph.fin::before{content:'✓ '}
+.thead,.arow{display:grid;grid-template-columns:26px 1.5fr 1.1fr .9fr 80px 70px 34px;gap:8px;align-items:start;padding:5px 8px}
+.thead{font:500 9px var(--mono);letter-spacing:.2em;color:var(--dim2);border-bottom:1px solid var(--ln);margin-top:10px}
+.arow{border-bottom:1px dashed var(--ln);cursor:pointer}
+summary.arow{list-style:none}summary.arow::-webkit-details-marker{display:none}
+.num{text-align:right;font-variant-numeric:tabular-nums;color:var(--dim);align-self:center}
+.glyph{font-size:13px;line-height:1.35}.s-done{color:var(--gr)}.s-running{color:var(--am)}
+.lbl{color:var(--tx);align-self:center}.tool{color:var(--cy);align-self:center}.phc{color:var(--dim2);align-self:center}
+details.term{margin:0}
+.term-body{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,6fr);gap:11px;margin:10px 8px 12px}
+.term-body.solo{grid-template-columns:minmax(0,1fr)}
+.pane{border:1px solid var(--ln);background:var(--pnl2);padding:11px 13px;position:relative;box-shadow:var(--sh);min-width:0}
+.pane::before{content:attr(data-t);position:absolute;top:-7px;left:9px;background:var(--pnl);padding:0 7px;font:600 8px var(--mono);letter-spacing:.3em;color:var(--am)}
+.rich,.pane pre{max-height:clamp(300px,45vh,560px);overflow:auto;padding-right:4px}
+.rich p{margin:0 0 11px;font-size:12px;line-height:1.8;color:var(--tx);word-break:normal;overflow-wrap:anywhere;white-space:pre-wrap}
+.rich code{font:11px var(--mono);background:var(--pnl2);border:1px solid var(--ln);border-radius:3px;padding:.5px 4px;color:var(--cy)}
+.pane[data-t^="IN"] .rich{padding-left:11px;border-left:2px solid color-mix(in srgb,var(--am) 42%,transparent)}
+.pane .hint{margin-top:8px;font:500 10px/1.65 var(--mono);color:var(--dim2);letter-spacing:.02em;border-top:1px dashed var(--ln);padding-top:6px}
+@keyframes blink{50%{opacity:.45}}
+/* ── 等待行(既有) ── */
+.waitline{display:block;margin-top:7px;padding:0;border:1px dashed var(--am);background:color-mix(in srgb,var(--am) 8%,transparent);font:500 11px var(--mono)}
+.waitline>summary{display:flex;align-items:baseline;gap:9px;padding:5px 9px;cursor:pointer;list-style:none}
+.waitline>summary::-webkit-details-marker{display:none}
+.waitline>summary::after{content:'▾';color:var(--am);margin-left:auto}
+.waitline[open]>summary::after{content:'▾';transform:rotate(180deg)}
+.waitline .wk{color:var(--am);letter-spacing:.08em;white-space:nowrap}
+.waitline .wt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.waitline .term-body{margin:0 9px 9px}
+/* ── ★ 新设计:输入寄存器 prompt echo(❯ 你输入) ──
+   ❯ = 终端提示符:机器等你(⏸ 琥珀) vs 你已给出(❯ 青色)。历史不与行动抢注意力。
+   尾窗上限写进眉标(铁律7);摘要行=折叠,展开即 IN pane 全文/不可回取三态。 */
+.phead{display:flex;align-items:baseline;gap:9px;margin-top:9px;font:500 9px var(--mono);letter-spacing:.24em;color:var(--dim2)}
+.phead::before{content:'❯';font:600 12px/1 var(--mono);color:var(--cy);letter-spacing:0}
+.phead::after{content:'';flex:1;height:1px;background:var(--ln)}
+.promptline{display:block;margin-top:4px;padding:0;border:0;border-left:2px solid color-mix(in srgb,var(--cy) 55%,transparent);background:color-mix(in srgb,var(--cy) 7%,transparent);font:500 11px var(--mono)}
+.promptline>summary{display:flex;align-items:baseline;gap:9px;padding:4px 9px 4px 8px;cursor:pointer;list-style:none}
+.promptline>summary::-webkit-details-marker{display:none}
+.promptline>summary::after{content:'▾';color:var(--cy);margin-left:auto}
+.promptline[open]>summary::after{content:'▾';transform:rotate(180deg)}
+.promptline>summary:hover{background:var(--hov)}
+.promptline>summary:focus-visible{outline:1px solid var(--cy);outline-offset:-2px}
+.promptline .pk{color:var(--cy);letter-spacing:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.promptline .pt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.promptline .term-body{margin:2px 9px 8px 8px}
+.fchip{border:1px solid var(--cy);color:var(--cy);font:600 8px var(--mono);letter-spacing:.18em;padding:0 5px;white-space:nowrap}
+.missnote{font:500 11px/1.7 var(--mono);color:var(--rd);opacity:.9}
+.demobar{display:flex;gap:10px;align-items:center;max-width:1150px;margin:14px auto 0;padding:0 16px}
+.tgl{background:var(--pnl2);color:var(--dim);border:1px solid var(--ln2);padding:4px 11px;font:600 10px var(--mono);letter-spacing:.18em;cursor:pointer}
+.tgl.on{color:var(--am);border-color:var(--am)}
+.demot tl,.demoh{color:var(--dim2)}
+</style></head><body>
+<div class="demobar"><button class="tgl on" id="dtheme">☾ 换主题看五套配色</button>
+<span class="rid">XRAY 设计演示 · 会话卡顶部「你输入 ❯」 · 摘要=折叠,展开=全文(懒拉),超出留存=显式 ⚠</span></div>
+<main>
+
+<div class="card live wait">
+  <div class="hd"><span class="b b-input_required">等待回答</span>
+  <h2>修复等待行截断</h2><span class="rid">246a5cf8 · pid 65232</span>
+  <span class="meta">主 agent · claude-fable-5 · default 模式</span></div>
+  <div class="cwd">~/projectDir/cc-viewer · T09-05 启动 · 最后活动 18:42:07</div>
+
+  <div class="phead"><span>你输入 · 尾窗 3 条</span></div>
+  <details class="term promptline" open>
+    <summary><span class="pk">18:31:02</span><span class="fchip">最初</span><span class="pt">/goal 开发如下功能，先调研清楚需求：3.2 等待用户输入/阻塞标记 —— 会话卡要能看出「卡在谁手上」，并在真卡住时推送。</span></summary>
+    <div class="term-body solo"><div class="pane" data-t="IN · 全文">
+      <div class="rich"><p>/goal 开发如下功能，先调研清楚需求：3.2 等待用户输入/阻塞标记 —— 会话卡要能看出「卡在谁手上」，并在真卡住时推送。
+判定只在后端 main_state() 一处：ask=挂起 AskUserQuestion/ExitPlanMode；permission=普通工具挂起且静默≥120s(疑似，与长命令同形)；turn=末条 assistant 且 stop_reason=end_turn。
+通知按 kind 分型，input_required 独立档位 notifyInput=off/blocked/all，默认 blocked 只发真卡住；去重键 sess|会话|静默起点＝一次等待一条。</p></div>
+      <div class="hint">整条输入取自转录记录(uuid 锚点回取)，摘要 ≤300 字仅作折叠。</div>
+    </div></div>
+  </details>
+  <details class="term promptline">
+    <summary><span class="pk">18:42:07</span><span class="pt">修一下「等待行展开还是看不全」——截图里句中截断没有省略号标记，真实消息 1559 字；摘而不全即违反铁律 7，展开必须能拿到整步全文。</span></summary>
+    <div class="term-body solo"><div class="pane" data-t="IN · 摘要">
+      <div class="rich"><p>修一下「等待行展开还是看不全」——截图里句中截断没有省略号标记，真实消息 1559 字；摘而不全即违反铁律 7，展开必须能拿到整步全文。</p></div>
+      <div class="hint">展开后自动拉取整条输入全文(超出转录留存范围会显式提示)</div>
+    </div></div>
+  </details>
+  <details class="term promptline">
+    <summary><span class="pk">18:44:51</span><span class="pt">部署时注意 guard 竞态：旧看护循环会把旧版本服务重新拉起占端口。</span></summary>
+    <div class="term-body solo"><div class="pane" data-t="IN · 不可回取">
+      <div class="rich"><p class="missnote">⚠ 该输入已超出转录留存范围，无法回取全文（此处为 300 字以内摘要原样展示）</p></div>
+    </div></div>
+  </details>
+
+  <details class="term waitline"><summary><span class="wk">在等 · AskUserQuestion</span><span class="wt">两个方案：A 摘要+懒拉全文(与等待行同契约)；B 全文直接进尾窗载荷。我倾向 A,payload 可控且跨轮询不重取 —— 选哪个?</span></summary>
+    <div class="term-body solo"><div class="pane" data-t="OUT · 最后输出"><div class="rich"><p>…</p></div></div></div>
+  </details>
+
+  <div class="strip"><span class="ph on">最近工具 AskUserQuestion</span>
+  <span class="ph fin">tok in 41,208 / out 9,314 / cacheR 1.2M</span>
+  <span class="ph fin">subagents 2/2</span></div>
+  <div class="thead"><span></span><span>步骤 · 输出</span><span>工具</span><span class="num">TOK in/out</span><span class="num">时间</span><span class="num"></span><span></span></div>
+  <details class="term"><summary class="arow"><span class="glyph s-done">▸</span><span class="lbl">后端回传 lastTextMid,前端等待行挂 data-src 走 FULL 懒拉全文…</span><span class="tool">Edit Bash</span><span class="num">6,201/844</span><span class="num">18:40:12</span><span></span></summary></details>
+  <details class="term"><summary class="arow"><span class="glyph s-running">◈</span><span class="lbl">构建前端产物并复跑无头断言…</span><span class="tool">Bash</span><span class="num">3,910/502</span><span class="num">18:41:55</span><span></span></summary></details>
+</div>
+
+<div class="card">
+  <div class="hd"><span class="b b-ended">ENDED</span>
+  <h2>会话没有可提取输入时(纯工具流)</h2><span class="rid">8ff7fbd4</span>
+  <span class="meta">主 agent · opus-4-5</span></div>
+  <div class="cwd">~/downloads-0807 · T09-04 启动 · 最后活动 11:02:41</div>
+  <div class="phead"><span>你输入 · 尾窗 1 条</span></div>
+  <details class="term promptline"><summary><span class="pk">10:58:03</span><span class="pt">这张卡演示「无最初徽标」的普通形态：会话首条输入仍在尾窗内时，第一行就是它，不另标。</span></summary>
+  <div class="term-body solo"><div class="pane" data-t="IN · 摘要"><div class="rich"><p>这张卡演示「无最初徽标」的普通形态：会话首条输入仍在尾窗内时，第一行就是它，不另标。</p></div></div></div></details>
+</div>
+
+</main>
+<script>
+var TS=[['night','☾ 磷光夜'],['day','☀ 日光台'],['ice','❄ 冰原'],['volt','⚡ 磁暴'],['ink','◈ 墨铁']];
+var h=location.hash.slice(1),i=Math.max(0,TS.findIndex(function(t){return t[0]===h}));
+var b=document.getElementById('dtheme');
+function paint(){document.body.classList.remove('night','ice','volt','ink');
+if(TS[i][0]!=='day')document.body.classList.add(TS[i][0]);
+b.textContent=TS[i][1]+' ▸ 点击换下一个';}
+b.onclick=function(){i=(i+1)%TS.length;paint();};paint();
+</script></body></html>

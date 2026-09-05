@@ -65,6 +65,7 @@ run 级 `durationMs`/`toolCalls`/`startTime` —— 成本面板与甘特视图*
 - 方案：已有 `stopReason`/pending 数据；把 session 卡状态细分「⏸ 等待用户输入」高亮；webhook 通知增加 `input_required` 类消息（区别于终态）。
 - 收益：多数真痛点是「卡住了在等我」，而不是「跑完了让我看」。
 - 落地：`sessions.main_state()` 三分成因（ask/permission/turn）→ 卡面反白 ⏸ 徽标 + 色条 +「在等 …」行；通知 `kind=input_required` 独立档位 off/blocked/all（默认 blocked＝只发真卡住）；去重键 `sess|<id>|<静默起点>`＝一次等待一条。**顺带修掉一个挡路的既有 bug**：会话候选原来只遍历目录，无子代理的纯交互会话（正是"在等你"的那个）根本不出现在 `/api/sessions`。
+- v1.2.13 补丁①：页面显示按成因分档——ask/permission 才亮 ⏸ 告警（`sessStuck` 单点判定），turn（执行完成、正常交回话轮）显示安静青色「回合已完」、不计 ⏸/不闪/无色条；用户报"关了等待通知仍被提示等待输入"根因在此（档位只管推送，页面曾把 turn 一律告警化）。②卡顶「❯ 你输入」提示词回显（`_user_prompt` 剔除注入噪声/命令包装，uuid 锚点懒拉全文，首条「最初」兜尾窗外）。
 
 **3.3 hooks 即时事件源（hooks/hooks.json）** ⭐ 架构升级点
 - 方案：插件自带 `hooks/hooks.json`：

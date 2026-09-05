@@ -20,6 +20,7 @@ interface Subagent {
   state: string; lastTool?: string | null; pendingTools: string[]; toolCalls: number;
   tokens: Tok; lastActivityAt: number; prompt: string; lastText: string;
 }
+interface PromptEcho { u: string; t: string; ts: string; f?: number }  // u=转录记录 uuid(全文回取锚点) f=1 头扫补入的首条
 interface SessionState {
   sessionId: string; project: string; cwd: string; title: string; status: string; alive: boolean;
   pid?: number | null; kind?: string | null; version?: string | null; startedAt: number; lastActivityAt: number;
@@ -27,6 +28,7 @@ interface SessionState {
   waitReason?: string | null; waitTool?: string | null;  // status=input_required 时的成因:ask|permission|turn
   tokens: Tok; pendingTools: string[]; toolCalls: number; lastPrompt: string; lastText: string;
   lastTextMid?: string;  // lastText 所在消息 id;等待行全文抽屉 data-src=main#<id> 的回取锚点
+  prompts?: PromptEcho[];  // 卡顶「你输入 ❯」:尾窗用户输入(摘要+uuid 锚点懒拉全文)+ 头扫首条(f:1)
   steps: Step[]; subagents: Subagent[];
 }
 interface RunsResp { now: number; ver?: string; recentDays?: number; runs: Run[] }

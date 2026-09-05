@@ -111,6 +111,8 @@ main{padding:18px 16px 70px;display:flex;flex-direction:column;gap:16px;max-widt
 .b-failed,.b-error,.b-stale,.b-killed,.b-timeout{color:var(--rd);border-color:color-mix(in srgb,var(--rd) 55%,transparent)}
 .b-aborted{color:var(--dim);border-color:var(--ln2);border-style:dashed}
 .b-waiting,.b-ended{color:var(--cy);border-color:color-mix(in srgb,var(--cy) 50%,transparent)}
+/* 回合已完(waitReason=turn):模型说完、正常交回话轮 = 执行完成 —— 安静显示,不占用 ⏸ 告警视觉(1.2.13) */
+.b-turn{color:var(--cy);border-color:color-mix(in srgb,var(--cy) 55%,transparent)}
 .b-ended{border-style:dashed;color:var(--dim)}
 .s-waiting{color:var(--cy)}.s-idle{color:var(--dim2)}.s-ended{color:var(--dim)}
 .secttl{display:flex;align-items:baseline;gap:14px;max-width:1150px;margin:14px auto -6px;padding:0 16px;font:600 10px var(--disp);letter-spacing:.28em;color:var(--am)}
@@ -129,6 +131,24 @@ main.sesstop{padding-bottom:2px}
 .waitline .wk{color:var(--am);letter-spacing:.08em;white-space:nowrap}
 .waitline .wt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .waitline .term-body{margin:0 9px 9px}
+.waitline.turn{border-color:color-mix(in srgb,var(--cy) 45%,transparent);background:color-mix(in srgb,var(--cy) 6%,transparent)}
+.waitline.turn>summary::after,.waitline.turn .wk{color:var(--cy)}
+/* 输入寄存器(prompt echo):❯=终端提示符 —— 机器等你(⏸ 琥珀虚线)对仗你已给出(❯ 青左线)。
+   眉标把留存上限摊在界面上(铁律7);摘要仅作折叠,展开=IN pane 全文/不可回取三态(与等待行同契约) */
+.phead{display:flex;align-items:baseline;gap:9px;margin-top:9px;font:500 9px var(--mono);letter-spacing:.24em;color:var(--dim2)}
+.phead::before{content:'❯';font:600 12px/1 var(--mono);color:var(--cy);letter-spacing:0}
+.phead::after{content:'';flex:1;height:1px;background:var(--ln)}
+.promptline{display:block;margin-top:4px;padding:0;border:0;border-left:2px solid color-mix(in srgb,var(--cy) 55%,transparent);background:color-mix(in srgb,var(--cy) 7%,transparent);font:500 11px var(--mono)}
+.promptline>summary{display:flex;align-items:baseline;gap:9px;padding:4px 9px 4px 8px;cursor:pointer;list-style:none}
+.promptline>summary::-webkit-details-marker{display:none}
+.promptline>summary::after{content:'▾';color:var(--cy);margin-left:auto}
+.promptline[open]>summary::after{content:'▾';transform:rotate(180deg)}
+.promptline>summary:hover{background:var(--hov)}
+.promptline>summary:focus-visible{outline:1px solid var(--cy);outline-offset:-2px}
+.promptline .pk{color:var(--cy);letter-spacing:.08em;white-space:nowrap;font-variant-numeric:tabular-nums}
+.promptline .pt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.promptline .term-body{margin:2px 9px 8px 8px}
+.fchip{border:1px solid var(--cy);color:var(--cy);font:600 8px var(--mono);letter-spacing:.18em;padding:0 5px;white-space:nowrap;align-self:center}
 .pane .hint{margin-top:8px;font:500 10px/1.65 var(--mono);color:var(--dim2);letter-spacing:.02em;border-top:1px dashed var(--ln);padding-top:6px}
 .wtag{color:var(--am);font-weight:700}
 @keyframes blink{50%{opacity:.45}}

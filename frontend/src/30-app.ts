@@ -92,8 +92,8 @@ function renderSessions(): void {
   if (!sess.length) { tt.hidden = true; el.innerHTML = ''; return; }
   tt.hidden = false;
   const q = fstr.toLowerCase();
-  const hit = (s: SessionState) => (!fproj || (s.cwd || s.project) === fproj) && (!q || (s.title + ' ' + s.sessionId + ' ' + (s.cwd || s.project) + ' ' + s.status + ' ' + (s.waitReason || '') + ' ' + (s.waitTool || '') + ' ' + (s.lastPrompt || '') + ' ' + (s.subagents || []).map(a => a.label + ' ' + (a.description || '')).join(' ')).toLowerCase().includes(q));
-  const vis = sess.filter(hit), live = sess.filter(s => s.alive).length, waiting = vis.filter(s => s.status === 'input_required').length;
+  const hit = (s: SessionState) => (!fproj || (s.cwd || s.project) === fproj) && (!q || (s.title + ' ' + s.sessionId + ' ' + (s.cwd || s.project) + ' ' + s.status + ' ' + (s.waitReason || '') + ' ' + (s.waitTool || '') + ' ' + (s.lastPrompt || '') + ' ' + (s.prompts || []).map(p => p.t).join(' ') + ' ' + (s.subagents || []).map(a => a.label + ' ' + (a.description || '')).join(' ')).toLowerCase().includes(q));
+  const vis = sess.filter(hit), live = sess.filter(s => s.alive).length, waiting = vis.filter(sessStuck).length;  // ⏸ 只数真卡住(ask/permission);回合已完(turn)不算等待(1.2.13)
   tt.innerHTML = `${T('AGENT 状态 · 会话(主+子)')} ${vis.length}${live ? ' · ' + T('活跃') + ' ' + live : ''}${waiting ? ' · <b class="wtag">⏸ ' + T('等待输入') + ' ' + waiting + '</b>' : ''}`;
   if (!vis.length) { el.innerHTML = `<p class="idle">${T('NO MATCH · 无匹配会话')}</p>`; spainted = true; return; }
   if (el.querySelector('.idle')) el.innerHTML = '';
