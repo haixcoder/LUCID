@@ -197,6 +197,15 @@ details.term{margin:0}
 @media(max-width:860px){.term-body{grid-template-columns:1fr}}
 .pane{border:1px solid var(--ln);background:var(--pnl2);padding:11px 13px;position:relative;box-shadow:var(--sh);min-width:0}
 .pane::before{content:attr(data-t);position:absolute;top:-7px;left:9px;background:var(--pnl);padding:0 7px;font:600 8px var(--mono);letter-spacing:.3em;color:var(--am)}
+/* 全文回取转场(1.2.17):.q=拉取中循环扫描光(预告"即将换全文",消解"突然一闪");.xfp=到达时一次性高光扫过;.xf=新内容淡入(透明度+上浮+去模糊)。色只取各主题皆有的 --amr */
+@keyframes qsw{from{background-position:185% 0}to{background-position:-35% 0}}
+@keyframes xfpSweep{from{background-position:185% 0;opacity:.8}to{background-position:-35% 0;opacity:0}}
+@keyframes richXf{from{opacity:0;transform:translateY(6px);filter:blur(3px)}to{opacity:1;transform:none;filter:blur(0)}}
+.pane.q::after,.pane.xfp::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 30%,var(--amr) 46%,var(--amr) 54%,transparent 70%);background-size:220% 100%}
+.pane.q::after{animation:qsw 1.1s linear infinite;opacity:.4}
+.pane.xfp::after{animation:xfpSweep .75s ease-out 1 both}
+.rich.xf{animation:richXf .5s cubic-bezier(.22,.9,.34,1) both}
+@media(prefers-reduced-motion:reduce){.pane.q::after,.pane.xfp::after,.rich.xf{animation:none}}
 .rich,.pane pre{max-height:clamp(300px,45vh,560px);overflow:auto;padding-right:4px}
 .rich p{margin:0 0 11px;font-size:12px;line-height:1.8;color:var(--tx);word-break:normal;overflow-wrap:anywhere;white-space:pre-wrap}
 .rich p:last-child{margin-bottom:2px}

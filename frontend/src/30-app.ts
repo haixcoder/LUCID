@@ -190,23 +190,28 @@ const onToggle = (e: Event) => {
   } else {
     url = `/api/agent?proj=${encodeURIComponent(sp[0] || '')}&sess=${encodeURIComponent(sp[1] || '')}&run=${encodeURIComponent(sp[2] || '')}&agent=${encodeURIComponent(sp[3] || '')}`;
   }
+  // 活节点查询:fetch 期间轮询可能已重建卡片(x 成孤儿节点),一律按 data-k 重查再写
+  const live = () => ((x.ownerDocument || document).querySelector(`details[data-k="${CSS.escape(k)}"]`) as HTMLElement | null) || x;
+  const livePanes = () => live().querySelectorAll<HTMLElement>('.pane');
+  // 转场(用户反馈"约 1 秒后突然一闪"):展开即给 pane 挂 .q 拉取扫描光,"等一下"变成有预告的过渡;
+  // 到达时换内容的 pane 走 .xf 内容淡入 + .xfp 一次性扫光(见 template.html keyframes)
+  livePanes().forEach(pn => pn.classList.add('q'));
   const note = (txt: string) => {
-    const cur = ((x.ownerDocument || document).querySelector(`details[data-k="${CSS.escape(k)}"]`) as HTMLElement | null) || x;
-    const rich = cur.querySelector<HTMLElement>('.pane .rich'); if (rich) rich.textContent = txt;
+    livePanes().forEach(pn => pn.classList.remove('q'));
+    const rich = live().querySelector<HTMLElement>('.pane .rich'); if (rich) rich.textContent = txt;
   };
   fetch(url).then(r => r.json()).then(rd => {
     const d = rd as FullResp;
-    if (FULL[k]) return;
+    if (FULL[k]) { livePanes().forEach(pn => pn.classList.remove('q')); return; }  // 并发展开已回填:摘掉加载态防止扫描光永挂
     FULL[k] = { p: d.prompt || '', r: d.result || '', m: !!d.miss };
-    // fetch 期间轮询可能已重建卡片(x 成孤儿节点):按 data-k 重查活节点再写入;
-    // 且 card/sessCard 均为 FULL 感知渲染,重建卡自带全文——不再出现"闪一下变空白"
-    const cur = ((x.ownerDocument || document).querySelector(`details[data-k="${CSS.escape(k)}"]`) as HTMLElement | null) || x;
-    cur.querySelectorAll<HTMLElement>('.pane').forEach(pn => {
-      const t = pn.dataset.t || '', rich = pn.querySelector('.rich'); if (!rich) return;
-      if (t.startsWith('IN') && FULL[k].p) { rich.innerHTML = mdLite(wrapLong(unent(FULL[k].p))); pn.dataset.t = 'IN · ' + T('全文'); }
-      else if (t.startsWith('IN') && d.miss) { rich.textContent = T('⚠ 该步已超出转录留存范围，无法回取全文'); pn.dataset.t = 'IN · ' + T('不可回取'); }
-      if (t.startsWith('OUT') && FULL[k].r) { rich.innerHTML = mdLite(pretty(unent(FULL[k].r))); pn.dataset.t = 'OUT · ' + T('全文'); }
-      else if (t.startsWith('OUT') && d.miss) { rich.textContent = T('⚠ 该步已超出转录留存范围，无法回取全文'); pn.dataset.t = 'OUT · ' + T('不可回取'); }
+    livePanes().forEach(pn => {
+      const t = pn.dataset.t || '', rich = pn.querySelector<HTMLElement>('.rich'); pn.classList.remove('q'); if (!rich) return;
+      let xf = false;
+      if (t.startsWith('IN') && FULL[k].p) { rich.innerHTML = mdLite(wrapLong(unent(FULL[k].p))); pn.dataset.t = 'IN · ' + T('全文'); xf = true; }
+      else if (t.startsWith('IN') && d.miss) { rich.textContent = T('⚠ 该步已超出转录留存范围，无法回取全文'); pn.dataset.t = 'IN · ' + T('不可回取'); xf = true; }
+      if (t.startsWith('OUT') && FULL[k].r) { rich.innerHTML = mdLite(pretty(unent(FULL[k].r))); pn.dataset.t = 'OUT · ' + T('全文'); xf = true; }
+      else if (t.startsWith('OUT') && d.miss) { rich.textContent = T('⚠ 该步已超出转录留存范围，无法回取全文'); pn.dataset.t = 'OUT · ' + T('不可回取'); xf = true; }
+      if (xf) { void pn.offsetWidth; pn.classList.add('xfp'); rich.classList.add('xf'); }  // offsetWidth 强制 reflow:扫光可从 .q 位置起重播
     });
   }).catch(err => { note(T('⚠ 全文加载失败: ') + String((err && (err as Error).message) || err)); });
 };
