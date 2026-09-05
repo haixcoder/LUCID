@@ -26,7 +26,7 @@ function card(r: Run, i: number): string {
   <span class="glyph s-${esc(a.state)}" ${a.state === 'running' ? `style="${AD(1.5)}"` : ''} title="${esc(a.state)}">${GLY(a.state)}</span>
   <span class="lbl">${esc(a.label)}</span><span class="phc">${esc(a.phase || '')}</span><span class="tool">${esc(a.lastTool || '')}</span>
   <span class="num">${fmtN(a.tokens)}</span><span class="num">${fmtT(a.durationMs)}</span><span class="tw"></span></summary>
-  ${d ? `<div class="term-body${P && R ? '' : ' solo'}">${P ? `<div class="pane" data-t="IN · ${T(fu.p ? '全文' : '截断预览')}"><div class="rich">${mdLite(wrapLong(P))}</div></div>` : ''}${R ? `<div class="pane" data-t="OUT · ${T(fu.r ? '全文' : '截断预览')}"><div class="rich">${mdLite(pretty(R))}</div></div>` : ''}</div>` : ''}</details>`;
+  ${d ? `<div class="term-body${P && R ? '' : ' solo'}">${P ? paneIn(T(fu.p ? '全文' : '截断预览'), P) : ''}${R ? paneOut(T(fu.r ? '全文' : '截断预览'), R) : ''}</div>` : ''}</details>`;
   }).join('')}
   ${r.logs.length ? `<div style="margin-top:10px"><details class="term" data-k="${esc(r.runId)}:logs"><summary style="cursor:pointer;list-style:none;font:500 10px var(--mono);letter-spacing:.14em;color:var(--cy)">${T('系统日志尾(%1 行·单行≤%2字)', r.logs.length, 500)}</summary>
   <div class="term-body solo"><div class="pane" data-t="SYS · LOGS"><pre>${esc(r.logs.join('\n'))}</pre></div></div></details></div>` : ''}
@@ -34,6 +34,15 @@ function card(r: Run, i: number): string {
   <div class="term-body solo"><div class="pane" data-t="RUN · RESULT"><div class="rich">${mdLite(pretty(r.result))}</div></div></div></details></div>` : ''}
   </div>`;
 }
+
+// IN/OUT 抽屉面板的单点构造(1.2.18):tag=「全文/截断预览/工具」等态标签,txt=正文。
+// 统一过 unent——修此前 workflow 卡"预览不解实体、展开后才解"的口径不一(同内容展开前后渲染不一致)。
+const paneIn = (tag: string, txt: string): string => `<div class="pane" data-t="IN · ${tag}"><div class="rich">${mdLite(wrapLong(unent(txt)))}</div></div>`;
+const paneOut = (tag: string, txt: string): string => `<div class="pane" data-t="OUT · ${tag}"><div class="rich">${mdLite(pretty(unent(txt)))}</div></div>`;
+
+// 运行终态 → 仪表 ALERT 计数集(单一判定点)。新增 status 需同步核对四处显示位:
+// 此集合 / template.html 的 .b-<status> 样式 / 10-util 的 GL 字图标 / notify.py 的 STATUS_ZH 白名单。
+const ALERT_ST = new Set(['failed', 'error', 'stale', 'aborted', 'killed', 'timeout']);
 
 // 等待显示策略(单一判定处;renderSessions 的 ⏸ 计数复用):ask/permission=真卡住、该你动手 → 琥珀闪烁告警;
 // turn=模型说完、正常交回话轮(执行完成)→ 安静"回合已完",不再占用告警视觉。notifyInput 档位只门控推送、
@@ -88,7 +97,7 @@ function sessCard(r: SessionState, i: number): string {
   <span class="lbl" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((s.text || '').replace(/\s+/g, ' ').slice(0, 110)) || `<i style="opacity:.45">${T('(工具调用步)')}</i>`}</span>
   <span class="tool">${esc((s.tools || []).join(' '))}</span>
   <span class="num">${fmtN(s.tokIn)}/${fmtN(s.tokOut)}</span><span class="num">${s.ts ? fmtC(Date.parse(s.ts)) : '—'}</span><span class="tw"></span></summary>
-  <div class="term-body${R && P ? '' : ' solo'}"><div class="pane" data-t="IN · ${T(P ? '工具入参全文' : '工具')}"><div class="rich">${P ? mdLite(wrapLong(unent(P))) : esc((s.tools || []).map(t => '● ' + t).join(' ')) || T('(本步无工具调用)')}</div></div>${R ? `<div class="pane" data-t="OUT · ${T(fu.r !== undefined ? '全文' : '截断预览')}"><div class="rich">${mdLite(pretty(unent(R)))}</div></div>` : ''}</div></details>`;
+  <div class="term-body${R && P ? '' : ' solo'}"><div class="pane" data-t="IN · ${T(P ? '工具入参全文' : '工具')}"><div class="rich">${P ? mdLite(wrapLong(unent(P))) : esc((s.tools || []).map(t => '● ' + t).join(' ')) || T('(本步无工具调用)')}</div></div>${R ? paneOut(T(fu.r !== undefined ? '全文' : '截断预览'), R) : ''}</div></details>`;
   }).join('')}` : ''}
   ${sa.length ? `<div class="thead"><span></span><span>AGENT</span><span>${T('类型 · 模型')}</span><span>${T('最近工具')}</span><span class="num">TOK in/out</span><span class="num">${T('最后活动')}</span><span></span></div>
   ${sa.map(a => {
@@ -97,7 +106,7 @@ function sessCard(r: SessionState, i: number): string {
   <span class="glyph s-${esc(a.state)}" ${a.state === 'running' ? `style="${AD(1.5)}"` : ''} title="${esc(a.state)}${a.pendingTools.length ? ' → ' + esc(a.pendingTools.join(',')) : ''}">${GLY(a.state)}</span>
   <span class="lbl">${esc(a.label)}</span><span class="phc">${esc((a.kind === 'teammate' ? 'T·' : '') + (a.agentType || 'agent'))} · ${esc(a.model || '')}</span><span class="tool">${esc(a.lastTool || '')}</span>
   <span class="num">${fmtN(a.tokens ? a.tokens.input : null)}/${fmtN(a.tokens ? a.tokens.output : null)}</span><span class="num">${fmtC(a.lastActivityAt)}</span><span class="tw"></span></summary>
-  ${P || R ? `<div class="term-body${P && R ? '' : ' solo'}">${P ? `<div class="pane" data-t="IN · ${T(fu.p ? '全文' : '截断预览')}"><div class="rich">${mdLite(wrapLong(unent(P)))}</div></div>` : ''}${R ? `<div class="pane" data-t="OUT · ${T(fu.r !== undefined ? '全文' : '截断预览')}"><div class="rich">${mdLite(pretty(unent(R)))}</div></div>` : ''}</div>` : ''}</details>`;
+  ${P || R ? `<div class="term-body${P && R ? '' : ' solo'}">${P ? paneIn(T(fu.p ? '全文' : '截断预览'), P) : ''}${R ? paneOut(T(fu.r !== undefined ? '全文' : '截断预览'), R) : ''}</div>` : ''}</details>`;
   }).join('')}` : ''}
   </div>`;
 }

@@ -56,7 +56,9 @@ htest2.onclick = async () => {  // 分型测试：按「等待用户输入」的
   hmsg.textContent = (r.ok ? T('✓ 等待通知已送达 ') : '✗ ' + T(r.msg || '失败')) + String((r.last && r.last.reply) || '');
   hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
 };
-const VER = (($('wfo-ver') as HTMLMetaElement) && $('wfo-ver').getAttribute('content')) || '';
+// 构建戳自取。历史坑:曾写作 $('wfo-ver') —— getElementById 只认 id,而模板里是 <meta name=...>,
+// 真浏览器返回 null → VER 恒为空 → "旧标签页自动换新代码"与版本角标静默失效多版(无头桩按规范复现,1.2.18 修)。
+const VER = (document.querySelector('meta[name="wfo-ver"]') as HTMLMetaElement | null)?.getAttribute('content') || '';
 async function tick(): Promise<void> {
   let d: RunsResp, s: SessionsResp;
   try {
@@ -87,6 +89,39 @@ function fullError(msg: string, stack: string): void {
   <h2>${T('渲染异常 · 页面数据可能不完整')}</h2><span class="meta">${T('完整堆栈同时打在 F12 控制台')}</span></div>
   <div class="term-body solo" style="margin:10px 0 0"><div class="pane" data-t="ERR · JS"><pre>${esc(msg)}${stack ? '\n\n' + esc(stack) : ''}</pre></div></div></div>`;
 }
+// ── 按卡 diff 渲染:render()/renderSessions() 共用的唯一实现(1.2.18 抽取) ─────────────
+// 这里住着卡片区所有用血换来的不变量,是"改一处两处同审"教训的结构性终结——新增卡片区直接复用:
+//  · 稳定节点身份:HTML 串不变的卡绝不重建(滚动/选中/hover/details 展开不闪);
+//  · outerHTML 重建后 ref 必须同步到新节点(旧节点已脱离文档,拿它 insertBefore 抛 NotFoundError 打断整轮渲染);
+//  · details open 态 + pane scrollTop 快照跨重建恢复(不恢复即"点开即关"复发);
+//  · 离开的 rid 连 store 串一并删除(防陈旧 diff 串滞留);
+//  · 新出现卡片在稳态只演一次入场(.en + delay 0)。
+function diffPaint(el: HTMLElement, store: Record<string, string>, items: { id: string; html: string }[], painted: boolean): void {
+  const open = new Set([...el.querySelectorAll<HTMLDetailsElement>('details[open]')].map(x => x.dataset.k || ''));
+  const sc: Record<string, number[]> = {};
+  el.querySelectorAll('details').forEach(x => { if (x.dataset.k) sc[x.dataset.k] = [...x.querySelectorAll<HTMLElement>('.rich,.pane pre')].map(s => s.scrollTop); });
+  const seen = new Set<string>(); let ref: Element | null = el.firstElementChild;
+  for (const { id, html } of items) {
+    seen.add(id); const sl = `:scope>div[data-rid="${CSS.escape(id)}"]`; let e2 = el.querySelector(sl) as HTMLElement | null;
+    if (!e2) {
+      store[id] = html; const t = document.createElement('template'); t.innerHTML = html; e2 = t.content.firstElementChild as HTMLElement;
+      if (painted) { e2.classList.add('en'); e2.style.animationDelay = '0ms'; }  // 运行中新出现的卡:单卡入场
+      el.insertBefore(e2, ref);
+    } else {
+      if (store[id] !== html) {
+        store[id] = html; const was = e2; e2.outerHTML = html; e2 = el.querySelector(sl) as HTMLElement | null;
+        if (ref === was) ref = e2;  // outerHTML 分离旧节点:ref 若正指着它必须跟到新节点(NotFoundError 根因)
+      }
+      if (e2 && e2 !== ref) el.insertBefore(e2, ref);
+    }
+    ref = e2 ? e2.nextElementSibling : null;
+  }
+  for (const x of [...el.children] as HTMLElement[]) { const rid = x.dataset.rid; if (rid && !seen.has(rid)) { delete store[rid]; x.remove(); } }
+  if (open.size) el.querySelectorAll('details').forEach(x => {
+    const dk = x.dataset.k || '';
+    if (open.has(dk)) { x.open = true; x.classList.add('noanim'); const v = sc[dk]; if (v) x.querySelectorAll<HTMLElement>('.rich,.pane pre').forEach((s2, i2) => { if (v[i2]) s2.scrollTop = v[i2]; }); }
+  });
+}
 function renderSessions(): void {
   const el = $('sess'), tt = $('secttl');
   if (!sess.length) { tt.hidden = true; el.innerHTML = ''; return; }
@@ -97,31 +132,8 @@ function renderSessions(): void {
   tt.innerHTML = `${T('AGENT 状态 · 会话(主+子)')} ${vis.length}${live ? ' · ' + T('活跃') + ' ' + live : ''}${waiting ? ' · <b class="wtag">⏸ ' + T('等待输入') + ' ' + waiting + '</b>' : ''}`;
   if (!vis.length) { el.innerHTML = `<p class="idle">${T('NO MATCH · 无匹配会话')}</p>`; spainted = true; return; }
   if (el.querySelector('.idle')) el.innerHTML = '';
-  // 展开态与 pane 滚动位置快照:活跃会话卡每轮 HTML 都会变→outerHTML 重建→不恢复则"点开即关"(与 render() 同契约)
-  const open = new Set([...el.querySelectorAll<HTMLDetailsElement>('details[open]')].map(x => x.dataset.k || ''));
-  const sc: Record<string, number[]> = {};
-  el.querySelectorAll('details').forEach(x => { if (x.dataset.k) sc[x.dataset.k] = [...x.querySelectorAll<HTMLElement>('.rich,.pane pre')].map(s => s.scrollTop); });
-  const seen = new Set<string>(); let ref: Element | null = el.firstElementChild;
-  for (const [i, r] of vis.entries()) {
-    const h = sessCard(r, i); seen.add(r.sessionId); const sl = `:scope>div[data-rid="${CSS.escape(r.sessionId)}"]`; let e2 = el.querySelector(sl) as HTMLElement | null;
-    if (!e2) {
-      SCARDS[r.sessionId] = h; const t = document.createElement('template'); t.innerHTML = h; e2 = t.content.firstElementChild as HTMLElement;
-      if (spainted) { e2.classList.add('en'); e2.style.animationDelay = '0ms'; }  // 新出现的会话卡:单卡入场
-      el.insertBefore(e2, ref);
-    } else {
-      if (SCARDS[r.sessionId] !== h) {
-        SCARDS[r.sessionId] = h; const was = e2; e2.outerHTML = h; e2 = el.querySelector(sl) as HTMLElement | null;
-        if (ref === was) ref = e2;  // 同 render():outerHTML 分离旧节点后 ref 必须跟到新节点,否则 insertBefore 抛错
-      }
-      if (e2 && e2 !== ref) el.insertBefore(e2, ref);
-    }
-    ref = e2 ? e2.nextElementSibling : null;
-  }
-  for (const x of [...el.children] as HTMLElement[]) { const rid = x.dataset.rid; if (rid && !seen.has(rid)) { delete SCARDS[rid]; x.remove(); } }
-  if (open.size) el.querySelectorAll('details').forEach(x => {
-    const dk = x.dataset.k || '';
-    if (open.has(dk)) { x.open = true; x.classList.add('noanim'); const v = sc[dk]; if (v) x.querySelectorAll<HTMLElement>('.rich,.pane pre').forEach((s2, i2) => { if (v[i2]) s2.scrollTop = v[i2]; }); }
-  });
+  // 活跃会话卡每轮 HTML 都会变→outerHTML 重建;快照/恢复等契约全在 diffPaint(与运行卡区同一实现)
+  diffPaint(el, SCARDS, vis.map((r, i) => ({ id: r.sessionId, html: sessCard(r, i) })), spainted);
   spainted = true;
 }
 function render(): void {
@@ -140,34 +152,14 @@ function render(): void {
   const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行', vis.length, runs.length))}"` : ''}><b>${vis.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
     <div class="g lv"><b>${n(r => r.status === 'running')}</b><span>LIVE</span></div>
     <div class="g ok"><b>${n(r => r.status === 'completed')}</b><span>DONE</span></div>
-    <div class="g er"><b>${n(r => ['failed', 'error', 'stale', 'aborted', 'killed', 'timeout'].includes(r.status))}</b><span>ALERT</span></div>`;
+    <div class="g er"><b>${n(r => ALERT_ST.has(r.status))}</b><span>ALERT</span></div>`;
   if (gh !== GSTR[0]) { $('gauges').innerHTML = gh; GSTR[0] = gh; }
-  const open = new Set([...list.querySelectorAll<HTMLDetailsElement>('details[open]')].map(x => x.dataset.k || ''));
-  const sc: Record<string, number[]> = {};
-  list.querySelectorAll('details').forEach(x => { if (x.dataset.k) sc[x.dataset.k] = [...x.querySelectorAll<HTMLElement>('.rich,.pane pre')].map(s => s.scrollTop); });
-  // 按卡 diff:完成卡数据冻结→HTML 串稳定→DOM 永不重建,滚动/选中/hover 不跳动;仅数据真变的运行卡局部重建
-  const seen = new Set<string>(); let ref: Element | null = list.firstElementChild;
-  for (const [ii, r] of vis.entries()) {
-    const h = card(r, ii); seen.add(r.runId); const selx = `:scope>div[data-rid="${r.runId}"]`; let el = list.querySelector(selx) as HTMLElement | null;
-    if (!el) {
-      CARDS[r.runId] = h; const t = document.createElement('template'); t.innerHTML = h; el = t.content.firstElementChild as HTMLElement;
-      if (painted) { el.classList.add('en'); el.style.animationDelay = '0ms'; }  // 运行中新出现的卡:单卡入场
-      list.insertBefore(el, ref);
-    } else {
-      if (CARDS[r.runId] !== h) {
-        CARDS[r.runId] = h; const was = el; el.outerHTML = h; el = list.querySelector(selx) as HTMLElement | null;
-        if (ref === was) ref = el;  // outerHTML 分离旧节点:ref 若正指着它必须同步到新节点,否则 insertBefore(孤儿ref) 抛 NotFoundError 打断整轮渲染("链路中断"假象根因)
-      }
-      if (el && el !== ref) list.insertBefore(el, ref);
-    }
-    ref = el ? el.nextElementSibling : null;
-  }
-  if (vis.length) { for (const x of [...list.children] as HTMLElement[]) { const rid = x.dataset.rid; if (rid && !seen.has(rid)) x.remove(); } }
-  else if (!list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? T('NO MATCH · 无匹配运行，调整搜索或筛选') : T('TELEMETRY SILENT · 近 %1 天无 workflow 运行记录', rdays)}</p>`;
-  if (open.size) list.querySelectorAll('details').forEach(x => {
-    const dk = x.dataset.k || '';
-    if (open.has(dk)) { x.open = true; x.classList.add('noanim'); const v = sc[dk]; if (v) x.querySelectorAll<HTMLElement>('.rich,.pane pre').forEach((s2, i2) => { if (v[i2]) s2.scrollTop = v[i2]; }); }
-  });
+  // 空态→非空态:先摘 NO MATCH 段。<p.idle> 无 data-rid,下面的按卡清理会跳过它——不显式摘除就永久
+  // 残留在结果尾部(与 renderSessions 的 .idle 清理对称;历史缺失,无头桩 t-diff 复现,1.2.18 修)
+  if (vis.length && list.querySelector('.idle')) list.innerHTML = '';
+  // 按卡 diff 全在 diffPaint(与会话区同一实现):串稳定的卡绝不重建,滚动/选中/hover 不跳
+  diffPaint(list, CARDS, vis.map((r, ii) => ({ id: r.runId, html: card(r, ii) })), painted);
+  if (!vis.length && !list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? T('NO MATCH · 无匹配运行，调整搜索或筛选') : T('TELEMETRY SILENT · 近 %1 天无 workflow 运行记录', rdays)}</p>`;
   if (anc) {
     const ae = list.querySelector(`:scope>div[data-rid="${CSS.escape(anc)}"]`);
     if (ae) { const d = ae.getBoundingClientRect().top - off0; if (Math.abs(d) > 1) window.scrollTo(0, window.scrollY + d); }  // 锚点补偿(含 details 重开引起的最终高度)

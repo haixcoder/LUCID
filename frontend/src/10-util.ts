@@ -12,7 +12,6 @@ const fmtC = (t?: number | null): string => t ? new Date(t).toLocaleTimeString(l
 const inlineMd = (s: unknown): string => esc(s).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
 // IN 类 prompt 常是一整行无换行长文(mdLite 逐行分段失灵成文字墙):足够长且几乎无换行时按。；断行
 const wrapLong = (sv: unknown): string => { const s = String(sv ?? ''); return s.length < 420 || s.split('\n').filter(x => x.trim()).length > 3 ? s : s.replace(/([。；])(?=\S)/g, '$1\n'); };
-const esc2 = inlineMd;
 // 转录文本常带 HTML 实体转义竖线(数字实体)——不解码则 mdLite 认不出表格、页面上露出转义串
 const unent = (sv: unknown): string => {
   let x = String(sv ?? '');
@@ -38,9 +37,9 @@ const mdLite = (sv: unknown): string => {
   return s.split(/(?:\n\s*\n|(?=\n[^\s]))/).map(bl => {
     const pl = PH_ONLY.exec(bl.trim()); if (pl) return B[+pl[1]];
     const ls = bl.split('\n').filter(l => l.trim()); if (!ls.length) return '';
-    if (/^#{1,4}\s/.test(ls[0])) return `<p class="h3">${esc2(ls[0].replace(/^#{1,4}\s+/, ''))}</p>` + ls.slice(1).map(l => `<p>${esc2(l)}</p>`).join('');
+    if (/^#{1,4}\s/.test(ls[0])) return `<p class="h3">${inlineMd(ls[0].replace(/^#{1,4}\s+/, ''))}</p>` + ls.slice(1).map(l => `<p>${inlineMd(l)}</p>`).join('');
     const li = /^\s*([-•*]|\d+[.)、])/.test(ls[0]);
-    return `<p class="${li ? 'li' : ''}">${ls.map(esc2).join('\n')}</p>`;
+    return `<p class="${li ? 'li' : ''}">${ls.map(inlineMd).join('\n')}</p>`;
   }).join('')
     .replace(PH_ALL, (_m: string, i: string) => B[+i]);
 };

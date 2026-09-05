@@ -217,7 +217,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     '⚡ 磁暴': '⚡ Tempête magnétique',
     '◈ 墨铁': '◈ Encre et fer',
     '语言设置': 'Langue',
-    "界面文案语言，即时生效(仅存本机浏览器)": "Langue de l'interface · immédiate (locale à ce navigateur)",
+    '界面文案语言，即时生效(仅存本机浏览器)': "Langue de l'interface · immédiate (locale à ce navigateur)",
     '自动扫描': 'Rafraîch. auto',
     '每 2 秒轮询刷新': 'Sonder toutes les 2 s',
     '回看窗口': 'Historique',
