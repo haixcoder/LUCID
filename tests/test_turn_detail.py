@@ -57,6 +57,42 @@ with tempfile.TemporaryDirectory() as td:
        repr(d3['result']))
     d4 = sessions._step_detail(fp, 'msg_m4')
     ck('turn/in-edit-only', 'Edit' in d4['prompt'] and 'Bash' not in d4['prompt'], repr(d4['prompt']))
+
+    # —— 1.2.18「冒号收尾全文」契约(真实用户症状:抽屉里每段以:结尾,之后没有内容)——
+    # 根因:_turn_texts 只累计 text 块,工具调用/回执被丢。OUT 必须按时间序含回合内工具活动。
+    ck('out/tools-in-fulltext', 'Bash' in r and 'ls' in r and 'ok' in r, repr(r))
+    ck('out/tools-chrono', r.index('T-A1') < r.index('ls') < r.index('ok') < r.index('T-A2') < r.index('T-A3'), repr(r))
+    ck('out/no-cross-turn-tools', 'Edit' not in r and 'done' not in r, repr(r))
+    ck('out/last-turn-tools', 'Edit' in d3['result'] and 'done' in d3['result']
+       and 'ok' not in d3['result'] and 'ls' not in d3['result'], repr(d3['result']))
+
+    # 回合仍在跑(最后一个 ▸ 无回执)→ 显式标注,不许静默消失(铁律7:取不到要说明)
+    pend = Path(td) / 'p.jsonl'
+    pend.write_text('\n'.join([
+        rec('user', '跑C', 'u-c'),
+        rec('assistant', [{'type': 'text', 'text': '执行：'},
+                          {'type': 'tool_use', 'id': 't9', 'name': 'Bash',
+                           'input': {'command': 'sleep 99'}}], 'c1', mid='msg_c1'),
+    ]) + '\n', encoding='utf-8')
+    dp = sessions._step_detail(pend, 'msg_c1')
+    ck('out/pending-marker', 'sleep 99' in dp['result'] and '未回执' in dp['result'], repr(dp['result']))
+
+    # 流式重传同 tool_use 去重;回执逐条限长且超长显式标注「截断」
+    big = Path(td) / 'b.jsonl'
+    big.write_text('\n'.join([
+        rec('user', '跑D', 'u-d'),
+        rec('assistant', [{'type': 'text', 'text': 'D开始：'},
+                          {'type': 'tool_use', 'id': 't10', 'name': 'Bash',
+                           'input': {'command': 'cat big'}}], 'd1', mid='msg_d1'),
+        rec('assistant', [{'type': 'tool_use', 'id': 't10', 'name': 'Bash',
+                           'input': {'command': 'cat big'}}], 'd1b', mid='msg_d1'),
+        rec('user', [{'type': 'tool_result', 'tool_use_id': 't10', 'content': 'Y' * 5000}], 'd2'),
+        rec('assistant', [{'type': 'text', 'text': 'D收尾'}], 'd3m', mid='msg_d2'),
+    ]) + '\n', encoding='utf-8')
+    dl = sessions._step_detail(big, 'msg_d2')
+    ck('out/stream-dedup', dl['result'].count('▸') == 1, repr(dl['result'])[:200])
+    ck('out/result-cap-mark', '截断' in dl['result'] and dl['result'].count('Y') < 5000, repr(dl['result'])[:120])
+
     dm = sessions._step_detail(fp, 'msg_zzz')
     ck('turn/miss', dm.get('miss') is True and dm['result'] == '')
     sub = Path(td) / 'sub.jsonl'

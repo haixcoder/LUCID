@@ -11,7 +11,7 @@ import re
 import time
 
 from . import config
-from .config import DETAIL_CAP  # 全文端点单字段上限(与 api_agent 同值同契约,常量住 config)
+from .config import DETAIL_CAP, TURN_RESULT_CAP  # 全文契约常量(与 api_agent 同值同契约,住 config 单点)
 from .jsonl import head_records, iter_records, rev_lines, tail_records, tail_text
 from .scan import TOOL_RE, session_cwd
 
@@ -324,10 +324,43 @@ def _is_turn_boundary(d):
     return d.get('type') == 'user' and bool(_user_prompt(d))
 
 
+def _result_text(b):
+    """tool_result 块 → 可展示文本:文本块拼接/图片占位;is_error 标 ✕;逐条限长且超长显式标注(铁律7)。"""
+    c = b.get('content')
+    if isinstance(c, list):
+        parts = []
+        for x in c:
+            if not isinstance(x, dict):
+                continue
+            if x.get('type') == 'text':
+                parts.append(x.get('text') or '')
+            elif x.get('type') == 'image':
+                parts.append('[图片]')
+        c = '\n'.join(p for p in parts if p)
+    c = str(c or '').strip() or '(无文本回执)'
+    if b.get('is_error'):
+        c = '✕ ' + c
+    if len(c) > TURN_RESULT_CAP:
+        c = c[:TURN_RESULT_CAP] + '…(回执超 %d 字截断)' % TURN_RESULT_CAP
+    return c
+
+
 def _turn_texts(path, stop_mid=None):
-    """所在回合累计全文:自尾反向收集 assistant text 块直到上一条真人输入;stop_mid 给出时须先扫到该
-    message.id(其更新回合的文本在边界处丢弃)。返回 (时间序全文, 是否命中 stop_mid)。"""
-    texts, found, scanned = [], stop_mid is None, 0
+    """所在回合累计全文:自尾反向收集 assistant text 块 **与工具活动(▸ 调用入参/◂ 回执)** 直到上一条
+    真人输入;stop_mid 给出时须先扫到该 message.id(其更新回合的内容在边界处丢弃)。返回 (时间序全文, 是否命中 stop_mid)。
+    工具内容不许丢(1.2.18):模型习惯"过渡句:→ 调工具",只收 text 块会让工具型回合的全文变成一串以冒号
+    收尾的 empty 句、冒号后永远没内容(真实用户报告;转录里命令与回执俱在,显示层砍的=铁律7 违规)。
+    流式重传按 tool_use id 去重(同 _main_steps);最后一个无回执的 ▸ 标「未回执」——回合进行中时
+    让页面上看得到"正在跑什么"。"""
+    items, found, scanned = [], stop_mid is None, 0
+    names, seen_u, done_r = {}, set(), set()
+
+    def reset():
+        items.clear()
+        names.clear()
+        seen_u.clear()
+        done_r.clear()
+
     for ln in rev_lines(path):
         scanned += 1
         if scanned > 400000:  # 病态大会话的止损线(同 _step_detail)
@@ -339,17 +372,49 @@ def _turn_texts(path, stop_mid=None):
         if _is_turn_boundary(d):
             if found:
                 break
-            texts = []  # 边界之前(时间更靠后)的文本属于更新的回合,与目标消息无关
-            continue
-        if d.get('type') != 'assistant':
+            reset()  # 边界之前(时间更靠后)的内容属于更新的回合,与目标消息无关
             continue
         m = d.get('message') or {}
-        if m.get('id') == stop_mid:
-            found = True
-        for b in m.get('content') or []:
-            if isinstance(b, dict) and b.get('type') == 'text' and (b.get('text') or '').strip():
-                texts.append(b['text'])
-    return '\n\n'.join(reversed(texts))[:DETAIL_CAP], found
+        c = m.get('content')
+        if not isinstance(c, list):
+            continue
+        t = d.get('type')
+        if t == 'assistant':
+            if m.get('id') == stop_mid:
+                found = True
+            for b in c:
+                if not isinstance(b, dict):
+                    continue
+                if b.get('type') == 'text' and (b.get('text') or '').strip():
+                    items.append(['x', None, b['text']])
+                elif b.get('type') == 'tool_use':
+                    bid = b.get('id') or ''
+                    if bid in seen_u:  # 流式重传(同 id 多条记录)去重
+                        continue
+                    seen_u.add(bid)
+                    nm = b.get('name') or '?'
+                    names[bid] = nm  # 供 ◂ 回执反查工具名(反向扫描时回执先于调用被扫到,故渲染留到最后)
+                    items.append(['u', bid, json.dumps(b.get('input') or {}, ensure_ascii=False)[:1500]])
+        elif t == 'user':
+            for b in c:
+                if isinstance(b, dict) and b.get('type') == 'tool_result':
+                    bid = b.get('tool_use_id')
+                    if bid in done_r:
+                        continue
+                    done_r.add(bid)
+                    items.append(['r', bid, _result_text(b)])
+    out = []
+    for kind, bid, payload in reversed(items):  # 统一在扫描结束后渲染:此时 names 完整,◂ 也能拿到真实工具名
+        if kind == 'x':
+            out.append(payload)
+        elif kind == 'u':
+            out.append('▸ %s: %s%s' % (names.get(bid) or '?', payload, '' if bid in done_r else '(未回执)'))
+        else:
+            out.append('◂ %s: %s' % (names.get(bid) or '?', payload))
+    full = '\n\n'.join(out)
+    if len(full) > DETAIL_CAP:  # 全局上限必须写明,不许让用户误以为看的就是全部(铁律7)
+        full = full[:DETAIL_CAP] + '\n…(回合全文超 %d 字,后续省略)' % DETAIL_CAP
+    return full, found
 
 
 def _step_detail(path, msg):

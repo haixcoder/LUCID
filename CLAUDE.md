@@ -17,7 +17,11 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 2. **只读数据源**：扫描 `~/.claude/projects/` 永远只读；服务唯一可写目录是 `~/.claude/cc-viewer/`（config.json / sent.json / server.pid / cas.pem）。
 3. **仅本机监听**：bind 地址硬编码 `127.0.0.1`，绝不改成 0.0.0.0；POST 保留 Origin 同源守卫。
 4. **命令模板变量必须写花括号形式** `${CLAUDE_PLUGIN_ROOT}`——裸 `$CLAUDE_PLUGIN_ROOT` 不会被 Claude Code 展开，且该变量不存在于 Bash 工具环境（2026-09-04 实际踩坑：导致从项目源码而非已安装插件启动服务）。`commands/wf-view.md` 中已修复，勿回退。
-5. **无测试基建**：验证手段 = `curl` 打 API + 浏览器人肉检查。改完必须至少跑通：`/api/runs` 返回 200 且 JSON 结构不变。
+5. **回归测试已入库，`python3 tests/run_all.py` 是准入门槛（1.2.18 起）**：
+   - `tests/test_*.py`（后端，纯 stdlib）：fixture 驱动真实函数 + `test_web_api.py` 真起 server 子进程打全链路 HTTP；
+   - `tests/frontend/test_*.js`（前端，开发期依赖 node——运行时仍零依赖）：`harness.js` 无头 DOM 桩加载**真实编译产物**驱动 render/diff/抽屉/轮询；`test_render_golden.js` 为 card/sessCard 出 HTML 的黄金快照——**任何前端重构前后黄金必须逐字节一致**（故意改文案/结构才 `UPDATE=1` 重录并在提交注明）；
+   - 历史教训：t1..t8 时代的"无头桩"每次现写现丢在 /tmp，重启即绝迹；入库后新 bug 一律"先补一条会挂的测试，再修"。
+   - 部署前仍须真机冒烟：`/api/runs` 返回 200 且 JSON 结构不变、页面 ver==api ver、安装副本==源码。
 6. **前端一律 TypeScript（必须遵守）**：前端唯一合法源码是 `frontend/src/*.ts`（全局脚本模式，按文件名序拼接，不用 import/export）。
    - `scripts/ccviewer/static/index.html` 中主 `<script>` 块是 **build 产物，禁止手改**；改前端 = 改 `frontend/src/` → `python3 frontend/build.py`（tsc --strict 类型检查+编译 → 注入 `frontend/template.html`）。构建失败（任何类型错误）禁止部署。
    - 唯一保留的手写 JS 例外：`template.html` head 里的 3 行夜间主题 boot 片段（须先于 body 存在执行）；HTML/CSS 壳也手改 `template.html`（再 build）。
@@ -53,11 +57,12 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 
 | 模块 | 职责 |
 |------|------|
-| `config.py` | `PROJ`/`CONF_DIR`/`PIDF` 路径、`CURRENT_PORT`（入口赋值，web 请求期以 `config.CURRENT_PORT` 属性读取）、`load_conf`/`save_conf`/`port_free` |
+| `config.py` | `PROJ`/`CONF_DIR`/`PIDF` 路径、`CURRENT_PORT`（入口赋值，web 请求期以 `config.CURRENT_PORT` 属性读取）、`load_conf`/`save_conf`/`port_free`、`DETAIL_CAP`/`TURN_RESULT_CAP`/`INPUT_TIERS` 契约常量。**路径与配置一律 `config.X` 属性访问**（不许 from-import 按值拷贝——测试靠单点重定向 `config.PROJ`/`config.CONF_DIR` 驱动真实代码） |
+| `jsonl.py` | JSONL 读取族唯一实现（1.2.18 收编原四处自造窗口读取）：`iter_records`/`tail_text`/`tail_records`/`head_records`/`rev_lines`（反向深扫，**16MB 上限为文档承诺并已真正执行**，超界走 miss）。行为契约钉在 `tests/test_jsonl_unit.py`，改读取层先过它 |
 | `guard.py` | 自启动/看护：双触发口——`hooks/hooks.json` 的 SessionStart 钩子（主入口，任意版本可用）+ `monitors/monitors.json` 官方后台 monitor（需 CC ≥2.1.105 且宿主支持，实测第三方网关宿主会静默跳过）；两者都跑 `--detach`：guard.pid 跨会话幂等确保常驻看护循环，循环 TCP 探活 `127.0.0.1:<port>` 未监听→setsid 分离启动 `server.py`（独立于会话存活），周期复查崩溃自动重启；循环仅状态变化输出一行（落 server.log），常稳态零输出 |
 | `scan.py` | 扫描与状态重建（下表"扫描/存活"两层） |
 | `agent.py` | `api_agent()` 单 agent 全文 |
-| `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:`main_state()` 四态 running / **input_required**(等待用户，`waitReason`=ask〔挂起 AskUserQuestion/ExitPlanMode〕\| permission〔挂起普通工具且静默 ≥120s，"疑似"，与长命令同形〕\| turn〔无挂起、末条 assistant 且 `stop_reason`∈end_turn/stop_sequence〕) / waiting / ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。候选 = **转录 `<sess>.jsonl` ∪ 会话目录**（只遍历目录会漏掉无子代理的纯交互会话，即"在等你"的那个）；`scan_sessions_cached(6)` 供通知线程复用。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；`lastText` 为 300 字摘要且同回 `lastTextMid`（该摘要所在消息 id——前端等待行 data-src 的全文锚点，摘要+可拉全文=合规，只给摘要无锚点=违规）；`prompts`＝卡顶「❯ 你输入」回显（`_user_prompt` 判"真·用户输入"→tool_result/isMeta/`<local-command-*>`/无参命令全剔除,`/goal` 取 `<command-args>`；条目 {u,t≤300,ts}=尾窗最近 30 条+头扫首条 `f:1`，用户记录无 message.id，全文锚点=记录 uuid 走 `_prompt_detail`）；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白）；**OUT=回合累计文本**（`_turn_texts` 以"上一条真人输入"为边界收集所在回合全部 assistant text,时间序;单步只展示自己那块=用户报的"每次只展示最新一条",1.2.15 修;IN 仍按步隔离,子代理结果同用末回合累计） |
+| `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:`main_state()` 四态 running / **input_required**(等待用户，`waitReason`=ask〔挂起 AskUserQuestion/ExitPlanMode〕\| permission〔挂起普通工具且静默 ≥120s，"疑似"，与长命令同形〕\| turn〔无挂起、末条 assistant 且 `stop_reason`∈end_turn/stop_sequence〕) / waiting / ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。候选 = **转录 `<sess>.jsonl` ∪ 会话目录**（只遍历目录会漏掉无子代理的纯交互会话，即"在等你"的那个）；`scan_sessions_cached(6)` 供通知线程复用。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；`lastText` 为 300 字摘要且同回 `lastTextMid`（该摘要所在消息 id——前端等待行 data-src 的全文锚点，摘要+可拉全文=合规，只给摘要无锚点=违规）；`prompts`＝卡顶「❯ 你输入」回显（`_user_prompt` 判"真·用户输入"→tool_result/isMeta/`<local-command-*>`/无参命令全剔除,`/goal` 取 `<command-args>`；条目 {u,t≤300,ts}=尾窗最近 30 条+头扫首条 `f:1`，用户记录无 message.id，全文锚点=记录 uuid 走 `_prompt_detail`）；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白）；**OUT=回合累计全文**（`_turn_texts` 以"上一条真人输入"为边界,按时间序收集所在回合的 assistant text **与工具活动(▸ 调用入参/◂ 回执,单条回执≤`TURN_RESULT_CAP` 超限标注「截断」,未回执行标「未回执」)**;单步只展示自己那块=用户报的"每次只展示最新一条",1.2.15 修;只收 text 块会让工具型回合全文变成一串以冒号收尾的过渡句、冒号后永远没内容=用户报的"每行以:结尾之后无内容",1.2.18 修——数据在转录里,显示层砍的即铁律7 违规;IN 仍按步隔离,子代理/等待行同用此单点) |
 | `notify.py` | webhook 通知线程（下表） |
 | `web.py` | HTTP handler `class H`、`make_server()`，启动时读入 `static/index.html` |
 | `static/index.html` | 前端运行时文件：**HTML/CSS 壳 = `frontend/template.html`，脚本块 = `frontend/src/*.ts` 的 tsc 编译产物**（禁手改，见铁律 6） |
@@ -81,7 +86,10 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 这些是历史 bug 换来的教训，破坏会复发：
 
 - **按卡 diff 渲染**（`render()`）：完成卡数据冻结 → HTML 串不变 → DOM 不重建，滚动/选中不跳。不许改回整体 innerHTML 重绘。
-- 会话卡区（`renderSessions`/`SCARDS`，#sess）复刻同一按卡 diff 契约与 ref 同步规则，改一处两处同审；其抽屉 `data-src="S|proj|sess|agent[#msgId]"` 走 `/api/subagent`（toggle 监听器双容器复用 `onToggle`）。
+- **按卡 diff 只有一份实现：`diffPaint(el, store, items, painted)`（30-app，1.2.18 抽取）**——运行卡区与会话卡区（#sess/`SCARDS`）都走它。上面列的身份保持/ref 同步/open·滚动快照恢复等不变量住在这一个函数里；新增卡片区直接复用，勿再复制循环。其抽屉 `data-src="S|proj|sess|agent[#msgId]"` 走 `/api/subagent`（toggle 监听器双容器复用 `onToggle`）。
+- **IN/OUT 抽屉面板构造只有一份：`paneIn`/`paneOut`（20-render）**——正文统一过 `unent→mdLite`（预览与全文同一口径；曾出现"预览不解实体、展开才解"）；等待行/提示词行带 hint/miss 分支的面板是其近亲，改三态标签时同审。`ALERT_ST`（20-render）是仪表 ALERT 计数唯一判定集。
+- **空态↔非空态对称清理**：`<p.idle>` 无 data-rid，diffPaint 的按卡清理不认识它——两个区的 render 都必须自己负责（`vis` 恢复时先摘 idle，否则永久残留，1.2.18 修过一次运行卡区）。
+- **构建戳自取用 `document.querySelector('meta[name="wfo-ver"]')`**——模板里该 meta **只有 name 没有 id**，`getElementById` 必 null（"部署旧标签页自动刷新 + 版本角标"曾因写法错误静默失效多版，无头桩才暴露；勿回退成 `$('wfo-ver')`）。
 - **卡 HTML 字符串禁止内嵌逐秒变化字段**（曾内嵌 `ageSec"Ns 前"` → 每轮 diff 必失配重建 → 展开的 details"点开即关"）：时间一律 `fmtC(epochMs)`，并保留 renderSessions 的 open/滚动快照恢复；步骤/抽屉的稳定键一律用 `message.id`（尾窗滑动不漂移）。
 - **渲染转录/子代理文本必须先过 `unent()`**（实体转义竖线 `&#124;`/`&amp;#124;` 不解码则 mdLite 认不出表格、页面露出转义串），再进 `mdLite(wrapLong/pretty(...))`；行内预览不许再用裸 `inlineMd` 渲染可能含块级 md 的内容。
 - **outerHTML 后 `ref` 同步**：替换节点若正被 `ref`（insertBefore 锚点）引用，必须指向新节点，否则抛 NotFoundError 打断整轮渲染（曾伪装成"链路中断"）。
@@ -97,6 +105,9 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 ## 开发/验证速查
 
 ```bash
+python3 tests/run_all.py                 # ★ 回归总入口(改动前基线、部署前门禁;支持关键字过滤与 -v)
+python3 tests/run_all.py web_api -v      # 只跑 HTTP 全链路并打印全部断言
+UPDATE=1 node tests/frontend/test_render_golden.js   # 故意改卡 HTML 后重录黄金快照(提交信息须注明)
 python3 frontend/build.py                # 前端:TS→tsc --strict→注入产物(首次自动抽 template.html)
 python3 scripts/server.py                # 前台启动（默认 8787，config 优先）
 python3 scripts/server.py --stop         # 按 PID 优雅停止

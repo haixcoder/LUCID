@@ -43,6 +43,20 @@ UU = str(uuid.uuid4())
 (CLD / 'sessions' / ('%s.json' % S1)).write_text(json.dumps(
     {'pid': os.getpid(), 'sessionId': S1, 'cwd': '/work/fix', 'startedAt': now_ms, 'kind': 'interactive'}),
     encoding='utf-8')
+# S2:工具型回合会话(1.2.18「冒号收尾全文」e2e:过渡句以:结尾,内容在 ▸/◂ 里,HTTP 层必须能拿全)
+S2 = str(uuid.uuid4())
+(proj / (S2 + '.jsonl')).write_text('\n'.join([
+    json.dumps({'type': 'user', 'cwd': '/work/fix', 'uuid': str(uuid.uuid4()), 'timestamp': '2026-09-05T04:00:00.000Z',
+                'message': {'role': 'user', 'content': '测工具可见'}}),
+    json.dumps({'type': 'assistant', 'message': {'id': 'msgT1', 'role': 'assistant', 'stop_reason': 'tool_use',
+                                                 'content': [{'type': 'text', 'text': '先跑命令：'},
+                                                             {'type': 'tool_use', 'id': 'tu1', 'name': 'Bash',
+                                                              'input': {'command': 'echo X'}}]}}),
+    json.dumps({'type': 'user', 'message': {'role': 'user', 'content': [
+        {'type': 'tool_result', 'tool_use_id': 'tu1', 'content': '回执-8899-OUT'}]}}),
+    json.dumps({'type': 'assistant', 'message': {'id': 'msgT2', 'role': 'assistant', 'stop_reason': 'end_turn',
+                                                 'content': [{'type': 'text', 'text': '完成'}]}}),
+]) + '\n', encoding='utf-8')
 wf = proj / S1 / 'workflows'
 wf.mkdir(parents=True)
 (wf / 'wf_done.json').write_text(json.dumps({
@@ -151,6 +165,10 @@ try:
        a.get('prompt') == '任务描述全文' and a.get('result') == 'JOURNAL-FULL-RESULT', str(a))
     sb = json.loads(get('/api/subagent?proj=-fixproj&sess=%s&agent=main&msg=msgW1' % S1)[1])
     ck('subagent: main#msgId 拿回合全文', sb.get('result') == '演示已完成,请查收。' and not sb.get('miss'), str(sb))
+    st2 = json.loads(get('/api/subagent?proj=-fixproj&sess=%s&agent=main&msg=msgT1' % S2)[1])
+    ck('subagent e2e: 工具型回合全文含 ▸ 命令与 ◂ 回执(冒号后不再空)',
+       'echo X' in (st2.get('result') or '') and '回执-8899-OUT' in (st2.get('result') or '')
+       and not st2.get('miss'), str(st2)[:200])
     sp = json.loads(get('/api/subagent?proj=-fixproj&sess=%s&agent=main&msg=%s' % (S1, UU))[1])
     ck('subagent: main#uuid 拿整条输入全文', sp.get('prompt') == '跑个演示流程', str(sp))
     g1 = json.loads(get('/api/subagent?proj=../../etc&sess=%s&agent=main' % S1)[1])

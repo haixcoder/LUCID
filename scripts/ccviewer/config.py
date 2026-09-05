@@ -24,6 +24,7 @@ def port_free(p):
 
 INPUT_TIERS = ('off', 'blocked', 'all')  # 等待输入通知档位：关闭 / 仅等回答·等授权 / 含回合结束待输入
 DETAIL_CAP = 80000  # 全文端点(/api/agent /api/subagent)单字段上限——多消费方共用同一契约值
+TURN_RESULT_CAP = 2000  # 回合全文里单条工具回执(◂)的上限:防一条巨型输出淹掉整回合;超限显式标注「截断」(铁律7)
 
 
 def load_conf():

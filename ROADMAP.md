@@ -14,11 +14,12 @@
 | 历史回看 | run JSON 全量进程内缓存；「回看窗口」1-3650 天可配置 |
 | 会话状态 | 主 agent + 子代理（尾窗启发式状态机 running/waiting/ended…） |
 | 全文抽屉 | `/api/agent` `/api/subagent` 深扫（截图 base64 挤窗兜底） |
-| 通知 | 终态 webhook：飞书 + 通用 JSON；测试按钮；去重 800 条 |
-| 工作台 | 项目筛选 / 全文搜索（已 localStorage 持久化）/ 5 主题 / 自动刷新 |
+| 通知 | 终态 webhook：飞书 + 通用 JSON（workflow_status / input_required 两型）；测试按钮；去重键 2000 条 |
+| 工作台 | 项目筛选 / 全文搜索（已 localStorage 持久化）/ 5 主题 / 5 语种 / 自动刷新 |
+| 工程质量 | 回归测试入库（1.2.18）：`tests/run_all.py`＝后端 fixture + 真起服务的 HTTP 全链路 + 前端无头 DOM 桩/黄金快照 |
 
 数据源（只读）：`~/.claude/projects/**` 的 run JSON、journal.jsonl、agent-*.jsonl、sessions 注册表。
-**已具备、尚未利用的指标**：会话级 usage 四字段（input/output/cacheRead/cacheWrite，`sessions.py:91`）、
+**已具备、尚未利用的指标**：会话级 usage 四字段（input/output/cacheRead/cacheWrite，`sessions._analyze`）、
 run 级 `durationMs`/`toolCalls`/`startTime` —— 成本面板与甘特视图**零新数据成本**。
 
 ## 2. 调研发现（关键事实与出处）
