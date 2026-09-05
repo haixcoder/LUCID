@@ -86,6 +86,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 - **渲染转录/子代理文本必须先过 `unent()`**（实体转义竖线 `&#124;`/`&amp;#124;` 不解码则 mdLite 认不出表格、页面露出转义串），再进 `mdLite(wrapLong/pretty(...))`；行内预览不许再用裸 `inlineMd` 渲染可能含块级 md 的内容。
 - **outerHTML 后 `ref` 同步**：替换节点若正被 `ref`（insertBefore 锚点）引用，必须指向新节点，否则抛 NotFoundError 打断整轮渲染（曾伪装成"链路中断"）。
 - **tick 的 try/catch 分离**：fetch 失败与 render 失败必须分开报告——JS bug 不许冒充掉线（见 `tick()` 注释）。
+- **后台节流补偿（1.2.16）**：`setInterval(2s)` 在隐藏标签页会被浏览器降到 ~1 次/分钟（真实反馈："终端输入后切回页面看不到最新执行信息"），`catchUp()` 在 visibilitychange/pageshow/focus 时立即补扫（1s 冷却去重；`auto` 关闭则尊重设置不越权）。新增轮询/刷新驱动不许只挂 setInterval——必须同时有可见性补扫路径，否则节流问题复发。
 - **详情抽屉滚动位置 / details 展开态**跨轮询保持（`sc` 快照 + `open` 集合恢复）；全文靠 `FULL` 缓存 + `/api/agent` 首次展开拉取。
 - **筛选/视图状态必须 localStorage 持久化**（`wfo-fproj`/`wfo-fstr`/`wfo-auto`）：项目筛选/搜索词/自动刷新只存内存模块变量 → 刷新(含部署自动 reload)后全丢（真实用户 bug）；启动恢复 + 选项重建带 `selected`，保存值已不在数据源时清空回落。新增筛选字段同理。仪表计数是"视图口径"——过滤/搜索生效时 RUNS 必须显示 `命中/总数` 并挂 title 说明原因（否则用户把被滤掉的运行当成"数据不准"，1.2.14 真实反馈；测试 t4 以 `3/4`+title 断言）。
 - **会话等待态（3.2）**：`input_required` 的判定只在后端 `sessions.main_state()` 一处（三分 `waitReason`），前端只做展示与高亮，不许再推断；**告警/安静的显示分级也只有一个判定点 `sessStuck`**（20-render）——ask/permission=真卡住→反白 ⏸ 闪烁告警+色条+计入区标题 ⏸ N；turn=执行完成正常交回→安静青色「回合已完」、无告警视觉（用户据此报过 bug:"关了通知还提示等待输入"——通知档位从来只管推送,页面显示曾把 turn 一律渲染成 ⏸ 才是根因,1.2.13 分档）。卡 HTML 里放的是 `wlab`/`wtxt` 等**每轮稳定**字段，绝不放 `ageSec` 或 `AD()` 毫秒相位（1.2.13 曾给告警徽标加 `AD(1.8)`→冻结数据每轮 diff 失配→"点开即关"复发,测试 `diff/stable` 拦下）。新增等待成因只改 `main_state` + 前端 `wlab`/`sessStuck` + `notify.WAIT_ZH` + i18n 四处，缺一处即出现"页面说等待授权、推送写未知"。

@@ -214,3 +214,15 @@ $('list').addEventListener('toggle', onToggle, true);
 $('sess').addEventListener('toggle', onToggle, true);
 $('verB').textContent = VER ? 'v' + VER : '';  // 版本角标:旧标签页(无此角标)= 陈旧代码,请刷新
 setInterval(() => { if (auto) void tick(); }, 2000); void tick();
+// 后台标签页节流补偿:浏览器(Chrome 严格节流/Safari 挂起)会把隐藏页的 setInterval 降到 ~1 次/分钟——
+// 用户在终端输入后切回页面,切回瞬间看到的是降频前的旧状态(真实反馈:"输入内容后不能立刻看到最近任务执行的信息")。
+// 恢复可见/从 bfcache 返回/窗口回焦 → 立即补扫一轮;三事件同瞬触发用 1s 冷却去重;auto 关闭尊重用户设置不越权。
+let lastCatch = 0;
+function catchUp(): void {
+  if (document.hidden || !auto) return;
+  const now = Date.now(); if (now - lastCatch < 1000) return;
+  lastCatch = now; void tick();
+}
+document.addEventListener('visibilitychange', catchUp);
+window.addEventListener('pageshow', catchUp);
+window.addEventListener('focus', catchUp);
