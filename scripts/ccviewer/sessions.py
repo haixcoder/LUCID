@@ -209,7 +209,10 @@ def _subagents(sess_dir, now):
         info = _analyze(tail_text(f, 131072))
         if age < SUB_ACTIVE_SEC:
             state = 'running'
-        elif info['stopReason'] == 'end_turn':
+        elif info['stopReason'] in TURN_END:
+            # 完成判定与主 agent main_state 同源(TURN_END):回合可正常收在 end_turn 或 stop_sequence。
+            # 曾硬编码只认 end_turn → 收在 stop_sequence 的子 agent(真机 <synthetic> 研究子 agent)被误归
+            # idle(◌ 浅灰空心圈),页面读作"左侧没有运行状态";补上 stop_sequence 后归 done(◆ 绿)。
             state = 'done'
         else:
             state = 'idle'
