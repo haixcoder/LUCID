@@ -67,7 +67,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 
 | 层 | 入口 | 要点 |
 |----|------|------|
-| 扫描/状态重建 | `scan.scan()` → `parse_completed()` / `parse_live()` | run JSON **只在正常收尾时写**；进行中状态由 journal.jsonl + agent-*.jsonl 实时重建 |
+| 扫描/状态重建 | `scan.scan()` → `parse_completed()` / `parse_live()` | run JSON **只在正常收尾时写**；进行中状态由 journal.jsonl + agent-*.jsonl 实时重建；回看窗口门禁的活动度=**max(会话目录 mtime, 转录 `<sess>.jsonl` mtime)**——目录 mtime 只在直接子项增删时刷新，journal/run 写入碰不到它，单用它会把"老目录里正在跑的 workflow"整段藏掉（仪表 RUNS/LIVE 失准的真实根因，1.2.14 修，与 sessions._candidates 同一取舍） |
 | 存活判定 | `scan.live_session_ids()` + `scan.parse_live()` 尾部 | 权威信号 = `~/.claude/sessions/<pid>.json` 注册表且进程存活；父进程已死且有未完成 agent → `aborted`（孤儿），无 pending → `completed`；60s 宽限防竞态；`STALE_SEC=30min` 无活动 → `stale` |
 | Webhook 通知 | `notify.notify_loop()` → `send_hook(r, text, kind)` | 守护线程 5s 一轮；**两类分型**：`workflow_status`（run 终态，`STATUS_ZH` 白名单）+ `input_required`（`notify_inputs()`，档位 `notifyInput`=off/blocked/all，默认 blocked 只发 ask/permission；正文 `sess_text()`）；**启动首轮静默播种**（`sweep`，防历史刷屏），键一律播种只把发送门控住（防"事后开启"补发历史）；去重靠 sent.json（保留 2000 条，run 键 `wf_*` 与 session 键 `sess|<id>|<静默起点>` 混存，字典序截断故上限抬高）；macOS 钥匙串导出 CA 解决公司 TLS 代理（`macOS_ca_bundle()`，每日刷新） |
 | HTTP 端点 | `web.class H` | API：`/api/runs` `/api/sessions` `/api/agent` `/api/subagent` `/api/config` `/api/config/save`（含 `notifyInput` 档位，缺省值不改）`/api/config/test`（body `{"kind":"input_required"}` 按等待型发） |
@@ -87,7 +87,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 - **outerHTML 后 `ref` 同步**：替换节点若正被 `ref`（insertBefore 锚点）引用，必须指向新节点，否则抛 NotFoundError 打断整轮渲染（曾伪装成"链路中断"）。
 - **tick 的 try/catch 分离**：fetch 失败与 render 失败必须分开报告——JS bug 不许冒充掉线（见 `tick()` 注释）。
 - **详情抽屉滚动位置 / details 展开态**跨轮询保持（`sc` 快照 + `open` 集合恢复）；全文靠 `FULL` 缓存 + `/api/agent` 首次展开拉取。
-- **筛选/视图状态必须 localStorage 持久化**（`wfo-fproj`/`wfo-fstr`/`wfo-auto`）：项目筛选/搜索词/自动刷新只存内存模块变量 → 刷新(含部署自动 reload)后全丢（真实用户 bug）；启动恢复 + 选项重建带 `selected`，保存值已不在数据源时清空回落。新增筛选字段同理。
+- **筛选/视图状态必须 localStorage 持久化**（`wfo-fproj`/`wfo-fstr`/`wfo-auto`）：项目筛选/搜索词/自动刷新只存内存模块变量 → 刷新(含部署自动 reload)后全丢（真实用户 bug）；启动恢复 + 选项重建带 `selected`，保存值已不在数据源时清空回落。新增筛选字段同理。仪表计数是"视图口径"——过滤/搜索生效时 RUNS 必须显示 `命中/总数` 并挂 title 说明原因（否则用户把被滤掉的运行当成"数据不准"，1.2.14 真实反馈；测试 t4 以 `3/4`+title 断言）。
 - **会话等待态（3.2）**：`input_required` 的判定只在后端 `sessions.main_state()` 一处（三分 `waitReason`），前端只做展示与高亮，不许再推断；**告警/安静的显示分级也只有一个判定点 `sessStuck`**（20-render）——ask/permission=真卡住→反白 ⏸ 闪烁告警+色条+计入区标题 ⏸ N；turn=执行完成正常交回→安静青色「回合已完」、无告警视觉（用户据此报过 bug:"关了通知还提示等待输入"——通知档位从来只管推送,页面显示曾把 turn 一律渲染成 ⏸ 才是根因,1.2.13 分档）。卡 HTML 里放的是 `wlab`/`wtxt` 等**每轮稳定**字段，绝不放 `ageSec` 或 `AD()` 毫秒相位（1.2.13 曾给告警徽标加 `AD(1.8)`→冻结数据每轮 diff 失配→"点开即关"复发,测试 `diff/stable` 拦下）。新增等待成因只改 `main_state` + 前端 `wlab`/`sessStuck` + `notify.WAIT_ZH` + i18n 四处，缺一处即出现"页面说等待授权、推送写未知"。
 - **提示词回显（1.2.13）**：「什么算用户输入」只在后端 `sessions._user_prompt()` 一处判定（剔除 tool_result/isMeta/`<local-command-*>`/无参命令，`<command-name>/x</command-name>`+`<command-args>` 合成 `/x args`），摘要（`_analyze.prompts`）与全文（`_prompt_detail` 按记录 uuid 反查）共用它，不许前端再过滤；用户记录**没有 message.id**，锚点一律用转录记录 uuid。
 - **多语言：新增用户可见文案一律走 `T()`（`frontend/src/05-i18n.ts`）** —— key 就是简体中文原文（源语言，zh 不入字典），插值 `%1..%n`；查不到自动回落 key，所以漏译显示中文而非空白。静态壳文案挂 `data-i18n`（换 textContent）/`data-i18n-ph`（换 placeholder），由 `applyI18n()` 统一刷；`<b>01</b>` 这类编号必须包到内层 `<span>`，否则整块被覆盖。CSS `content:` 里的文案走 `html[lang=x]{--tr-more:…}` 变量（与 JS 字典各一份）。语种存 `localStorage.wfo-lang`（与 `wfo-theme` 同为"视图状态"，**不进服务端 config.json**），首访按 `navigator.language` 猜。切语言必须走 `setLang()`：它清 `CARDS/SCARDS/GSTR` 与旧 `.idle` 节点后整屏重绘，漏清则该语言下 diff 陈旧。后端 `msg` 只做精确命中（`已保存` 等静息文案），含插值数字的校验错回落原文，不为此加模糊匹配。

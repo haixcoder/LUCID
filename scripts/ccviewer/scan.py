@@ -256,7 +256,15 @@ def scan():
             if not sess.is_dir() or not re.fullmatch(r'[0-9a-f][0-9a-f-]{7,}', sess.name):
                 continue
             try:
-                if now - sess.stat().st_mtime > recent_sec():
+                # "近 N 天有活动"的权威信号=转录文件 mtime(每条消息都追加写);
+                # 会话目录 mtime 只在直接子项增删时刷新——journal/run JSON 的写入碰不到它，
+                # 单用它会把"老目录里正在跑的 workflow"整段藏掉(仪表 RUNS/LIVE 与实际不符的真实根因)。
+                mt = sess.stat().st_mtime
+                try:
+                    mt = max(mt, (proj / (sess.name + '.jsonl')).stat().st_mtime)
+                except OSError:
+                    pass
+                if now - mt > recent_sec():
                     continue
             except Exception:
                 continue

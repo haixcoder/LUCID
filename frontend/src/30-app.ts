@@ -134,7 +134,10 @@ function render(): void {
   const q = fstr.toLowerCase();
   const vis = runs.filter(r => (!fproj || (r.cwd || r.project) === fproj) && (!q || (r.name + ' ' + r.runId + ' ' + (r.cwd || r.project) + ' ' + r.status + ' ' + (r.task || '')).toLowerCase().includes(q)));
   const n = (f: (r: Run) => boolean) => vis.filter(f).length;
-  const gh = `<div class="g"><b>${vis.length}</b><span>RUNS</span></div>
+  // 过滤/搜索是持久化视图状态(1.2.9)——仪表计数随之变化,若不自证口径就会被当成"数据不准"(用户真实报过:
+  // 只见 "3 RUNS" 不知还有第 4 个被筛掉)。有过滤时 RUNS 显示「命中/总数」+ tooltip 交代原因。
+  const flt = !!(fproj || q);
+  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行', vis.length, runs.length))}"` : ''}><b>${vis.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
     <div class="g lv"><b>${n(r => r.status === 'running')}</b><span>LIVE</span></div>
     <div class="g ok"><b>${n(r => r.status === 'completed')}</b><span>DONE</span></div>
     <div class="g er"><b>${n(r => ['failed', 'error', 'stale', 'aborted', 'killed', 'timeout'].includes(r.status))}</b><span>ALERT</span></div>`;
