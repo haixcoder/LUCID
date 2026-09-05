@@ -374,9 +374,44 @@ def _rev_lines(path, maxbytes=16 * 1024 * 1024, chunk=1 << 20):
         return
 
 
+def _is_turn_boundary(d):
+    """反向扫描的回合边界=一条"真人输入"记录(工具回执/注入噪声不算)——一个回合的回答常拆成
+    多条消息(过渡文本+工具+收尾文本),逐条展示即用户报的"每次只展示最新一条"。"""
+    return d.get('type') == 'user' and bool(_user_prompt(d))
+
+
+def _turn_texts(path, stop_mid=None):
+    """所在回合累计全文:自尾反向收集 assistant text 块直到上一条真人输入;stop_mid 给出时须先扫到该
+    message.id(其更新回合的文本在边界处丢弃)。返回 (时间序全文, 是否命中 stop_mid)。"""
+    texts, found, scanned = [], stop_mid is None, 0
+    for ln in _rev_lines(path):
+        scanned += 1
+        if scanned > 400000:  # 病态大会话的止损线(同 _step_detail)
+            break
+        try:
+            d = json.loads(ln)
+        except Exception:
+            continue
+        if _is_turn_boundary(d):
+            if found:
+                break
+            texts = []  # 边界之前(时间更靠后)的文本属于更新的回合,与目标消息无关
+            continue
+        if d.get('type') != 'assistant':
+            continue
+        m = d.get('message') or {}
+        if m.get('id') == stop_mid:
+            found = True
+        for b in m.get('content') or []:
+            if isinstance(b, dict) and b.get('type') == 'text' and (b.get('text') or '').strip():
+                texts.append(b['text'])
+    return '\n\n'.join(reversed(texts))[:DETAIL_CAP], found
+
+
 def _step_detail(path, msg):
-    """单步全文：该 message.id 的全部 tool_use 入参 + 文本输出(流式分块聚合，反向深扫至 16MB)"""
-    ins, texts, found, scanned = [], [], False, 0
+    """单步全文：IN=该 message.id 的全部 tool_use 入参(按步隔离)；OUT=所在回合的累计文本(时间序,
+    反向深扫至 16MB)。回合语义见 _turn_texts。"""
+    ins, found, scanned = [], False, 0
     for ln in _rev_lines(path):
         scanned += 1
         if scanned > 400000:  # 病态大会话的止损线
@@ -388,22 +423,16 @@ def _step_detail(path, msg):
         if d.get('type') != 'assistant':
             continue
         m = d.get('message') or {}
-        if m.get('id') != msg:
-            if found:
-                break  # 该消息的分块组已扫完
-            continue
-        found = True
-        for b in m.get('content') or []:
-            if not isinstance(b, dict):
-                continue
-            if b.get('type') == 'tool_use':
-                ins.append('● %s: %s' % (b.get('name') or '?',
-                                          json.dumps(b.get('input') or {}, ensure_ascii=False)[:1500]))
-            elif b.get('type') == 'text' and (b.get('text') or '').strip():
-                texts.append(b['text'])
+        if m.get('id') == msg:
+            found = True
+            for b in m.get('content') or []:
+                if isinstance(b, dict) and b.get('type') == 'tool_use':
+                    ins.append('● %s: %s' % (b.get('name') or '?',
+                                              json.dumps(b.get('input') or {}, ensure_ascii=False)[:1500]))
     if not found:
         return {'prompt': '', 'result': '', 'miss': True}
-    return {'prompt': '\n'.join(reversed(ins))[:DETAIL_CAP], 'result': (texts[0] if texts else '')[:DETAIL_CAP]}
+    result, _ = _turn_texts(path, msg)
+    return {'prompt': '\n'.join(reversed(ins))[:DETAIL_CAP], 'result': result}
 
 
 def agent_detail(proj, sess, agent, msg=''):
@@ -419,8 +448,8 @@ def agent_detail(proj, sess, agent, msg=''):
             if UUID_RE.fullmatch(msg):
                 return _prompt_detail(p, msg)
             return _step_detail(p, msg) if re.fullmatch(r'[0-9a-zA-Z_-]{1,64}', msg) else {'prompt': '', 'result': ''}
-        return {'prompt': _rev_texts(p, 'user'), 'result': _rev_texts(p, 'assistant')}
-    return {'prompt': _first_user_text(p), 'result': _rev_texts(p, 'assistant')}
+        return {'prompt': _rev_texts(p, 'user'), 'result': _turn_texts(p)[0]}
+    return {'prompt': _first_user_text(p), 'result': _turn_texts(p)[0]}  # 子代理结果=末回合累计,同 _step_detail 根因
 
 
 SESS_RE = re.compile(r'[0-9a-f][0-9a-f-]{7,}')

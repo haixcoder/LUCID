@@ -54,7 +54,7 @@ function sessCard(r: SessionState, i: number): string {
   const wsrc = wmid && r.lastText ? ` data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(wmid)}"` : '';
   const wbody = wf.r ? mdLite(wrapLong(unent(wf.r))) : wf.m ? `<i style="opacity:.7">${esc(T('⚠ 该步已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(r.lastText || '')));
   const wtag = wf.r ? T('全文') : wf.m ? T('不可回取') : T('最后输出');
-  const whint = (wf.r || wf.m) ? '' : `<div class="hint">${wmid ? T('展开后自动拉取整步全文(超出转录留存范围会显式提示)') : T('转录留存字段有上限；整步全文请展开下方对应步骤行(超出留存范围会显式提示)')}</div>`;
+  const whint = (wf.r || wf.m) ? '' : `<div class="hint">${wmid ? T('展开后自动拉取该步所在回合的全部输出(超出转录留存范围会显式提示)') : T('转录留存字段有上限；整步全文请展开下方对应步骤行(超出留存范围会显式提示)')}</div>`;
   // 输入寄存器(卡顶):❯=终端提示符 —— 机器等你(⏸ 琥珀)对仗你已给出(❯ 青)。尾窗上限写进眉标(铁律7);
   // 摘要行=折叠,展开即按记录 uuid 懒拉全文(IN pane,FULL 缓存跨轮询存活),与等待行/步骤行同一契约。
   const ps = (r.prompts || []).filter(p => p.u);
