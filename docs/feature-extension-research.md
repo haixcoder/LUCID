@@ -1,4 +1,4 @@
-# XRay 功能扩展调研 · 2026-09
+# Lucid 功能扩展调研 · 2026-09
 
 > 状态:**定稿 v1.1**。定位:根目录 `ROADMAP.md`(2026-09 初版)的**深化与勘误**。
 > 证据等级(全文每条结论都带标签,无标签句为推理/建议):**[L]=本机实测**(2026-09-05 对 `~/.claude` 全量探查);**[A]=本机官方镜像直读**(anthropics 官方市场 `claude-plugins-official` 的 plugin-dev 技能文档,`~/.claude/plugins/marketplaces/…/skills/`,**版本落后于线上文档**);**[W]=本会话 WebSearch 命中摘要**(本环境 WebFetch 被企业网关拦截,只能取摘要,原文未读);**[S]=调研子代理线索**(4 路子代理报告的细节,本会话未能独立复现——只入 §3.5 清单,不作设计依据);**[K]=模型训练知识**;**[R]=ROADMAP 沿用**(初版引用,本轮未重复核实)。
@@ -12,7 +12,7 @@
 |----|------|------|------|------------|----------|
 | E1 | 成本面板(官方值+估算三态)★ | 高(**实测发现官方算好的 costUSD 就在转录里**,自建定价表降级为兜底) | 1–2d | ✅ D2/D1 [L] | 第 1 批 |
 | E2 | 时间线/甘特 ★ | 高(多 agent 并行复盘刚需) | 2–3d | ✅ D3 [L] **时间戳已在 run JSON 里,扫描层白丢** | 第 1 批 |
-| E11 | hooks 即时事件(/api/poke) | 高(轮询→事件驱动;通知即时性同受益) | 1–2d | ✅ hook 通道被 xray 自身 guard 自证可靠 [L];http-hook 型 [W] | 第 1 批(为 E12/13 铺路) |
+| E11 | hooks 即时事件(/api/poke) | 高(轮询→事件驱动;通知即时性同受益) | 1–2d | ✅ hook 通道被 lucid 自身 guard 自证可靠 [L];http-hook 型 [W] | 第 1 批(为 E12/13 铺路) |
 | E9 | 桌面通知+声音 | 中(零配置补齐 webhook 未配场景) | 1d | ✅ 纯前端 [K] | 第 1 批(便宜) |
 | E3 | 文件改动 diff 回看 ★ | 高(「这次任务改了什么」是回看型工具王牌) | 2–3d | ✅ D11 [L](映射结构已 spike) | 第 2 批 |
 | E12 | 捆绑 MCP 反向查询 | 高(差异化主打;服务不跑也能查) | 2–3d | ✅ 官方镜像标准能力 [A] | 第 2 批 |
@@ -26,7 +26,7 @@
 | E8 | 全局输入历史搜索 ★ | 中 | 1d | ✅ D16 [L] | 第 3 批 |
 | E10 | URL 深链 | 中 | 1d | ✅ | 第 3 批 |
 
-**一句话战略**:xray 的护城河不在「又一个 viewer」,而在**把只读转录里已有却没人挖的数据面(cost-state、版本快照、插话流、钩子回执)变成可解释的界面**——E1–E6 全部零新数据源、零依赖、零网络出口,与铁律完全同向 [L 支撑]。
+**一句话战略**:lucid 的护城河不在「又一个 viewer」,而在**把只读转录里已有却没人挖的数据面(cost-state、版本快照、插话流、钩子回执)变成可解释的界面**——E1–E6 全部零新数据源、零依赖、零网络出口,与铁律完全同向 [L 支撑]。
 
 ## 1. 现状能力盘点(锚点)
 
@@ -39,7 +39,7 @@
 
 本机 24 个项目、286 个转录文件、162.9MB。下表逐项**实测**,不是文档转述:
 
-| # | 数据源 | 实测内容与证据 | xray 现状 | 扩展含义 |
+| # | 数据源 | 实测内容与证据 | lucid 现状 | 扩展含义 |
 |---|--------|----------------|-----------|----------|
 | D1 | 主转录 `message.usage` | 每条 assistant 记录都带 `input_tokens/output_tokens/cache_read_input_tokens/cache_creation_input_tokens`,另有 `server_tool_use/service_tier/iterations/speed/output_tokens_details`(934/934 条命中) | ✅ 已聚合(尾窗四字段) | token 统计地基已牢 |
 | D2 | **`cost-state` 记录** | 转录**末尾**一条:`totalCostUSD`/`totalAPIDuration`/`totalAPIDurationWithoutRetries`/`totalToolDuration`/`totalLinesAdded/Removed`/`totalDuration`/`startTime`/`modelUsage{每模型 inputTokens/outputTokens/cacheRead/cacheCreation/webSearchRequests/costUSD}` | ❌ 未读 | **成本面板无需自建定价表**;4 个历史会话实测均在文件 100% 位置、进行中会话无 → 需「官方值(历史)+usage 估算(实时)」双口径 |
@@ -66,9 +66,9 @@
 ### 3.1 Hooks
 - **配置与 I/O 契约 [A·镜像原文]**:插件 `hooks/hooks.json`;类型 `command` 与 `prompt`(prompt 型限 Stop/SubagentStop/UserPromptSubmit/PreToolUse,LLM 裁决)均可配 `timeout`;stdin 公共字段 `session_id/transcript_path/cwd/permission_mode/hook_event_name`,专有 PreToolUse/PostToolUse=`tool_name/tool_input/tool_result`、UserPromptSubmit=`user_prompt`、Stop/SubagentStop=`reason`;env 提供 `$CLAUDE_PROJECT_DIR/$CLAUDE_PLUGIN_ROOT/$CLAUDE_ENV_FILE(仅 SessionStart,可持久化环境变量)/$CLAUDE_CODE_REMOTE`;输出 exit 0(成功)/2(阻断,stderr 回喂)/其他(非阻断),JSON `continue/suppressOutput/systemMessage` + PreToolUse `hookSpecificOutput{permissionDecision:allow|deny|ask,updatedInput}` + Stop `decision:approve|block`;镜像明示 hooks 与用户 hooks **并行执行**;
 - **镜像收录 9 事件 [A]**:PreToolUse/PostToolUse/Stop/SubagentStop/UserPromptSubmit/SessionStart/SessionEnd/PreCompact/Notification;官方在线参考页**另有 async hooks、HTTP hooks(事件 JSON 直接作为 POST body)、prompt hooks、MCP tool hooks** [W·官方页摘要];社区指南称生命周期事件已远超此数([W·二手,数字不采信]——**精确事件清单是 E11 立项第一步的实测项**);
-- **Stop 阻断语义 [W]**:社区指南与镜像一致——Stop hook exit 2 会把 stderr 注回回合强制继续(官方 goal hook 即此机制,xray 会话活体样本);
+- **Stop 阻断语义 [W]**:社区指南与镜像一致——Stop hook exit 2 会把 stderr 注回回合强制继续(官方 goal hook 即此机制,lucid 会话活体样本);
 - **成本字段**:转录文件里**有** USD(D2)[L];hook 输入是否带 usage/cost 本轮未能从可及来源定论([R] ROADMAP 称 SessionEnd 不含;其引用 issue #50863/#50926 本会话未命中,hooks 路子代理查得**编号系借用、真实为 #42965/#37814/#45757** [S,见 §3.5])——**结论不变:USD 权威源在文件,hook 的价值是即时与事件语义**;
-- **对本机的可靠性 [L]**:xray guard 自启动就是 SessionStart hook 拉起的——hook 通道在(网关)宿主可用已被生产验证。
+- **对本机的可靠性 [L]**:lucid guard 自启动就是 SessionStart hook 拉起的——hook 通道在(网关)宿主可用已被生产验证。
 
 ### 3.2 Statusline
 - **字段 [W·多源摘要一致]**:settings.json 配 `statusLine` command,每次更新 stdin 喂新 JSON、stdout 即状态行;实测样例 payload 含 `cost.total_cost_usd`(**官方自述「estimated cost…may differ from billing」**——与 D2 cost-state 同为客户端估算口径)、`cost.total_duration_ms`、`exceeds_200k_tokens`(bool,token 总量含缓存跨 200K 标记)、`context_window{used_tokens,max_tokens}`(第三方 sample:used_tokens 124528/max 200000)、`rate_limits{five_hour,seven_day}`(v2.1+ 起发送)、`model`、`workspace`;诉求出处 issue **#11535** [W];
@@ -78,14 +78,14 @@
 ### 3.3 插件系统组件与配置
 - **manifest [A·镜像示例]**:`.claude-plugin/plugin.json` 的 name/description/version(+author/keywords 等元数据);镜像示例展示 `commands/agents/hooks/mcpServers` **显式路径声明**支持(指向自定义目录/文件;hooks 亦可内联,与 hooks/hooks.json 二选一防重复加载)——镜像可能落后线上,以 `claude plugin validate .` 本机过检为部署门禁 [A+L];
 - **组件自动发现 [A]**:commands/agents/skills/hooks 在插件根目录按约定发现;命令 frontmatter `allowed-tools` 支持 Bash 细粒度与 **MCP 工具预授权**(格式 `mcp__plugin_<plugin>_<server>__<tool>`)[A];命令正文可 `!` 预执行、`$ARGUMENTS` [A/R];
-- **MCP 捆绑 [A]**:根 `.mcp.json` 或 manifest 声明;stdio 示例即 `"command": "python", "args": ["-m", …]`;路径支持 `${CLAUDE_PLUGIN_ROOT}`(与铁律 4 的花括号要求兼容)→ **xray-mcp 零依赖 stdio 完全合规**;
+- **MCP 捆绑 [A]**:根 `.mcp.json` 或 manifest 声明;stdio 示例即 `"command": "python", "args": ["-m", …]`;路径支持 `${CLAUDE_PLUGIN_ROOT}`(与铁律 4 的花括号要求兼容)→ **lucid-mcp 零依赖 stdio 完全合规**;
 - **持久数据 [W·多源一致]**:`${CLAUDE_PLUGIN_DATA}`(v2.1.78+)= `~/.claude/plugins/data/<id>/`,**跨插件更新存活;安装目录会被整体替换**——印证铁律 2「状态写在 cc-viewer/」与官方立场一致,无需迁移;
-- **用户配置 [A]**:官方插件技能文档给出 `.claude/<plugin-name>.local.md`(YAML frontmatter)做**按项目**的插件设置模式(命令/钩子自行读取)——xray 通知过滤若要做项目层覆盖,这是零依赖正路;
-- **marketplace 机制 [L]**:`claude plugin validate/update/install` 与本地市场 source="./" 即 xray 日常;enabledPlugins 写在用户 settings.json(本机实测有此键)。
+- **用户配置 [A]**:官方插件技能文档给出 `.claude/<plugin-name>.local.md`(YAML frontmatter)做**按项目**的插件设置模式(命令/钩子自行读取)——lucid 通知过滤若要做项目层覆盖,这是零依赖正路;
+- **marketplace 机制 [L]**:`claude plugin validate/update/install` 与本地市场 source="./" 即 lucid 日常;enabledPlugins 写在用户 settings.json(本机实测有此键)。
 
 ### 3.4 monitors.json —— 地位存疑(诚实降级)
 - 本机官方镜像技能文档**无 monitors 组件** [A-缺席];本轮检索亦**未命中**任何官方 monitor 文档/CHANGELOG 记录 [W-缺席];ROADMAP 称「官方 background monitor,需 CC≥2.1.105」[R] **无出处可考**;
-- xray 自身 README 早就写了「实测第三方网关宿主会静默跳过 monitors」[L/R] → 稳妥结论:**把 monitors/ 当作「无害的前瞻声明」,自启动真相是 SessionStart hook 单腿承重**(现状即如此,不改架构);E11/E12 设计不得依赖 monitor 唤醒。
+- lucid 自身 README 早就写了「实测第三方网关宿主会静默跳过 monitors」[L/R] → 稳妥结论:**把 monitors/ 当作「无害的前瞻声明」,自启动真相是 SessionStart hook 单腿承重**(现状即如此,不改架构);E11/E12 设计不得依赖 monitor 唤醒。
 
 ### 3.5 子代理报告线索清单([S],按立项实测价值排序,不作设计依据)
 
@@ -93,14 +93,14 @@
 
 - **Hooks(hooks 路)**:在线参考页事件全集达 **13 个**(较镜像新增 PermissionRequest / PostToolUseFailure / PostCompact / Elicitation / SubagentStart / SessionEnd 扩展 matcher)+ 多代理场景 TeammateIdle / TaskCompleted → E11 实测项①;**各 hook stdin 带 `usage`(token 数,非 USD)与未文档化顶层 `cost`** → E11 实测项②(若属实,poke 可顺带官方 token 口径);`Notification.message` 前缀分型(permission_required / idle_timeout / auth_success…8 种)→ 等待态「去疑似」的前提,E11 实测项③;SessionEnd `reason` 枚举 8 值;Stop/SubagentStop 决策仅 block 语义;http hook 型 v2.1.63+、prompt 型 v2.1.203+、`async:true` 后台不阻塞;ROADMAP 所引 **#50863/#50926 系编号借用(真实存在但与 cost 无关),真实诉求 issue 为 #42965(Open)/#37814/#45757**。
 - **Statusline/成本(成本路)**:字段细案与 [W] sample 键名冲突——该路给 `context_window{used_percentage,remaining_percentage,current_usage,total_input_tokens}`、`rate_limits.*.{used_percentage,resets_at,overage_status}`、`is_auto_compact_enabled`、300ms debounce(**E13 实测项:本机 dump 一份真实 payload 定 schema**);官方 /usage 面板口径(订阅=claude.ai 网页、团队/企业=admin 面板、API=Console,**无公开成本 API、按 key 无法计费**)与其 issue #32963 摘句;定价补充(Sonnet 4.5 $3/$15、Opus 4.5 $5/$25——与官方镜像相邻代一致);ccusage 实现细节(cacheWrite 5m 1.25×/1h 2×、新 tokenizer ×1.35)。
-- **插件系统(插件路)**:**manifest schema 已收窄至 name/description/version/userConfig + 元数据,`commands/agents/hooks/mcpServers` 显式声明被移除(全组件自动发现,MCP=根 `.mcp.json`)**——四源交叉但与我读的镜像示例([A],含显式声明键)冲突,**E12 第一步:本机写一份声明跑 `claude plugin validate` 看谁过时**;`userConfig`(v2.0.76+,`${user_config.X}` 注入 hooks/MCP 命令,可解 E11 的 poke 端口配置化!);`${CLAUDE_PLUGIN_DATA}` 卸载后保留 7 天;`claude plugin eval`(插件 E2E 评测框架,sandbox 默认断网——**对 xray 的 CI 直接可用,立项前先试**);monitors.json 在 claude-code 仓库 **0 命中、schema 属 opencode**(§3.4 采信其方向,但「反转定论」仍需官方原文);插件 `additionalDirectories/statusline-providers/`(E13 若属实可**免改用户 settings.json** 的正路);命令 `context: fork`/`$ARGUMENTS_N`/`@文件` 引用;MCP 工具命名两处口径(`mcp__<plugin>__<tool>` vs 镜像的 `mcp__plugin_<plugin>_<server>__<tool>`)。
-- **社区(生态路)**:该路逐条核实了 14 个竞品(ccusage/ccseva/claude-code-log/agents-gateguard/opentui/agent-view/claude-code-webui-desktop/Claude-Code-Usage-Monitor/omnara/vibe-kanban/claude-squad/tokscope=不存在 等)——**其中仅 claude-hud、claude-code-hub 被本会话搜索独立复现**(已入 §4.1;ccusage 的存在另有 [R]+[K] 高置信支撑),其余仅见于该路报告,标 [S] 作界面语汇与参数设计参考、不作存在性/星数依据;Web Notification **桌面 Safari 不支持、Android Chrome 不支持**(E9 降级文案前提 [S]);cc-dots #1111「ask 规则误触发 ghost waiting」修复——**与 xray「等待授权(疑似)」同根因的社区实证 [S]**;ccusage-notifications「日预算阈值通知」/ agents-gateguard「权限等待→通知+点击回终端」(E1/E11 增量灵感 [S]);**claude-golden-eye 该路判「✅ 存在(view-only dashboard)」,与本会话检索「未达仓库本体」相反 → 维持 §4.1 弱证据判法**。
+- **插件系统(插件路)**:**manifest schema 已收窄至 name/description/version/userConfig + 元数据,`commands/agents/hooks/mcpServers` 显式声明被移除(全组件自动发现,MCP=根 `.mcp.json`)**——四源交叉但与我读的镜像示例([A],含显式声明键)冲突,**E12 第一步:本机写一份声明跑 `claude plugin validate` 看谁过时**;`userConfig`(v2.0.76+,`${user_config.X}` 注入 hooks/MCP 命令,可解 E11 的 poke 端口配置化!);`${CLAUDE_PLUGIN_DATA}` 卸载后保留 7 天;`claude plugin eval`(插件 E2E 评测框架,sandbox 默认断网——**对 lucid 的 CI 直接可用,立项前先试**);monitors.json 在 claude-code 仓库 **0 命中、schema 属 opencode**(§3.4 采信其方向,但「反转定论」仍需官方原文);插件 `additionalDirectories/statusline-providers/`(E13 若属实可**免改用户 settings.json** 的正路);命令 `context: fork`/`$ARGUMENTS_N`/`@文件` 引用;MCP 工具命名两处口径(`mcp__<plugin>__<tool>` vs 镜像的 `mcp__plugin_<plugin>_<server>__<tool>`)。
+- **社区(生态路)**:该路逐条核实了 14 个竞品(ccusage/ccseva/claude-code-log/agents-gateguard/opentui/agent-view/claude-code-webui-desktop/Claude-Code-Usage-Monitor/omnara/vibe-kanban/claude-squad/tokscope=不存在 等)——**其中仅 claude-hud、claude-code-hub 被本会话搜索独立复现**(已入 §4.1;ccusage 的存在另有 [R]+[K] 高置信支撑),其余仅见于该路报告,标 [S] 作界面语汇与参数设计参考、不作存在性/星数依据;Web Notification **桌面 Safari 不支持、Android Chrome 不支持**(E9 降级文案前提 [S]);cc-dots #1111「ask 规则误触发 ghost waiting」修复——**与 lucid「等待授权(疑似)」同根因的社区实证 [S]**;ccusage-notifications「日预算阈值通知」/ agents-gateguard「权限等待→通知+点击回终端」(E1/E11 增量灵感 [S]);**claude-golden-eye 该路判「✅ 存在(view-only dashboard)」,与本会话检索「未达仓库本体」相反 → 维持 §4.1 弱证据判法**。
 
 ## 4. 社区对标(本会话 WebSearch 结果为准;星数/描述均为搜索摘要二手口径)
 
 ### 4.1 ROADMAP §2.2 三项目核实
 
-| ROADMAP 引用 | 核实结论 [W] | 对 xray 的意义 |
+| ROADMAP 引用 | 核实结论 [W] | 对 lucid 的意义 |
 |---|---|---|
 | [jarrodwatts/claude-hud](https://github.com/jarrodwatts/claude-hud) | ✅ 存在,头部 statusline 插件(Medium 转述 ~16.6K★):context usage/active tools/agents/todo 常驻输入行下方;安装=自家 marketplace + setup 命令写 settings.json `statusLine` | ①E13 路线有成熟先例(含「setup 写配置」UX);②已知 bug:会话恢复后 HUD 消失、macOS 装后需重启——E13 验收项该防这两类 |
 | amenophis1er/claude-golden-eye | ⚠️ **未核实到仓库本体**(仅聚合站二手「view-only dashboard, live session state…」;作者主页真实但项目列表无此名) | ROADMAP 从它借鉴的三点**降级为方向性参考**,均有替代出处:桌面通知→eyes-on-claude-code(下表);MCP 查询→E12 本就官方机制 |
@@ -108,10 +108,10 @@
 
 ### 4.2 本次新发现(搜索直接命中 [W])
 
-- **[anthropics/claude-code-monitoring-guide](https://github.com/anthropics/claude-code-monitoring-guide)** — 官方「Claude Code ROI 度量指南」含现成 Grafana dashboard JSON:官方认证的指标维度可作 E1/E2 **口径设计参照**(xray 做单机版对齐官方语义,天然可信);
-- **[anthropics/claude-code#26394](https://github.com/anthropics/claude-code/issues/26394)** — 「Central dashboard to monitor multiple Claude Code」官方需求 issue:**多会话集中查看是官方未满足的公开诉求** = xray 正面市场信号;
+- **[anthropics/claude-code-monitoring-guide](https://github.com/anthropics/claude-code-monitoring-guide)** — 官方「Claude Code ROI 度量指南」含现成 Grafana dashboard JSON:官方认证的指标维度可作 E1/E2 **口径设计参照**(lucid 做单机版对齐官方语义,天然可信);
+- **[anthropics/claude-code#26394](https://github.com/anthropics/claude-code/issues/26394)** — 「Central dashboard to monitor multiple Claude Code」官方需求 issue:**多会话集中查看是官方未满足的公开诉求** = lucid 正面市场信号;
 - **[joe-re/eyes-on-claude-code](https://github.com/joe-re/eyes-on-claude-code)** — 全局 hooks 驱动的菜单栏多会话看板+桌面通知:佐证 **E11(hook push)+E9(桌面通知)** 组合方向;
-- **[hoangsonww/Claude-Code-Agent-Monitor](https://github.com/hoangsonww/Claude-Code-Agent-Monitor)**、**[tombelieber/claude-view](https://github.com/tombelieber/claude-view)**、**[dlupiak/claude-session-dashboard](https://github.com/dlupiak/claude-session-dashboard)**、**[fien-atone/third-eye](https://github.com/fien-atone/third-eye)**(「钱花哪了」)、**[onikan27/claude-code-monitor](https://github.com/onikan27/claude-code-monitor)**(手机向,§6 拒收)——「多会话并行焦虑」赛道切片密集,xray 的零安装+历史全量位仍空。
+- **[hoangsonww/Claude-Code-Agent-Monitor](https://github.com/hoangsonww/Claude-Code-Agent-Monitor)**、**[tombelieber/claude-view](https://github.com/tombelieber/claude-view)**、**[dlupiak/claude-session-dashboard](https://github.com/dlupiak/claude-session-dashboard)**、**[fien-atone/third-eye](https://github.com/fien-atone/third-eye)**(「钱花哪了」)、**[onikan27/claude-code-monitor](https://github.com/onikan27/claude-code-monitor)**(手机向,§6 拒收)——「多会话并行焦虑」赛道切片密集,lucid 的零安装+历史全量位仍空。
 
 ### 4.3 承 ROADMAP 未再核实项([R])
 
@@ -119,7 +119,7 @@ ccusage(成本报表维度:daily/monthly/by-project)、agent-notify / agents-rou
 
 ### 4.4 差异化定位结论
 
-同类三形态:**终端 HUD**(无历史)/ **重装机 app·PWA**(有依赖)/ **xray**(零安装+历史全量回看+回合任务叙事+全文可看全)。扩展应在自己三件武器上做加法(只读数据源深度 D2/D3/D11、全文链路、回合分组),而非补齐别人的形态。E1–E15 全部符合该判据。
+同类三形态:**终端 HUD**(无历史)/ **重装机 app·PWA**(有依赖)/ **lucid**(零安装+历史全量回看+回合任务叙事+全文可看全)。扩展应在自己三件武器上做加法(只读数据源深度 D2/D3/D11、全文链路、回合分组),而非补齐别人的形态。E1–E15 全部符合该判据。
 
 ## 5. 扩展方案卡
 
@@ -164,9 +164,9 @@ ccusage(成本报表维度:daily/monthly/by-project)、agent-notify / agents-rou
 - **风险**:二进制只列名。
 - **验收**:`tests/test_file_history.py` fixture(合成 snapshot 记录+@v1/@v2)。
 
-### E12 捆绑 MCP:xray 反向查询(差异化主打)⭐ 2–3 人日
+### E12 捆绑 MCP:lucid 反向查询(差异化主打)⭐ 2–3 人日
 - **价值**:查看器变「记忆体」——用户直接问 Claude「上周失败那个 workflow 复盘讲了什么」,Claude 自查本地历史。
-- **数据源**:§3.3 官方机制 [A]。stdio:`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/mcp_server.py`(纯 stdlib 手写 JSON-RPC:initialize/tools·list/tools·call);工具 `list_runs/search_runs/run_detail/cost_summary`(复用 scan/sessions 同源函数);`.mcp.json` 或 manifest 声明 [A];命令 frontmatter 按 `mcp__plugin_xray_*` 预授权 [A]。
+- **数据源**:§3.3 官方机制 [A]。stdio:`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/mcp_server.py`(纯 stdlib 手写 JSON-RPC:initialize/tools·list/tools·call);工具 `list_runs/search_runs/run_detail/cost_summary`(复用 scan/sessions 同源函数);`.mcp.json` 或 manifest 声明 [A];命令 frontmatter 按 `mcp__plugin_lucid_*` 预授权 [A]。
 - **铁律校验**:零依赖 ✓(官方示例就是 python -m);只读 ✓;不新增端口——**服务没起也能查历史**(进程内自建 6s 缓存,等价 scan_cached),反成卖点。
 - **风险**:工具命名/加载行为两处文档口径差 [A 镜像 vs 线上]→ 以本机 `/mcp` 实测为准;宿主版本差异→validate 门禁。
 - **验收**:pytest 起子进程 `initialize`+`tools/list` 握手;真机 `/mcp` 可见+一次真实查询。
@@ -186,15 +186,15 @@ ccusage(成本报表维度:daily/monthly/by-project)、agent-notify / agents-rou
 - **验收**:test_turn_group.js 扩展(插话注记不改分组数)。
 
 ### E6 钩子健康 + /goal 状态面板 · 1–2 人日
-- **价值**:实测当场抓到真故障——`hook_success` 里躺着 `Hookify import error`(用户钩子静默失败没人看见)[L];xray 自身是钩子驱动,吃自家狗粮。/goal 条件与达成态只有转录知道(D7 goal_status [L])。
+- **价值**:实测当场抓到真故障——`hook_success` 里躺着 `Hookify import error`(用户钩子静默失败没人看见)[L];lucid 自身是钩子驱动,吃自家狗粮。/goal 条件与达成态只有转录知道(D7 goal_status [L])。
 - **数据源**:D7/D8 [L] + E11 events.jsonl(若落地)。
 - **改动点**:`_analyze` 收集近 N 条钩子执行(命令/耗时/exitCode/stderr 首行)+ goal_status;会话卡「⚙钩子 N 失败」徽标→明细表(耗时条复用 E2 组件);/goal 条件上卡(长文懒拉)。
 - **验收**:fixture 合成失败钩子断言计数与明细。
 
 ### E13 statusline 桥:上下文占用与配额面板 · 1–2 人日
-- **价值**:补 xray 唯一两块**文件里没有**的数据:上下文占用(「快 compact 了」预警)与 5h/7d 配额窗口 [L(转录字段穷举)+W(仅 statusline 有)]。
+- **价值**:补 lucid 唯一两块**文件里没有**的数据:上下文占用(「快 compact 了」预警)与 5h/7d 配额窗口 [L(转录字段穷举)+W(仅 statusline 有)]。
 - **立项第一步**:本机 dump 真实 payload 定 schema(§3.2 键名分歧);**used/rate 字段对第三方渠道可能缺失或失真**——缺时区块安静缺席并说明原因(铁律 7)。
-- **数据源/改动点**:新命令 `/wf-statusline` **起步只做「生成配置片段+让用户自贴」**(xray 首次写非 CONF_DIR 文件是铁律 2 例外,起步绕开;若未来改为直写 settings.json:须显式命令触发+备份+幂等+remove,且**链式转调**用户旧 statusLine);桥脚本 POST `/api/telemetry`(仅本机);页面 HUD 区:占用条(绿→黄→红)+ 配额% +「来自最近一次上报:会话 x · Ns 前」(新鲜度窗口)。
+- **数据源/改动点**:新命令 `/wf-statusline` **起步只做「生成配置片段+让用户自贴」**(lucid 首次写非 CONF_DIR 文件是铁律 2 例外,起步绕开;若未来改为直写 settings.json:须显式命令触发+备份+幂等+remove,且**链式转调**用户旧 statusLine);桥脚本 POST `/api/telemetry`(仅本机);页面 HUD 区:占用条(绿→黄→红)+ 配额% +「来自最近一次上报:会话 x · Ns 前」(新鲜度窗口)。
 - **风险**:空闲会话不上报=数据过期展示(措辞解决);statusLine 触发时机/debounce 未核实 [K]。
 - **验收**:配置片段生成/还原的 tmp-HOME 测试;telemetry 端点校验+过期灰显断言。
 
@@ -251,7 +251,7 @@ ccusage(成本报表维度:daily/monthly/by-project)、agent-notify / agents-rou
 | §2.1 「SessionEnd 不含 usage/cost…issue #50863/#50926」 | 本会话检索未直接复核编号 → UNVERIFIED;hooks 路子代理查得 **#50863/#50926 系编号借用**,真实 cost 诉求为 #42965/#37814/#45757 [S,立项前自行点开验证]。(不影响结论:**USD 权威源在转录文件 D2,hook 输入只是搬运** [L]) | §3.1/§3.5 |
 | §2.1 「插件捆绑 MCP:plugin.json `mcpServers`」 | 镜像示例支持 manifest 显式声明 **mcpServers/commands/agents/hooks 路径** [A];根 `.mcp.json` 同样可行 [A]。(线上参考是否收窄该 schema,本轮未读到原文——实现时以 `claude plugin validate` 实测为准)| §3.3 |
 | §2.1 「statusline 有 used_percentage」 | [W] sample 实为 `context_window{used_tokens,max_tokens}`;`used_percentage` 口径未获本轮来源证实 → E13 立项第一步实测 dump payload | §3.2 |
-| §2.1 「monitors=CC 官方(需≥2.1.105)」 | 本轮**未命中任何官方出处** [W-缺席];xray 自身已实测部分宿主静默跳过 → 降级为「无害前瞻声明」,SessionStart hook 为唯一承重入口 | §3.4 |
+| §2.1 「monitors=CC 官方(需≥2.1.105)」 | 本轮**未命中任何官方出处** [W-缺席];lucid 自身已实测部分宿主静默跳过 → 降级为「无害前瞻声明」,SessionStart hook 为唯一承重入口 | §3.4 |
 | §2.2 社区三项目 | claude-hud ✅(~16.6K★二手)/ code-hub ✅(日更 PWA)/ **golden-eye ⚠️ 未核实到本体** → 借鉴点换独立出处 | §4.1 |
 | §2.3 定价表 | **与官方 claude-api 镜像一致** ✓(补 Fable/Mythos $10/$50、fast mode);新增警告:网关下 cost 按牌价折算出虚假 USD [L] | §5c/D17 |
 | §3.5 多渠道通知 | 方向不变;`sent.json` 键结构与渠道无关(数组化即可)[L];防风暴参数 [R] | §5b/E14 |

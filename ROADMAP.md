@@ -1,4 +1,4 @@
-# ROADMAP · xray 插件扩展方向调研 (2026-09)
+# ROADMAP · lucid 插件扩展方向调研 (2026-09)
 
 > 结论先行：**本插件的差异化价值是「零依赖、只读本地文件源、历史全量回看 + 网页工作台」**。
 > 调研对标了 Claude Code 官方能力（hooks / statusline / 插件捆绑 MCP）与 3 个社区同类
@@ -32,7 +32,7 @@ run 级 `durationMs`/`toolCalls`/`startTime` —— 成本面板与甘特视图*
 | **hooks**（`hooks/hooks.json`，插件可自带） | 28 种事件：`PostToolUse`(Workflow)、`Stop`、`SubagentStop`、`Notification`(agent_completed/agent_needs_input)、`SessionEnd`(带 `transcript_path`) | `SessionEnd` 输入**不含 usage/cost**（[官方 issue #50863/#50926](https://github.com/anthropics/claude-code/issues/50863)），成本须自行解析 transcript | 插件 hooks 放 `hooks/hooks.json`，**勿**在 plugin.json 声明（重复报错）；`http` 型 hook v2.1.63+ 可直接 POST；与用户 hooks 并行、顺序不定 |
 | **statusline**（每条 settings.json 配置） | **官方算好的 `cost.total_cost_usd`**、`context_window.used_percentage`、`rate_limits.five_hour/seven_day`、`model.display_name` | 无（另有 `/cost` 内置命令） | 每次 assistant 消息后触发（300ms debounce）；stdin 喂 JSON，脚本 stdout 即状态行 |
 | **插件捆绑 MCP**（plugin.json `mcpServers` 或 `.mcp.json`） | 让 Claude 在会话内直接调工具 | — | 路径用 `${CLAUDE_PLUGIN_ROOT}`；工具自动命名 `mcp__plugin_<plugin>_*`；stdio 即可（stdlib 手写 JSON-RPC，仍零依赖） |
-| Agent SDK `streamEvents` | 消息级事件（message_start/delta…）+ `parent_tool_use_id`，**无 workflow_phase 事件** | 订阅的是 SDK 启动的会话——无法观测用户正常会话 | 对 xray 架构无增量价值，放弃 |
+| Agent SDK `streamEvents` | 消息级事件（message_start/delta…）+ `parent_tool_use_id`，**无 workflow_phase 事件** | 订阅的是 SDK 启动的会话——无法观测用户正常会话 | 对 lucid 架构无增量价值，放弃 |
 
 ### 2.2 社区对标（3 个同类项目 + 通知代理）
 
@@ -60,7 +60,7 @@ run 级 `durationMs`/`toolCalls`/`startTime` —— 成本面板与甘特视图*
 **3.1 成本面板（Cost）** ⭐ 首推
 - 方案：复用 `sessions.py:91` 的四字段聚合 + 定价表 → 估算 `costUSD`；run 卡展示「≈ $x」；新增仪表「COST 今日/本周」；按项目/日聚合视图。
 - 数据：本地全有，零新依赖；**标注「估算」**（缓存写按 1.25×、不精确区分 5min/1h TTL）。
-- 收益：社区（claude-code-hub）验证过的刚需；仅此一项即可让 xray 从「看板」升级为「记账」。
+- 收益：社区（claude-code-hub）验证过的刚需；仅此一项即可让 lucid 从「看板」升级为「记账」。
 
 **3.2 等待用户输入/阻塞标记 + 通知分型** ✅ 已实现（v1.2.10）
 - 方案：已有 `stopReason`/pending 数据；把 session 卡状态细分「⏸ 等待用户输入」高亮；webhook 通知增加 `input_required` 类消息（区别于终态）。
@@ -77,7 +77,7 @@ run 级 `durationMs`/`toolCalls`/`startTime` —— 成本面板与甘特视图*
 
 ### S1 · 中期（1-2 个迭代，形成护城河）
 
-**3.4 插件捆绑 MCP server（xray-mcp）** ⭐ 差异化主打
+**3.4 插件捆绑 MCP server（lucid-mcp）** ⭐ 差异化主打
 - 方案：`plugin.json` 声明 `mcpServers`（stdio，`python3 ${CLAUDE_PLUGIN_ROOT}/scripts/mcp_server.py`，纯 stdlib JSON-RPC，复用 `scan.sessions`）；工具：`list_runs` / `run_detail` / `search_runs` / `cost_summary`。
 - 核心价值：**让 Claude 本人在会话里查询历史**（「查下上周那两个失败的 workflow 复现了什么」）——viewer 从被动看板变主动记忆，与 golden-eye 的 MCP 自报告互为镜像。
 - 风险：MCP 子进程每次启动独立扫描（无进程内缓存）——工具实现里按请求后 6s 缓存即可；只读接口天然安全。

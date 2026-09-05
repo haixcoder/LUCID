@@ -1,9 +1,9 @@
 ---
-description: 启动 Workflow 进度网页查看器并打开浏览器
+description: 启动 Lucid 网页查看器,实时透视 Workflow / Agent 执行并打开浏览器
 allowed-tools: Bash(python3:*), Bash(curl:*), Bash(open:*), Bash(lsof:*), Bash(cat:*)
 ---
 
-启动 XRay 网页查看器：
+启动 Lucid 网页查看器：
 
 1. 读取端口（网页"⚙ 设置"可改，config 优先于默认 8787）：
    `python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.claude/cc-viewer/config.json'))).get('port') or 8787)" 2>/dev/null || echo 8787`

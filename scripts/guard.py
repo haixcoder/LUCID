@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# xray 服务看护/自启动：由插件 harness 的两个触发口之一在会话开始时调用本脚本 --detach：
+# lucid 服务看护/自启动：由插件 harness 的两个触发口之一在会话开始时调用本脚本 --detach：
 #   · monitors/monitors.json —— 官方后台 monitor（交互式会话自动化；部分宿主不可用）
 #   · hooks/hooks.json 的 SessionStart —— 钩子兜底（每次会话开始）
 # --detach 语义：确保一个常驻「看护循环」（guard.py 自身，写 guard.pid 跨会话去重）在跑；
@@ -51,11 +51,11 @@ def ensure_once():
     deadline = time.time() + 6.0
     while time.time() < deadline:
         if probe(port):
-            return f'xray 服务已自动启动: http://127.0.0.1:{port} (pid {p.pid})'
+            return f'lucid 服务已自动启动: http://127.0.0.1:{port} (pid {p.pid})'
         if p.poll() is not None:  # server.py 启动即退出（多为端口被外部进程占用，详见其 stderr）
             break
         time.sleep(0.2)
-    return f'xray 服务自动启动失败: 端口 {port} 未在监听, server.py 已退出(详见 {config.CONF_DIR}/server.log)'
+    return f'lucid 服务自动启动失败: 端口 {port} 未在监听, server.py 已退出(详见 {config.CONF_DIR}/server.log)'
 
 
 def watcher_alive():
@@ -81,7 +81,7 @@ def spawn_watcher():
 
 
 def main():
-    ap = argparse.ArgumentParser(description='xray 服务看护: 确保 server.py 运行, 崩溃自动重启; 仅状态变化时输出一行')
+    ap = argparse.ArgumentParser(description='lucid 服务看护: 确保 server.py 运行, 崩溃自动重启; 仅状态变化时输出一行')
     ap.add_argument('--once', action='store_true', help='只保证一次并退出(调试/测试)')
     ap.add_argument('--detach', action='store_true', help='确保常驻看护循环在跑(无则 setsid 拉起), 立即退出(会话开始入口)')
     ap.add_argument('--interval', type=int, default=DEFAULT_INTERVAL, help=f'复查间隔秒(默认 {DEFAULT_INTERVAL})')

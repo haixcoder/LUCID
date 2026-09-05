@@ -25,7 +25,7 @@ VER = hashlib.md5(_m.group(1).encode('utf-8')).hexdigest()[:12] if _m else ''
 
 
 class H(BaseHTTPRequestHandler):
-    server_version = 'xray'  # 本机服务不向任何同源页面外的探测者泄露 Python/http.server 版本
+    server_version = 'lucid'  # 本机服务不向任何同源页面外的探测者泄露 Python/http.server 版本
     sys_version = ''
 
     def log_message(self, *a):
@@ -117,13 +117,13 @@ class H(BaseHTTPRequestHandler):
                     out = {'ok': True, 'msg': '已保存', 'conf': c}
         elif u.path == '/api/config/test':
             if data.get('kind') == 'input_required':  # 分型测试：正文/载荷走真实构造函数
-                s = {'sessionId': 'test0000-dead', 'project': 'xray', 'title': '测试消息：等待输入通知连通 ✓',
+                s = {'sessionId': 'test0000-dead', 'project': 'lucid', 'title': '测试消息：等待输入通知连通 ✓',
                      'cwd': '/path/to/project', 'status': 'input_required', 'waitReason': 'permission',
                      'waitTool': 'Bash', 'permissionMode': 'default', 'ageSec': 137,
                      'lastActivityAt': int(time.time() * 1000), 'lastText': '需要你授权(或改问一句)我才能继续。'}
                 ok, msg = send_hook(s, sess_text(s), 'input_required')
             else:
-                ok, msg = send_hook({'name': 'xray', 'status': 'completed', 'task': '测试消息：通知钩子连通正常 ✓',
+                ok, msg = send_hook({'name': 'lucid', 'status': 'completed', 'task': '测试消息：通知钩子连通正常 ✓',
                                      'cwd': '—', 'runId': 'test', 'tokens': 12345, 'durationMs': 65000,
                                      'agents': [{'state': 'done'}], 'agentCount': 1, 'result': 'test'})
             out = {'ok': ok, 'msg': msg, 'last': LAST_HOOK}

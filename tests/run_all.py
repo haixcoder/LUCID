@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# xray 回归总入口(改动准入/部署前必跑,零第三方依赖):
+# lucid 回归总入口(改动准入/部署前必跑,零第三方依赖):
 #   · tests/test_*.py            后端:fixture 驱动真实函数 + 真起服务的 HTTP 全链路
 #   · tests/frontend/test_*.js   前端:node 无头 DOM 桩驱动编译产物(无 node 则跳过并警示)
 # 用法:  python3 tests/run_all.py [-v] [关键字...]      (-v 打印全量输出;关键字按文件名子串过滤)

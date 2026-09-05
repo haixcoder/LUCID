@@ -31,7 +31,7 @@ def done():
 
 def temp_home():
     """临时 HOME 根目录(退出自动清理)。数据源 ~/.claude/* 全部落在其下,永不碰真实目录。"""
-    td = tempfile.mkdtemp(prefix='xray-test-')
+    td = tempfile.mkdtemp(prefix='lucid-test-')
     atexit.register(shutil.rmtree, td, True)
     home = Path(td)
     (home / '.claude' / 'projects').mkdir(parents=True)

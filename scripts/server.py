@@ -17,7 +17,7 @@ if __name__ == '__main__':
     args = ap.parse_args()
     if args.stop:
         try:
-            pid = int(config.PIDF.read_text()); os.kill(pid, signal.SIGTERM); print(f'已停止 xray (pid {pid})')
+            pid = int(config.PIDF.read_text()); os.kill(pid, signal.SIGTERM); print(f'已停止 lucid (pid {pid})')
         except Exception as e:
             sys.exit(f'停止失败（可能未在运行）：{e}')
         sys.exit(0)
@@ -30,5 +30,5 @@ if __name__ == '__main__':
                  f'恢复：编辑或删除 {config.CONF_DIR / "config.json"} 中的 port 字段，或用 --port 指定')
     config.CONF_DIR.mkdir(parents=True, exist_ok=True)
     config.PIDF.write_text(str(os.getpid()))
-    print(f'xray → http://127.0.0.1:{config.CURRENT_PORT} (webhook 通知线程已启动, pid {os.getpid()})')
+    print(f'lucid → http://127.0.0.1:{config.CURRENT_PORT} (webhook 通知线程已启动, pid {os.getpid()})')
     srv.serve_forever()

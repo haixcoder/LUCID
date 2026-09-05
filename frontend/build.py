@@ -46,7 +46,7 @@ def main():
     import urllib.parse
     ver = hashlib.md5(js.encode('utf-8')).hexdigest()[:12]  # 与服务端 /api/runs 的 ver 算法一致(JS 载荷 md5)
     fav = urllib.parse.quote(  # 模板 href 已含 data:image/svg+xml, 前缀,这里只注入编码内容
-        (HERE.parent / 'assets' / 'xray-logo.svg').read_text(encoding='utf-8'), safe='')
+        (HERE.parent / 'assets' / 'lucid-logo.svg').read_text(encoding='utf-8'), safe='')
     html = html.replace('/*__APP__*/', js).replace('<!--VER-->', ver).replace('<!--FAVICON-->', fav)
     OUT.write_text(html, encoding='utf-8')
     print(f'构建完成:{" + ".join(f.name for f in srcs)} → {OUT} ({len(js)} 字符 JS)')

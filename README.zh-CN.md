@@ -1,24 +1,24 @@
-# XRay
+# Lucid
 
-<p align="center"><img src="assets/xray-logo.svg" alt="XRay" width="180"></p>
+<p align="center"><img src="assets/lucid-logo.svg" alt="Lucid" width="180"></p>
 
-<p align="center"><b>Claude Code 插件的 Workflow 实时透视镜</b><br>
-把 Claude 的 Workflow 运行"照成 X 光片"：每个 phase、agent、工具调用、tokens、耗时，2 秒一帧实时可见。<br>
+<p align="center"><b>让 Claude Code 的每一次 Agent 运行，一目了然</b><br>
+实时透视 Workflow：每个 phase、agent、工具调用、tokens、耗时，2 秒一帧，尽数可见。<br>
 零依赖 · 纯本机 · 只读</p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
-<p align="center"><img src="assets/screenshot.png" alt="XRay 界面截图"></p>
+<p align="center"><img src="assets/screenshot.png" alt="Lucid 界面截图"></p>
 
-## XRay 是什么
+## Lucid 是什么
 
-XRay 是一个 **Claude Code 本地插件**：在工作流运行时打开一个网页，实时看到内部每个 agent 正在做什么——
+Lucid 是一个 **Claude Code 本地插件**：在工作流运行时打开一个网页，实时看到内部每个 agent 正在做什么——
 从**全局仪表盘**（运行数 / 存活数 / 完成数 / 告警数）到**单个 agent 的生命体征**
 （阶段、最近工具、token 消耗、耗时、pending 工具、完整 prompt / result），再到**会话层的操作步骤回溯**。
 
 它不拦截、不注入、不修改任何东西——只读 Claude Code 自己落盘的状态文件，用零依赖的 Python 标准库服务呈现。
 
-**为什么需要**：Workflow 运行时内部是黑盒。你想知道「它卡在哪一步」「这个 agent 在跑什么工具」「上那条链子烧了多少 token」——XRay 就是为这个时刻准备的。
+**为什么需要**：Workflow 运行时内部是黑盒。你想知道「它卡在哪一步」「这个 agent 在跑什么工具」「上那条链子烧了多少 token」——Lucid 就是为这个时刻准备的。
 
 ## 特性
 
@@ -66,7 +66,7 @@ Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<ses
 
 ```bash
 claude plugin marketplace add haixcoder/XRay                 # 即本仓库(marketplace.json, source="./")
-claude plugin install xray@kw-dev-plugins                    # 安装插件
+claude plugin install lucid@kw-dev-plugins                    # 安装插件
 # 版本锁定装法（可选，装 tag 快照）：
 # claude plugin marketplace add haixcoder/XRay#v1.2.5   后同 install
 ```
@@ -75,19 +75,19 @@ claude plugin install xray@kw-dev-plugins                    # 安装插件
 
 ```bash
 claude plugin marketplace add ~/projectDir/cc-viewer     # 注册本地市场(本目录兼作市场 kw-dev-plugins)
-claude plugin install xray@kw-dev-plugins                # 安装插件
+claude plugin install lucid@kw-dev-plugins                # 安装插件
 ```
 
 验证：
 
 ```bash
-claude plugin list                       # 应见 xray@kw-dev-plugins ✔ enabled
-claude plugin details xray@kw-dev-plugins  # 组件清单(wf-view 命令、token 成本)
+claude plugin list                       # 应见 lucid@kw-dev-plugins ✔ enabled
+claude plugin details lucid@kw-dev-plugins  # 组件清单(lucid 命令、token 成本)
 ```
 
 ## 使用
 
-在任意 Claude Code 会话中输入 **`/wf-view`** —— 自动启动服务（默认端口 8787，网页设置优先）并打开浏览器。
+在任意 Claude Code 会话中输入 **`/lucid`** —— 自动启动服务（默认端口 8787，网页设置优先）并打开浏览器。
 
 或手动：
 
@@ -96,7 +96,7 @@ python3 scripts/server.py --port 8787   # 打开 http://127.0.0.1:8787
 python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|kill)
 ```
 
-`/wf-view` 命令做的事：
+`/lucid` 命令做的事：
 
 1. 读 `~/.claude/cc-viewer/config.json` 取端口；
 2. `curl /api/runs` 探测 —— 服务已在运行则直接复用；
@@ -107,7 +107,7 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 
 日常其实不需要手动启动：插件的 `hooks/hooks.json`（SessionStart，任意版本生效）与
 `monitors/monitors.json`（后台 monitor，需 Claude Code ≥2.1.105 且宿主支持）都会在每次会话开始时
-通过 `guard.py --detach` 确保服务在跑、崩溃自动重启 —— `/wf-view` 只是顺便打开浏览器。
+通过 `guard.py --detach` 确保服务在跑、崩溃自动重启 —— `/lucid` 只是顺便打开浏览器。
 看护循环只写 `~/.claude/cc-viewer/server.log` 与 `guard.pid`，不影响任何既有配置。
 
 ## 页面功能
@@ -161,12 +161,12 @@ curl -s "http://127.0.0.1:8787/api/subagent?proj=<proj>&sess=<sess>&agent=main&m
 ## 项目结构
 
 ```
-XRay/
+Lucid/
 ├── .claude-plugin/
 │   ├── plugin.json        # 插件清单(名称/描述/版本,plugin manager 展示来源)
 │   └── marketplace.json   # 市场清单 —— 本目录同时就是 kw-dev-plugins 市场(插件 source 为 "./")
 ├── assets/
-│   ├── xray-logo.svg      # 图标(X 射线透视眼 + 心跳线)
+│   ├── lucid-logo.svg     # 图标(Lucid 眼 + 焦点十字 + 心跳线)
 │   └── screenshot.png     # 界面截图
 ├── frontend/              # 前端源码(TS,仅开发用;运行时零依赖不变)
 │   ├── src/*.ts           # 00-types/05-i18n/10-util/20-render/30-app,按名序拼接为全局脚本
@@ -174,7 +174,7 @@ XRay/
 │   ├── build.py           # 构建:拼接→tsc --strict→注入产物到 scripts/ccviewer/static/index.html
 │   └── dist/              # 中间产物(不进安装副本,git 忽略)
 ├── commands/
-│   └── wf-view.md         # /wf-view 斜杠命令(commands/ 自动发现,无需在清单中声明)
+│   └── lucid.md         # /lucid 斜杠命令(commands/ 自动发现,无需在清单中声明)
 ├── hooks/
 │   └── hooks.json         # SessionStart 钩子:会话开始跑 guard.py --detach(自启动主入口,任意版本可用)
 ├── monitors/
@@ -216,7 +216,7 @@ python3 scripts/server.py     # 前台启动(默认 8787,config 优先)
 铁律：
 
 1. **零依赖**：`server.py` 与 `ccviewer/` 包只许 import stdlib；**前端只许 TS**，`index.html` 脚本块是 build 产物禁止手改；
-2. **双路径陷阱**：插件安装后运行时加载的是缓存副本（`~/.claude/plugins/cache/kw-dev-plugins/xray/<版本>/`），改完源码要同步 + 重装 + 重启服务进程；
+2. **双路径陷阱**：插件安装后运行时加载的是缓存副本（`~/.claude/plugins/cache/kw-dev-plugins/lucid/<版本>/`），改完源码要同步 + 重装 + 重启服务进程；
 3. **改版本才生效**：`plugin.json` 的 `version` 决定缓存目录，升版本后重装落到新 cache 目录，旧版本残留可清理。
 
 ## 已知边界

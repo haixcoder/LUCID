@@ -27,7 +27,7 @@
   <!-- 虹膜 -->
   <circle cx="256" cy="256" r="118" fill="none" stroke="url(#beam)" stroke-width="14" opacity="0.9"/>
 
-  <!-- X 光束 -->
+  <!-- 焦点十字（focus crosshair）-->
   <g stroke="url(#beam)" stroke-width="18" stroke-linecap="round">
     <path d="M199 199 L313 313"/>
     <path d="M313 199 L199 313"/>

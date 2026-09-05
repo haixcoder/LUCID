@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _util import REPO, ck, done
 
-HOME = Path(tempfile.mkdtemp(prefix='xray-e2e-'))
+HOME = Path(tempfile.mkdtemp(prefix='lucid-e2e-'))
 import atexit
 import shutil
 atexit.register(shutil.rmtree, HOME, True)

@@ -1,22 +1,22 @@
-# XRay
+# Lucid
 
-<p align="center"><img src="assets/xray-logo.svg" alt="XRay" width="180"></p>
+<p align="center"><img src="assets/lucid-logo.svg" alt="Lucid" width="180"></p>
 
-<p align="center"><b>The Workflow X-ray lens for Claude Code</b><br>
-Put Claude's Workflow runs under an X-ray: every phase, agent, tool call, token count and duration — one live frame every 2 seconds.<br>
+<p align="center"><b>See straight through Claude Code's agents</b><br>
+Lucid puts every Workflow run in clear, live focus: each phase, agent, tool call, token count and duration — one fresh frame every 2 seconds.<br>
 Zero dependencies · Local-only · Read-only</p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-<p align="center"><img src="assets/screenshot.png" alt="XRay screenshot"></p>
+<p align="center"><img src="assets/screenshot.png" alt="Lucid screenshot"></p>
 
-## What is XRay
+## What is Lucid
 
-XRay is a **local Claude Code plugin**: while a workflow runs, it opens a web page showing, in real time, what every agent inside is doing — from the **global dashboard** (runs / live / done / alerts) down to a **single agent's vital signs** (phase, latest tool, token usage, duration, pending tools, full prompt / result), and further to **session-level step-by-step history**.
+Lucid is a **local Claude Code plugin**: while a workflow runs, it opens a web page showing, in real time, what every agent inside is doing — from the **global dashboard** (runs / live / done / alerts) down to a **single agent's vital signs** (phase, latest tool, token usage, duration, pending tools, full prompt / result), and further to **session-level step-by-step history**.
 
 It intercepts nothing, injects nothing, modifies nothing — it only reads the state files Claude Code itself writes to disk and serves them through a dependency-free Python standard-library server.
 
-**Why you need it**: while a Workflow runs, its internals are a black box. You want to know "which step is it stuck on", "what tool is this agent running", "how many tokens did that chain burn" — XRay is built for exactly that moment.
+**Why you need it**: while a Workflow runs, its internals are a black box. You want to know "which step is it stuck on", "what tool is this agent running", "how many tokens did that chain burn" — Lucid is built for exactly that moment.
 
 ## Features
 
@@ -63,7 +63,7 @@ Prerequisites: macOS / Linux, Claude Code 2.0+, Python 3.9+ (**no pip installs, 
 
 ```bash
 claude plugin marketplace add haixcoder/XRay                 # this repo (marketplace.json, source "./")
-claude plugin install xray@kw-dev-plugins                    # install the plugin
+claude plugin install lucid@kw-dev-plugins                    # install the plugin
 # Version-pinned install (optional, installs a tag snapshot):
 # claude plugin marketplace add haixcoder/XRay#v1.2.5   then the same install as above
 ```
@@ -72,19 +72,19 @@ claude plugin install xray@kw-dev-plugins                    # install the plugi
 
 ```bash
 claude plugin marketplace add ~/projectDir/cc-viewer     # register the local marketplace (this dir doubles as kw-dev-plugins)
-claude plugin install xray@kw-dev-plugins                # install the plugin
+claude plugin install lucid@kw-dev-plugins                # install the plugin
 ```
 
 Verify:
 
 ```bash
-claude plugin list                       # should show xray@kw-dev-plugins ✔ enabled
-claude plugin details xray@kw-dev-plugins  # component list (wf-view command, token cost)
+claude plugin list                       # should show lucid@kw-dev-plugins ✔ enabled
+claude plugin details lucid@kw-dev-plugins  # component list (lucid command, token cost)
 ```
 
 ## Usage
 
-In any Claude Code session, type **`/wf-view`** — the service starts automatically (default port 8787, the web setting wins) and your browser opens.
+In any Claude Code session, type **`/lucid`** — the service starts automatically (default port 8787, the web setting wins) and your browser opens.
 
 Or manually:
 
@@ -93,7 +93,7 @@ python3 scripts/server.py --port 8787   # open http://127.0.0.1:8787
 python3 scripts/server.py --stop        # graceful stop via PID file (no lsof|kill needed)
 ```
 
-What `/wf-view` does:
+What `/lucid` does:
 
 1. reads `~/.claude/cc-viewer/config.json` for the port;
 2. probes `curl /api/runs` — if the service is already running, reuses it;
@@ -102,7 +102,7 @@ What `/wf-view` does:
 
 > If the port is taken, the service exits immediately and tells you to edit the config or pass `--port`; **after changing the port on the web page, the service `execv`-restarts onto the new port (PID unchanged) and the page follows automatically**.
 
-Day to day you never start anything manually: the plugin's `hooks/hooks.json` (SessionStart, effective on any version) and `monitors/monitors.json` (background monitor, requires Claude Code ≥2.1.105 and host support) both run `guard.py --detach` at every session start to ensure the service is up and to restart it on crash — `/wf-view` just also opens the browser. The watchdog loop only writes `~/.claude/cc-viewer/server.log` and `guard.pid`; it touches no existing configuration.
+Day to day you never start anything manually: the plugin's `hooks/hooks.json` (SessionStart, effective on any version) and `monitors/monitors.json` (background monitor, requires Claude Code ≥2.1.105 and host support) both run `guard.py --detach` at every session start to ensure the service is up and to restart it on crash — `/lucid` just also opens the browser. The watchdog loop only writes `~/.claude/cc-viewer/server.log` and `guard.pid`; it touches no existing configuration.
 
 ## Page tour
 
@@ -153,12 +153,12 @@ curl -s "http://127.0.0.1:8787/api/subagent?proj=<proj>&sess=<sess>&agent=main&m
 ## Project layout
 
 ```
-XRay/
+Lucid/
 ├── .claude-plugin/
 │   ├── plugin.json        # plugin manifest (name/description/version, shown by the plugin manager)
 │   └── marketplace.json   # marketplace manifest — this dir doubles as the kw-dev-plugins marketplace (plugin source "./")
 ├── assets/
-│   ├── xray-logo.svg      # icon (X-ray eye + heartbeat line)
+│   ├── lucid-logo.svg      # icon (Lucid eye + focus crosshair + heartbeat line)
 │   └── screenshot.png     # UI screenshot
 ├── frontend/              # frontend source (TS, dev-only; runtime stays zero-dependency)
 │   ├── src/*.ts           # 00-types/05-i18n/10-util/20-render/30-app, concatenated by filename order into a global script
@@ -166,7 +166,7 @@ XRay/
 │   ├── build.py           # build: concat → tsc --strict → inject artifact into scripts/ccviewer/static/index.html
 │   └── dist/              # intermediate artifacts (not in the install copy, git-ignored)
 ├── commands/
-│   └── wf-view.md         # /wf-view slash command (commands/ auto-discovered, no manifest entry needed)
+│   └── lucid.md         # /lucid slash command (commands/ auto-discovered, no manifest entry needed)
 ├── hooks/
 │   └── hooks.json         # SessionStart hook: runs guard.py --detach at session start (primary self-start entry, any version)
 ├── monitors/
@@ -208,7 +208,7 @@ python3 scripts/server.py     # foreground start (default 8787, config wins)
 Iron rules:
 
 1. **Zero dependencies**: `server.py` and the `ccviewer/` package may import stdlib only; **the frontend is TS-only** — the `index.html` script block is a build artifact and must never be hand-edited;
-2. **Dual-path trap**: once installed, the plugin runs from the cache copy (`~/.claude/plugins/cache/kw-dev-plugins/xray/<version>/`); after editing source you must sync + reinstall + restart the service process;
+2. **Dual-path trap**: once installed, the plugin runs from the cache copy (`~/.claude/plugins/cache/kw-dev-plugins/lucid/<version>/`); after editing source you must sync + reinstall + restart the service process;
 3. **Only version bumps take effect**: `version` in `plugin.json` decides the cache directory; after bumping, reinstalling lands in a new cache dir and old leftovers can be cleaned.
 
 ## Known limits

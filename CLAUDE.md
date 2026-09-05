@@ -4,7 +4,7 @@
 
 ## 项目是什么
 
-Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
+Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 零依赖（仅 Python3 stdlib）、无构建步骤、服务只绑定 127.0.0.1。
 本目录同时就是本地市场 `kw-dev-plugins`（`.claude-plugin/marketplace.json` 中 source 为 `"./"`）。
 
@@ -17,7 +17,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 1. **零依赖**：`scripts/server.py` 与 `scripts/ccviewer/` 包只许 import stdlib。不引第三方包、不加 pip install 步骤。
 2. **只读数据源**：扫描 `~/.claude/projects/` 永远只读；服务唯一可写目录是 `~/.claude/cc-viewer/`（config.json / sent.json / server.pid / cas.pem）。
 3. **仅本机监听**：bind 地址硬编码 `127.0.0.1`，绝不改成 0.0.0.0；POST 保留 Origin 同源守卫。
-4. **命令模板变量必须写花括号形式** `${CLAUDE_PLUGIN_ROOT}`——裸 `$CLAUDE_PLUGIN_ROOT` 不会被 Claude Code 展开，且该变量不存在于 Bash 工具环境（2026-09-04 实际踩坑：导致从项目源码而非已安装插件启动服务）。`commands/wf-view.md` 中已修复，勿回退。
+4. **命令模板变量必须写花括号形式** `${CLAUDE_PLUGIN_ROOT}`——裸 `$CLAUDE_PLUGIN_ROOT` 不会被 Claude Code 展开，且该变量不存在于 Bash 工具环境（2026-09-04 实际踩坑：导致从项目源码而非已安装插件启动服务）。`commands/lucid.md` 中已修复，勿回退。
 5. **回归测试已入库，`python3 tests/run_all.py` 是准入门槛（1.2.18 起）**：
    - `tests/test_*.py`（后端，纯 stdlib）：fixture 驱动真实函数 + `test_web_api.py` 真起 server 子进程打全链路 HTTP；
    - `tests/frontend/test_*.js`（前端，开发期依赖 node——运行时仍零依赖）：`harness.js` 无头 DOM 桩加载**真实编译产物**驱动 render/diff/抽屉/轮询；`test_render_golden.js` 为 card/sessCard 出 HTML 的黄金快照——**任何前端重构前后黄金必须逐字节一致**（故意改文案/结构才 `UPDATE=1` 重录并在提交注明）；
@@ -44,10 +44,10 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 
 ```
 源码(本仓库)  ~/projectDir/cc-viewer/
-安装副本      ~/.claude/plugins/cache/kw-dev-plugins/xray/<版本>/   ← 命令/服务实际从这里加载
+安装副本      ~/.claude/plugins/cache/kw-dev-plugins/lucid/<版本>/   ← 命令/服务实际从这里加载
 ```
 
-- 改完源码必须同步：前端有改动先 `python3 frontend/build.py`（tsc 过编译，产物落 `static/index.html`）；然后 `claude plugin validate .` + `claude plugin install xray@kw-dev-plugins` 重装，或手动覆盖安装副本（版本目录一致时等效，**`scripts/` 含 `ccviewer/` 子包与 `static/`，拷贝要递归 `cp -R`；`frontend/` 是开发源码，不进安装副本**）。
+- 改完源码必须同步：前端有改动先 `python3 frontend/build.py`（tsc 过编译，产物落 `static/index.html`）；然后 `claude plugin validate .` + `claude plugin install lucid@kw-dev-plugins` 重装，或手动覆盖安装副本（版本目录一致时等效，**`scripts/` 含 `ccviewer/` 子包与 `static/`，拷贝要递归 `cp -R`；`frontend/` 是开发源码，不进安装副本**）。
 - **正在运行的服务进程是旧代码**——重启才生效：
   `python3 <脚本路径> --stop`（按 PID 文件停），再后台启动**安装副本路径**的脚本。
 - 排查"改了没生效"先 `ps -o command -p $(cat ~/.claude/cc-viewer/server.pid)` 看进程从哪份代码启动。
@@ -128,7 +128,7 @@ claude plugin validate .                 # 校验两份清单（CI 加 --strict�
 
 本仓库是 git 仓库（2026-09-04 起）。
 
-**铁律：每次更新 = 版本号 +1。** 任何变更（代码、前端构建产物、命令、README/文档、CLAUDE.md 规则本身、仅配置文件）一旦要同步给用户/市场，必须同步把 `.claude-plugin/plugin.json` 的 `version` +1（patch 级即可），**禁止"只改代码不升版本"**——升版本后 `claude plugin update` 会落到新的 cache 目录（`cache/.../xray/<版本>/`），旧版本残留可清理；这样每次更新都可在 cache 中追溯。配套流程（重装前先 `--stop` 旧进程）：
+**铁律：每次更新 = 版本号 +1。** 任何变更（代码、前端构建产物、命令、README/文档、CLAUDE.md 规则本身、仅配置文件）一旦要同步给用户/市场，必须同步把 `.claude-plugin/plugin.json` 的 `version` +1（patch 级即可），**禁止"只改代码不升版本"**——升版本后 `claude plugin update` 会落到新的 cache 目录（`cache/.../lucid/<版本>/`），旧版本残留可清理；这样每次更新都可在 cache 中追溯。配套流程（重装前先 `--stop` 旧进程）：
 
 **铁律：每次功能/文档更新验证通过后，自动 `git commit`，不要等用户开口。** 提交信息按既有风格（`feature:` / `docs:` / `fix:` 前缀 + 中文描述 + 版本号 `1.x.x→1.x.x`）；含未跟踪文件用 `git add -A`；默认只 commit 不 push。若工作区混有历史遗留改动，一并纳入并在提交信息中注明。
 
@@ -136,7 +136,7 @@ claude plugin validate .                 # 校验两份清单（CI 加 --strict�
 
 ```bash
 claude plugin validate . && claude plugin marketplace update kw-dev-plugins
-claude plugin update xray@kw-dev-plugins          # 升版本后重装到新 cache 目录
-nohup python3 ~/.claude/plugins/cache/kw-dev-plugins/xray/<新版本>/scripts/server.py &
+claude plugin update lucid@kw-dev-plugins          # 升版本后重装到新 cache 目录
+nohup python3 ~/.claude/plugins/cache/kw-dev-plugins/lucid/<新版本>/scripts/server.py &
 git push origin main                              # "发布"=推送到 GitHub（详见上条术语定义）
 ```
