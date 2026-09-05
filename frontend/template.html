@@ -83,7 +83,7 @@ header::after{content:'';display:block;height:2px;background:linear-gradient(90d
 .cfgp input:focus,.cfgp select:focus{outline:none;border-color:var(--am);box-shadow:0 0 0 1px var(--am),0 0 10px var(--amr)}
 .hmsg{font-size:10px;letter-spacing:.06em;color:var(--dim2)}
 .cfsave{display:flex;align-items:center;gap:16px;padding:12px 16px;background:linear-gradient(180deg,var(--pnl),var(--pnl2));border-top:1px solid var(--ln2)}
-.cfsave .hmsg{flex:1;text-align:right}
+.cfsave .hmsg{flex:1;text-align:right;max-height:5.2em;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding-right:2px}
 .save{background:var(--am);color:var(--bg);border:1px solid var(--am);padding:7px 18px;font:700 11px var(--disp);letter-spacing:.14em;cursor:pointer;white-space:nowrap;box-shadow:0 2px 10px var(--amr);transition:filter .15s,box-shadow .15s,transform .1s;position:relative}
 .save:hover{filter:brightness(1.08);box-shadow:0 3px 16px var(--amr);transform:translateY(-1px)}
 .save:active{transform:translateY(0)}
@@ -121,9 +121,15 @@ main.sesstop{padding-bottom:2px}
 .b-input_required{color:var(--pnl);background:var(--am);border-color:var(--am);animation:blink 1.8s infinite}
 .b-input_required::before{content:'⏸ '}
 .card.wait{box-shadow:inset 3px 0 0 var(--am),var(--sh)}
-.waitline{display:flex;align-items:baseline;gap:9px;margin-top:7px;padding:5px 9px;border:1px dashed var(--am);background:color-mix(in srgb,var(--am) 8%,transparent);font:500 11px var(--mono)}
+.waitline{display:block;margin-top:7px;padding:0;border:1px dashed var(--am);background:color-mix(in srgb,var(--am) 8%,transparent);font:500 11px var(--mono)}
+.waitline>summary{display:flex;align-items:baseline;gap:9px;padding:5px 9px;cursor:pointer;list-style:none}
+.waitline>summary::-webkit-details-marker{display:none}
+.waitline>summary::after{content:'▾';color:var(--am);margin-left:auto}
+.waitline[open]>summary::after{content:'▾';transform:rotate(180deg)}
 .waitline .wk{color:var(--am);letter-spacing:.08em;white-space:nowrap}
 .waitline .wt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.waitline .term-body{margin:0 9px 9px}
+.pane .hint{margin-top:8px;font:500 10px/1.65 var(--mono);color:var(--dim2);letter-spacing:.02em;border-top:1px dashed var(--ln);padding-top:6px}
 .wtag{color:var(--am);font-weight:700}
 @keyframes blink{50%{opacity:.45}}
 h2{margin:0;font:600 17px var(--disp);letter-spacing:.05em}

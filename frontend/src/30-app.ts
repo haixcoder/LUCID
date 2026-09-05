@@ -22,7 +22,7 @@ const hinp = $<HTMLSelectElement>('hinp'), htest2 = $<HTMLButtonElement>('htest2
 function showLast(l?: LastHook | null): void {
   if (l && l.at) {
     const t = new Date(l.at * 1000).toLocaleTimeString(loc(), { hour12: false });
-    hmsg.textContent = `${T('最近推送')} ${t} ${l.ok ? '✓' : '✗'} ${String(l.reply || '').slice(0, 90)}`; hmsg.style.color = l.ok ? 'var(--gr)' : 'var(--rd)';
+    hmsg.textContent = `${T('最近推送')} ${t} ${l.ok ? '✓' : '✗'} ${String(l.reply || '')}`; hmsg.style.color = l.ok ? 'var(--gr)' : 'var(--rd)';
   } else hmsg.textContent = T('终态运行 + 等待输入自动推送；通知依赖本服务进程存活');
 }
 cfg.addEventListener('input', () => hsave.classList.add('dirty'));  // 全局保存:任何字段改动→APPLY 亮未存红点
@@ -47,13 +47,13 @@ hsave.onclick = async () => {
 $('htest').onclick = async () => {
   hmsg.textContent = T('发送中…'); hmsg.style.color = 'var(--dim)';
   const r = await (await fetch('/api/config/test', { method: 'POST' })).json() as TestResp;
-  hmsg.textContent = (r.ok ? T('✓ 测试消息已送达 ') : '✗ ' + T(r.msg || '失败')) + String((r.last && r.last.reply) || '').slice(0, 80);
+  hmsg.textContent = (r.ok ? T('✓ 测试消息已送达 ') : '✗ ' + T(r.msg || '失败')) + String((r.last && r.last.reply) || '');
   hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
 };
 htest2.onclick = async () => {  // 分型测试：按「等待用户输入」的真实正文/载荷发一条，验证新类型通路
   hmsg.textContent = T('发送中…'); hmsg.style.color = 'var(--dim)';
   const r = await (await fetch('/api/config/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"kind":"input_required"}' })).json() as TestResp;
-  hmsg.textContent = (r.ok ? T('✓ 等待通知已送达 ') : '✗ ' + T(r.msg || '失败')) + String((r.last && r.last.reply) || '').slice(0, 80);
+  hmsg.textContent = (r.ok ? T('✓ 等待通知已送达 ') : '✗ ' + T(r.msg || '失败')) + String((r.last && r.last.reply) || '');
   hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
 };
 const VER = (($('wfo-ver') as HTMLMetaElement) && $('wfo-ver').getAttribute('content')) || '';
@@ -76,9 +76,16 @@ async function tick(): Promise<void> {
     render();
   } catch (e) {
     console.error('render error:', e);
-    const msg = (e && (e as Error).message) || String(e);
-    $('gauges').innerHTML = '<div class="g er"><b>⚠</b><span>' + T('渲染异常(见F12控制台): ') + esc(String(msg)).slice(0, 80) + '</span></div>';
+    const err: string = String((e as Error | null)?.message ?? e);
+    $('gauges').innerHTML = '<div class="g er" title="' + esc(err) + '"><b>⚠</b><span>' + T('渲染异常(全文见下方卡片)') + '</span></div>';
+    fullError(err, (e as Error)?.stack || '');   // 仪表条装不下异常全文：整条堆栈进列表区滚动框(见"日志可看全"铁律)
   }
+}
+// 渲染异常的全文出口：列表首块 + 定高滚动框；data-rid="__err" 会被下一轮成功渲染的清理逻辑自动摘掉
+function fullError(msg: string, stack: string): void {
+  $('list').innerHTML = `<div class="card" data-rid="__err"><div class="hd"><span class="b b-error">RENDER ERROR</span>
+  <h2>${T('渲染异常 · 页面数据可能不完整')}</h2><span class="meta">${T('完整堆栈同时打在 F12 控制台')}</span></div>
+  <div class="term-body solo" style="margin:10px 0 0"><div class="pane" data-t="ERR · JS"><pre>${esc(msg)}${stack ? '\n\n' + esc(stack) : ''}</pre></div></div></div>`;
 }
 function renderSessions(): void {
   const el = $('sess'), tt = $('secttl');

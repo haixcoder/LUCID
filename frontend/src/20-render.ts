@@ -28,8 +28,8 @@ function card(r: Run, i: number): string {
   <span class="num">${fmtN(a.tokens)}</span><span class="num">${fmtT(a.durationMs)}</span><span class="tw"></span></summary>
   ${d ? `<div class="term-body${P && R ? '' : ' solo'}">${P ? `<div class="pane" data-t="IN · ${T(fu.p ? '全文' : '截断预览')}"><div class="rich">${mdLite(wrapLong(P))}</div></div>` : ''}${R ? `<div class="pane" data-t="OUT · ${T(fu.r ? '全文' : '截断预览')}"><div class="rich">${mdLite(pretty(R))}</div></div>` : ''}</div>` : ''}</details>`;
   }).join('')}
-  ${r.logs.length ? `<div style="margin-top:10px"><details class="term" data-k="${esc(r.runId)}:logs"><summary style="cursor:pointer;list-style:none;font:500 10px var(--mono);letter-spacing:.14em;color:var(--cy)">${T('系统日志尾(%1)', r.logs.length)}</summary>
-  <div class="term-body solo"><div class="pane" data-t="SYS · LOGS"><pre>${esc(r.logs.slice(-15).join('\n'))}</pre></div></div></details></div>` : ''}
+  ${r.logs.length ? `<div style="margin-top:10px"><details class="term" data-k="${esc(r.runId)}:logs"><summary style="cursor:pointer;list-style:none;font:500 10px var(--mono);letter-spacing:.14em;color:var(--cy)">${T('系统日志尾(%1 行·单行≤%2字)', r.logs.length, 500)}</summary>
+  <div class="term-body solo"><div class="pane" data-t="SYS · LOGS"><pre>${esc(r.logs.join('\n'))}</pre></div></div></details></div>` : ''}
   ${r.result && !r.live ? `<div style="margin-top:6px"><details class="term" data-k="${esc(r.runId)}:result"><summary style="cursor:pointer;list-style:none;font:500 10px var(--mono);letter-spacing:.14em;color:var(--cy)">${T('运行产物')}</summary>
   <div class="term-body solo"><div class="pane" data-t="RUN · RESULT"><div class="rich">${mdLite(pretty(r.result))}</div></div></div></details></div>` : ''}
   </div>`;
@@ -41,13 +41,14 @@ function sessCard(r: SessionState, i: number): string {
   // 否则每轮 diff 必失配 → 展开的步骤抽屉"点开即关"(见 CLAUDE.md 前端不变量)。
   const wait = r.status === 'input_required';
   const wlab = r.waitReason === 'ask' ? T('等待回答') : r.waitReason === 'permission' ? T('等待授权') : T('等待输入');
-  const wtxt = (r.lastText || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+  const wtxt = (r.lastText || '').replace(/\s+/g, ' ').trim();   // 摘要不再定长裁切：省略号只是折叠，展开即看全(见"日志可看全"铁律)
   return `<div class="card${r.alive ? ' live' : ''}${wait ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
   <div class="hd"><span class="b b-${esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
   <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
   <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
   <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${T('尾窗工具调用')} ${r.toolCalls}</div>
-  ${wait ? `<div class="waitline"><span class="wk">${T('在等')} · ${r.waitTool ? esc(r.waitTool) : T('你的回复')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></div>` : ''}
+  ${wait ? `<details class="term waitline" data-k="${esc(r.sessionId)}:wait"${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${T('在等')} · ${r.waitTool ? esc(r.waitTool) : T('你的回复')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
+  <div class="term-body solo"><div class="pane" data-t="OUT · ${T('最后输出')}"><div class="rich">${mdLite(wrapLong(unent(r.lastText || '')))}</div><div class="hint">${T('转录留存字段有上限；整步全文请展开下方对应步骤行(超出留存范围会显式提示)')}</div></div></div></details>` : ''}
   <div class="strip"><span class="ph ${r.pendingTools.length ? 'on' : ''}">${T('最近工具')} ${esc(r.pendingTools[0] || '—')}${r.pendingTools.length > 1 ? ' ' + T('等%1项', r.pendingTools.length) : ''}</span>
   <span class="ph fin">tok in ${fmtN(tk.input)} / out ${fmtN(tk.output)} / cacheR ${fmtN(tk.cacheRead)}</span>
   <span class="ph ${done < sa.length ? 'on' : 'fin'}">subagents ${done}/${sa.length}</span></div>

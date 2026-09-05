@@ -127,11 +127,12 @@ def send_hook(r, text=None, kind='workflow_status'):
                                      headers={'Content-Type': 'application/json'}, method='POST')
         resp = urllib.request.urlopen(req, timeout=6, context=hook_ssl_ctx(conf, url))
         ok = 200 <= resp.status < 300
+        # 回执留 2000 字：错误正文(网关 HTML/JSON)要能看全，页面侧不再二次截断
         LAST_HOOK.update({'at': time.time(), 'ok': ok, 'status': rid,
-                          'reply': resp.read(200).decode('utf-8', 'replace')})
+                          'reply': resp.read(2000).decode('utf-8', 'replace')})
         return ok, f'HTTP {resp.status}'
     except Exception as e:
-        err = str(e)[:200]
+        err = str(e)[:2000]
         if 'CERTIFICATE_VERIFY_FAILED' in err and not conf.get('insecure'):
             err += ' ｜ 公司代理证书链问题：重试一次(自动导出钥匙串根证书)仍失败则勾选"跳过证书校验"'
         LAST_HOOK.update({'at': time.time(), 'ok': False, 'status': rid, 'reply': err})
