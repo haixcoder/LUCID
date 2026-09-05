@@ -1,31 +1,18 @@
 # 扫描 ~/.claude/projects：合并两数据源 —— 已完成读 run JSON(全量富数据)，
 # 进行中的由 journal.jsonl + agent 转录实时重建。状态语义见 README.md「状态语义」。
+# JSONL 窗口读取一律走 ccviewer.jsonl；路径/配置一律 config 模块属性(单点可重定向,测试即此入口)。
 import json
 import os
 import re
 import time
 from pathlib import Path
 
-from .config import PROJ, recent_sec
+from . import config
+from .jsonl import iter_records, tail_text
 
 STALE_SEC = 30 * 60          # 运行中但超过 30min 无文件活动 -> 判定 stale
 TAIL = 16384
 TOOL_RE = re.compile(r'"name":"((?:mcp__)?[A-Za-z0-9_]{2,60})"')
-
-
-def jlines(path, limit=None):
-    try:
-        with open(path, errors='replace') as f:
-            for i, line in enumerate(f):
-                if limit and i >= limit:
-                    return
-                try:
-                    yield json.loads(line)
-                except Exception:
-                    continue
-    except Exception:
-        return
-
 
 _WF_CACHE = {}  # ponytail: session jsonl 推导的 name/phases/task 对已死 run 是稳定的，进程内永久缓存
 
@@ -36,7 +23,7 @@ def session_wf_meta(proj, sess, run_id):
         return _WF_CACHE[key]
     out = (None, [], '')
     uses = {}
-    for d in jlines(PROJ / proj / (sess + '.jsonl')):
+    for d in iter_records(config.PROJ / proj / (sess + '.jsonl')):
         content = (d.get('message') or {}).get('content')
         if not isinstance(content, list):
             continue
@@ -73,7 +60,7 @@ def session_wf_meta(proj, sess, run_id):
 
 
 def session_cwd(proj_dir, sess_id):
-    for d in jlines((PROJ / proj_dir / (sess_id + '.jsonl')), 5):
+    for d in iter_records((config.PROJ / proj_dir / (sess_id + '.jsonl')), 5):
         if d.get('cwd'):
             return d['cwd']
     return proj_dir
@@ -81,7 +68,7 @@ def session_cwd(proj_dir, sess_id):
 
 def script_meta(sess_id, run_id):
     # 脚本落在发起时 cwd 对应的项目目录下，可能与 transcript 所在项目不同 -> 跨项目按 session id 搜
-    for p in PROJ.glob(f'*/{sess_id}/workflows/scripts/*-{run_id}.js'):
+    for p in config.PROJ.glob(f'*/{sess_id}/workflows/scripts/*-{run_id}.js'):
         try:
             head = p.read_text(errors='replace')[:8000]
         except Exception:
@@ -96,7 +83,7 @@ def script_meta(sess_id, run_id):
 
 
 def first_prompt(agent_jsonl):
-    for d in jlines(agent_jsonl, 4):
+    for d in iter_records(agent_jsonl, 4):
         if d.get('type') != 'user':
             continue
         c = (d.get('message') or {}).get('content')
@@ -109,20 +96,14 @@ def first_prompt(agent_jsonl):
 
 
 def last_tool(agent_jsonl):
-    try:
-        with open(agent_jsonl, 'rb') as f:
-            f.seek(0, 2)
-            f.seek(max(0, f.tell() - TAIL))
-            tail = f.read().decode(errors='replace')
-    except Exception:
-        return None
-    names = TOOL_RE.findall(tail)
+    names = TOOL_RE.findall(tail_text(agent_jsonl, TAIL))
     return names[-1] if names else None
 
 
 def parse_completed(p, proj, sess, cwd):
     try:
-        d = json.load(open(p, errors='replace'))
+        with open(p, errors='replace') as f:
+            d = json.load(f)
     except Exception:
         return None
     agents, phases = [], []
@@ -170,9 +151,10 @@ def script_titles_or(d, phases):
 def live_session_ids():
     # ~/.claude/sessions/<pid>.json 是活进程注册表；pid 需仍存活（SIGKILL 可能留下死条目）
     ids = set()
-    for f in (PROJ.parent / 'sessions').glob('*.json'):
+    for f in (config.PROJ.parent / 'sessions').glob('*.json'):
         try:
-            d = json.load(open(f))
+            with open(f) as fh:
+                d = json.load(fh)
             os.kill(d['pid'], 0)
             ids.add(d.get('sessionId'))
         except Exception:
@@ -188,7 +170,7 @@ def parse_live(d, proj, sess, cwd, now, parent_alive):
     mt = [f.stat().st_mtime for f in files]
     started, lastact = min(mt), max(mt)
     ev = {}
-    for x in jlines(d / 'journal.jsonl'):
+    for x in iter_records(d / 'journal.jsonl'):
         a = x.get('agentId')
         if not a:
             continue
@@ -208,7 +190,8 @@ def parse_live(d, proj, sess, cwd, now, parent_alive):
         a = f.stem[len('agent-'):]
         e = ev.get(a, {})
         try:
-            atype = json.load(open(f.with_name(f.name + '.meta.json'))).get('agentType')
+            with open(f.with_name(f.name + '.meta.json')) as fh:
+                atype = json.load(fh).get('agentType')
         except Exception:
             atype = None
         agents.append({
@@ -245,10 +228,11 @@ def parse_live(d, proj, sess, cwd, now, parent_alive):
 
 def scan():
     now = time.time()
+    recent = config.recent_sec()   # 一轮扫描读一次配置(窗口在单次快照内一致;旧写法每个会话读盘一次)
     alive = live_session_ids()
     runs, seen = [], set()
     try:
-        projects = [p for p in PROJ.iterdir() if p.is_dir()]
+        projects = [p for p in config.PROJ.iterdir() if p.is_dir()]
     except Exception:
         return []
     for proj in projects:
@@ -264,7 +248,7 @@ def scan():
                     mt = max(mt, (proj / (sess.name + '.jsonl')).stat().st_mtime)
                 except OSError:
                     pass
-                if now - mt > recent_sec():
+                if now - mt > recent:
                     continue
             except Exception:
                 continue

@@ -9,7 +9,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-from .config import CONF_DIR, load_conf
+from . import config
+from .config import load_conf
 from .scan import scan_cached
 from .sessions import scan_sessions_cached
 
@@ -63,7 +64,7 @@ _CA_CACHE_TS = [0.0]
 
 def macOS_ca_bundle():
     # 公司代理的 MITM 根证书在系统钥匙串里，而 Python 不读钥匙串 -> 导出三库合并成 PEM（每日刷新）
-    f = CONF_DIR / 'cas.pem'
+    f = config.CONF_DIR / 'cas.pem'
     try:
         if f.exists() and time.time() - _CA_CACHE_TS[0] < 86400 and 'BEGIN CERTIFICATE' in f.read_text():
             return str(f)
@@ -81,7 +82,7 @@ def macOS_ca_bundle():
             continue
     if 'BEGIN CERTIFICATE' in pem:
         try:
-            CONF_DIR.mkdir(parents=True, exist_ok=True)
+            config.CONF_DIR.mkdir(parents=True, exist_ok=True)
             f.write_text(pem)
             _CA_CACHE_TS[0] = time.time()
             return str(f)
@@ -165,10 +166,12 @@ def notify_inputs(sent, conf, sessions, sweep=False):
 
 def notify_loop():
     try:
-        sent = set(json.load(open(CONF_DIR / 'sent.json')))
+        with open(config.CONF_DIR / 'sent.json') as f:
+            sent = set(json.load(f))
     except Exception:
         sent = set()
     sweep = True  # 启动首轮静默播种存量终态，防历史运行刷屏
+    persisted = None  # 上次落盘的序列化串：仅内容变化才写(旧写法每 5s 重写一遍全量键表)
     while True:
         try:
             conf = load_conf()
@@ -179,10 +182,14 @@ def notify_loop():
                     if not sweep and on and r['status'] in STATUS_ZH:
                         send_hook(r)
             notify_inputs(sent, conf, scan_sessions_cached(6), sweep)
-            CONF_DIR.mkdir(parents=True, exist_ok=True)
             # 键现在混了两类(wf_* / sess|*)且按字典序截断 —— sess| 排在 wf_ 前会先被丢弃,
             # 抬高上限以免过早遗忘(被遗忘=同一等待可能重发一次,代价远小于漏发)
-            json.dump(sorted(sent)[-2000:], open(CONF_DIR / 'sent.json', 'w'))
+            blob = json.dumps(sorted(sent)[-2000:])
+            if blob != persisted:
+                config.CONF_DIR.mkdir(parents=True, exist_ok=True)
+                with open(config.CONF_DIR / 'sent.json', 'w') as f:
+                    f.write(blob)
+                persisted = blob
         except Exception as e:
             print(f'[notify] {e}', file=sys.stderr)  # 不静默吞错（可观测性原则，同 tick/render 分报教训）
         finally:

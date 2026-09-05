@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _util import ck, done
 
-from ccviewer import scan
+from ccviewer import config, scan
 
 with tempfile.TemporaryDirectory() as td:
     root = Path(td)
@@ -53,8 +53,9 @@ with tempfile.TemporaryDirectory() as td:
          'workflowProgress': [], 'startTime': int(time.time() * 1000)}), encoding='utf-8')
     (proj / 'cccc3333.jsonl').write_text('{"x":1}\n', encoding='utf-8')
 
-    scan.PROJ = root
-    scan.recent_sec = lambda: 14 * 86400
+    # 单点重定向:scan/sessions 均以 config.PROJ/config.recent_sec 属性读取(1.2.18 集中化),不再逐模块打补丁
+    config.PROJ = root
+    config.recent_sec = lambda: 14 * 86400
     runs = scan.scan()
     ids = sorted(r['runId'] for r in runs)
     ck('window/active-transcript-includes-live-run', 'wf_live1' in ids, str(ids))

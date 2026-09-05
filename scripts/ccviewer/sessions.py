@@ -9,14 +9,12 @@ import json
 import os
 import re
 import time
-from pathlib import Path
 
-from .config import PROJ
-from .scan import TOOL_RE, recent_sec, jlines, session_cwd
+from . import config
+from .config import DETAIL_CAP  # 全文端点单字段上限(与 api_agent 同值同契约,常量住 config)
+from .jsonl import head_records, iter_records, rev_lines, tail_records, tail_text
+from .scan import TOOL_RE, session_cwd
 
-DETAIL_CAP = 80000  # 全文端点单字段上限（对齐 api_agent）
-
-TAIL_BYTES = 262144      # 转录尾部读取窗口
 STALL_SEC = 120          # 主 agent:进程活着且 2min 内有写入 -> running，否则 waiting
 SUB_ACTIVE_SEC = 90      # subagent:同上阈值判 running
 SESSION_HOURS = 2        # 非活跃会话只保留最近 2h 内的
@@ -25,19 +23,6 @@ MAX_SESSIONS = 40
 ASK_TOOLS = ('AskUserQuestion', 'ExitPlanMode')
 # 模型主动交回话轮的 stop_reason(其余 tool_use=等工具，None=尾窗没采到)
 TURN_END = ('end_turn', 'stop_sequence')
-
-
-def _tail(path, n=TAIL_BYTES):
-    try:
-        with open(path, 'rb') as f:
-            f.seek(0, 2)
-            sz = f.tell()
-            f.seek(max(0, sz - n))
-            if sz > n:
-                f.readline()  # 丢可能被截断的半行
-            return f.read().decode('utf-8', 'replace')
-    except Exception:
-        return ''
 
 
 def _texts(content):
@@ -177,8 +162,8 @@ def main_state(info, alive, age):
     return ('running', None, None) if age < STALL_SEC else ('waiting', None, None)
 
 
-def _title(path, tail_text):
-    for ln in tail_text.splitlines():
+def _title(path, tail):
+    for ln in tail.splitlines():
         if '"ai-title"' in ln:
             try:
                 d = json.loads(ln)
@@ -186,31 +171,19 @@ def _title(path, tail_text):
                 continue
             if d.get('aiTitle'):
                 return d['aiTitle']
-    for d in _head(path):  # 尾窗没有则回头部
+    for d in head_records(path):  # 尾窗没有则回头部
         if d.get('type') == 'ai-title' and d.get('aiTitle'):
             return d['aiTitle']
     return ''
 
 
-def _head(path, n=65536):
-    try:
-        with open(path, 'rb') as f:
-            blob = f.read(n).decode('utf-8', 'replace')
-    except Exception:
-        return
-    for ln in blob.splitlines():
-        try:
-            yield json.loads(ln)
-        except Exception:
-            continue
-
-
 def _registry():
     """sessionId -> {pid, entry(原始 json)}，仅收录进程仍存活的条目"""
     out = {}
-    for f in (PROJ.parent / 'sessions').glob('*.json'):
+    for f in (config.PROJ.parent / 'sessions').glob('*.json'):
         try:
-            d = json.load(open(f))
+            with open(f) as fh:
+                d = json.load(fh)
             os.kill(d['pid'], 0)
             out[d['sessionId']] = d
         except Exception:
@@ -228,18 +201,19 @@ def _subagents(sess_dir, now):
         aid = f.stem[len('agent-'):]
         meta = {}
         try:
-            meta = json.load(open(f.with_name(f.name + '.meta.json')))
+            with open(f.with_name(f.name + '.meta.json')) as fh:
+                meta = json.load(fh)
         except Exception:
             pass
         age = now - st.st_mtime
-        info = _analyze(_tail(f, 131072))
+        info = _analyze(tail_text(f, 131072))
         if age < SUB_ACTIVE_SEC:
             state = 'running'
         elif info['stopReason'] == 'end_turn':
             state = 'done'
         else:
             state = 'idle'
-        names = TOOL_RE.findall(_tail(f, 16384))
+        names = TOOL_RE.findall(tail_text(f, 16384))
         kind = 'teammate' if meta.get('taskKind') == 'in_process_teammate' else 'task'
         lst.append({'agentId': aid,
                     'label': meta.get('name') or meta.get('agentType') or aid[:12],
@@ -255,11 +229,7 @@ def _subagents(sess_dir, now):
 
 def _rev_texts(path, kind, back=200000):
     """尾窗反向找最近一条 kind(user/assistant) 的文本"""
-    for ln in reversed(_tail(path, back).splitlines()):
-        try:
-            d = json.loads(ln)
-        except Exception:
-            continue
+    for d in reversed(list(tail_records(path, back))):
         if d.get('type') != kind:
             continue
         c = (d.get('message') or {}).get('content')
@@ -273,7 +243,7 @@ def _rev_texts(path, kind, back=200000):
 
 def _first_prompt(path, head=120):
     """会话首条"人打的字"(头扫):长会话首条会掉出读取尾窗,这里兜住它 —— 返回 (uuid, 全文, ts)"""
-    for rec in jlines(path, head):
+    for rec in iter_records(path, head):
         t = _user_prompt(rec)
         if t and rec.get('uuid'):
             return rec['uuid'], t, rec.get('timestamp') or ''
@@ -282,12 +252,12 @@ def _first_prompt(path, head=120):
 
 def _prompt_detail(path, uu):
     """单条用户输入全文(按记录 uuid 回取):头扫优先(首条常在头部),再反向深扫(尾窗条目靠尾,快速命中)"""
-    for rec in jlines(path, 120):
+    for rec in iter_records(path, 120):
         if rec.get('type') == 'user' and rec.get('uuid') == uu:
             t = _user_prompt(rec)
             return {'prompt': t[:DETAIL_CAP], 'result': ''} if t else {'prompt': '', 'result': '', 'miss': True}
     scanned = 0
-    for ln in _rev_lines(path):
+    for ln in rev_lines(path):
         scanned += 1
         if scanned > 400000:  # 病态大会话的止损线(同 _step_detail)
             break
@@ -302,7 +272,7 @@ def _prompt_detail(path, uu):
 
 
 def _first_user_text(path):
-    for rec in jlines(path, 40):
+    for rec in iter_records(path, 40):
         if rec.get('type') != 'user':
             continue
         c = (rec.get('message') or {}).get('content')
@@ -318,11 +288,7 @@ def _main_steps(path, limit=30):
     """主 agent 执行步骤：按 message.id 聚合尾窗内的 assistant 消息(流式分块会重复同 id)。
     返回稳定键(msgId)的步骤列表 —— 前端抽屉跨轮询重建靠它保持展开态。"""
     steps, tids = {}, {}
-    for ln in _tail(path).splitlines():
-        try:
-            d = json.loads(ln)
-        except Exception:
-            continue
+    for d in tail_records(path):
         if d.get('type') != 'assistant':
             continue
         m = d.get('message') or {}
@@ -352,28 +318,6 @@ def _main_steps(path, limit=30):
     return out[-limit:]
 
 
-def _rev_lines(path, maxbytes=16 * 1024 * 1024, chunk=1 << 20):
-    """自文件尾反向逐行产出(块读,跨界残留处理)，上限 maxbytes——旧步骤可能被 MB 级附件挤出尾窗"""
-    try:
-        with open(path, 'rb') as f:
-            f.seek(0, 2)
-            pos, buf = f.tell(), b''
-            while pos > 0:
-                n = min(chunk, pos)
-                pos -= n
-                f.seek(pos)
-                buf = f.read(n) + buf
-                lines = buf.split(b'\n')
-                buf = lines[0]
-                for ln in reversed(lines[1:]):
-                    if ln.strip():
-                        yield ln
-            if buf.strip():
-                yield buf
-    except Exception:
-        return
-
-
 def _is_turn_boundary(d):
     """反向扫描的回合边界=一条"真人输入"记录(工具回执/注入噪声不算)——一个回合的回答常拆成
     多条消息(过渡文本+工具+收尾文本),逐条展示即用户报的"每次只展示最新一条"。"""
@@ -384,7 +328,7 @@ def _turn_texts(path, stop_mid=None):
     """所在回合累计全文:自尾反向收集 assistant text 块直到上一条真人输入;stop_mid 给出时须先扫到该
     message.id(其更新回合的文本在边界处丢弃)。返回 (时间序全文, 是否命中 stop_mid)。"""
     texts, found, scanned = [], stop_mid is None, 0
-    for ln in _rev_lines(path):
+    for ln in rev_lines(path):
         scanned += 1
         if scanned > 400000:  # 病态大会话的止损线(同 _step_detail)
             break
@@ -412,7 +356,7 @@ def _step_detail(path, msg):
     """单步全文：IN=该 message.id 的全部 tool_use 入参(按步隔离)；OUT=所在回合的累计文本(时间序,
     反向深扫至 16MB)。回合语义见 _turn_texts。"""
     ins, found, scanned = [], False, 0
-    for ln in _rev_lines(path):
+    for ln in rev_lines(path):
         scanned += 1
         if scanned > 400000:  # 病态大会话的止损线
             break
@@ -439,7 +383,8 @@ def agent_detail(proj, sess, agent, msg=''):
     """展开抽屉数据源：main=主会话转录(最近输入/输出全文)；main+msg=该步全文；否则非 workflow 子代理(任务=首条 user,结果=末条 assistant)"""
     if re.search(r'[/\\.]', proj + sess) or not re.fullmatch(r'[0-9a-zA-Z_-]{1,64}', agent or ''):
         return {'prompt': '', 'result': ''}
-    p = PROJ / proj / (sess + '.jsonl') if agent == 'main' else PROJ / proj / sess / 'subagents' / ('agent-' + agent + '.jsonl')
+    p = (config.PROJ / proj / (sess + '.jsonl') if agent == 'main'
+         else config.PROJ / proj / sess / 'subagents' / ('agent-' + agent + '.jsonl'))
     if not p.exists():
         return {'prompt': '', 'result': ''}
     if agent == 'main':
@@ -459,7 +404,8 @@ def _candidates(now, reg):
     """会话候选 = 转录 <sess>.jsonl ∪ 会话目录 <sess>/(只有子代理等附属文件时才存在)。
     只遍历目录会漏掉"纯交互会话"——没有子代理就没有目录,而它正是「等待用户输入」最该出现的对象。
     活度取两者较新的 mtime;目录可能缺失,故 subagents 一律按可选处理。"""
-    for proj in (p for p in PROJ.iterdir() if p.is_dir()):
+    recent = config.recent_sec()  # 一轮扫描读一次配置(旧写法每个候选都读盘)
+    for proj in (p for p in config.PROJ.iterdir() if p.is_dir()):
         try:
             entries = list(proj.iterdir())
         except Exception:
@@ -476,7 +422,7 @@ def _candidates(now, reg):
             except Exception:
                 continue
             alive = sid in reg
-            if not alive and (now - mt > SESSION_HOURS * 3600 or now - mt > recent_sec()):
+            if not alive and (now - mt > SESSION_HOURS * 3600 or now - mt > recent):
                 continue
             yield mt, alive, proj, sid, tp, sd
 
@@ -490,8 +436,8 @@ def scan_sessions():
         return []
     out = []
     for mt, alive, proj, sid, tpath, sdir in cands[:MAX_SESSIONS]:
-        tpath = tpath or PROJ / proj.name / (sid + '.jsonl')
-        text = _tail(tpath)
+        tpath = tpath or config.PROJ / proj.name / (sid + '.jsonl')
+        text = tail_text(tpath)
         info = _analyze(text)
         try:
             fact = tpath.stat().st_mtime

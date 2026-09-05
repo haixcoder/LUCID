@@ -25,47 +25,50 @@ VER = hashlib.md5(_m.group(1).encode('utf-8')).hexdigest()[:12] if _m else ''
 
 
 class H(BaseHTTPRequestHandler):
+    server_version = 'xray'  # 本机服务不向任何同源页面外的探测者泄露 Python/http.server 版本
+    sys_version = ''
+
     def log_message(self, *a):
         pass
 
-    def do_GET(self):
-        u = urlparse(self.path)
-        if u.path == '/api/runs':
-            body = json.dumps({'now': time.time(), 'ver': VER, 'recentDays': load_conf()['recentDays'],
-                               'runs': scan()}, ensure_ascii=False).encode()
-            ct = 'application/json; charset=utf-8'
-        elif u.path == '/api/sessions':
-            body = json.dumps({'now': time.time(), 'sessions': scan_sessions()}, ensure_ascii=False).encode()
-            ct = 'application/json; charset=utf-8'
-        elif u.path == '/api/subagent':
-            q = parse_qs(u.query)
-            g = lambda k: (q.get(k, ['']))[0]
-            body = json.dumps(agent_detail(g('proj'), g('sess'), g('agent'), g('msg')), ensure_ascii=False).encode()
-            ct = 'application/json; charset=utf-8'
-        elif u.path == '/api/agent':
-            q = parse_qs(u.query)
-            try:
-                g = lambda k: (q.get(k, ['']))[0]
-                body = json.dumps(api_agent(g('proj'), g('sess'), g('run'), g('agent')), ensure_ascii=False).encode()
-            except Exception as e:
-                body, ct = json.dumps({'error': str(e)}).encode(), 'application/json'
-            else:
-                ct = 'application/json; charset=utf-8'
-        elif u.path == '/api/config':
-            body = json.dumps({'conf': load_conf(), 'last': LAST_HOOK}, ensure_ascii=False).encode()
-            ct = 'application/json; charset=utf-8'
-        elif u.path in ('/', '/index.html'):
-            body, ct = INDEX_HTML.encode(), 'text/html; charset=utf-8'
-        else:
-            self.send_error(404)
-            return
-        self.send_response(200)
-        self.send_header('Content-Type', ct)
+    def _json(self, obj, code=200):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
+    def do_GET(self):
+        u = urlparse(self.path)
+        if u.path == '/api/runs':
+            self._json({'now': time.time(), 'ver': VER, 'recentDays': load_conf()['recentDays'], 'runs': scan()})
+        elif u.path == '/api/sessions':
+            self._json({'now': time.time(), 'sessions': scan_sessions()})
+        elif u.path == '/api/subagent':
+            q = parse_qs(u.query)
+            g = lambda k: (q.get(k, ['']))[0]
+            self._json(agent_detail(g('proj'), g('sess'), g('agent'), g('msg')))
+        elif u.path == '/api/agent':
+            q = parse_qs(u.query)
+            g = lambda k: (q.get(k, ['']))[0]
+            try:
+                self._json(api_agent(g('proj'), g('sess'), g('run'), g('agent')))
+            except Exception as e:
+                self._json({'error': str(e)})  # 单 agent 读取异常按 JSON 报错回,页面侧走 miss 提示
+        elif u.path == '/api/config':
+            self._json({'conf': load_conf(), 'last': LAST_HOOK})
+        elif u.path in ('/', '/index.html'):
+            body = INDEX_HTML.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_error(404)
 
     def do_POST(self):
         # Origin 守卫：任意网页可 DNS rebinding 后 POST localhost 改配置/重定向 webhook（外泄通道）。
@@ -127,12 +130,7 @@ class H(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
             return
-        body = json.dumps(out, ensure_ascii=False).encode()
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Cache-Control', 'no-store')
-        self.end_headers()
-        self.wfile.write(body)
+        self._json(out)
 
 
 def make_server(port):

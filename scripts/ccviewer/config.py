@@ -23,11 +23,13 @@ def port_free(p):
 
 
 INPUT_TIERS = ('off', 'blocked', 'all')  # 等待输入通知档位：关闭 / 仅等回答·等授权 / 含回合结束待输入
+DETAIL_CAP = 80000  # 全文端点(/api/agent /api/subagent)单字段上限——多消费方共用同一契约值
 
 
 def load_conf():
     try:
-        c = json.load(open(CONF_DIR / 'config.json'))
+        with open(CONF_DIR / 'config.json') as f:
+            c = json.load(f)
         try:
             rdays = max(1, min(3650, int(c.get('recentDays') or 14)))
         except (TypeError, ValueError):
