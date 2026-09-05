@@ -10,6 +10,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 
 - 用户文档：`README.md`（英文版，GitHub 默认展示）/ `README.zh-CN.md`（中文版），两份互链；内容（原理、安装、页面功能、API、安全）改动时须同步对方
 - webhook 详解：`scripts/README.md`
+- 扩展调研：`docs/feature-extension-research.md`（2026-09 定稿：数据源实证地图 D1–D19 + 官方通道核实 + E1–E15 方案卡；`ROADMAP.md` 为其初版，§7 为勘误表）
 
 ## 铁律（违反即 bug）
 
