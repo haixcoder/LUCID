@@ -8,7 +8,7 @@ paintThm();
 // 语言:与主题同为"视图状态"(localStorage wfo-lang),即点即生效;切换后 setLang 清 diff 缓存 → 整屏重绘
 const langsel = $<HTMLSelectElement>('langsel');
 langsel.value = lang;
-langsel.onchange = () => { setLang(langsel.value as Lang); renderSessions(); render(); };
+langsel.onchange = () => { setLang(langsel.value as Lang); renderAnchored(); };  // 整屏重绘也保持视口锚定
 // 筛选/视图状态 localStorage 恢复:项目/搜索/自动刷新——刷新(含部署自动 reload)后不丢失(历史 bug,教训见 CLAUDE.md)
 fproj = localStorage.getItem('wfo-fproj') || '';
 fstr = localStorage.getItem('wfo-fstr') || '';
@@ -74,8 +74,7 @@ async function tick(): Promise<void> {
     const projs = [...new Set([...runs, ...sess].map(r => r.cwd || r.project))];
     if (fproj && !projs.includes(fproj)) { fproj = ''; localStorage.setItem('wfo-fproj', ''); }  // 已保存的项目不在数据源(窗口滑动/被删)→ 回落全部项目,避免永久 NO MATCH
     if (sel.options.length - 1 !== projs.length) { sel.innerHTML = `<option value="">${T('◆ 全部项目')}</option>` + projs.map(p => `<option${p === fproj ? ' selected' : ''}>${esc(p)}</option>`).join(''); }
-    renderSessions();
-    render();
+    renderAnchored();  // 页面级视口锚定:基线在任何重建前捕获(修「执行中展开详情上下滚动漂移」,详见 renderAnchored 注释)
   } catch (e) {
     console.error('render error:', e);
     const err: string = String((e as Error | null)?.message ?? e);
@@ -138,11 +137,6 @@ function renderSessions(): void {
 }
 function render(): void {
   const list = $('list');
-  // 视口锚点:render 前记录首张未滑出卡片(rid)的视口偏移。运行卡每 tick outerHTML 整体替换会破坏
-  // 浏览器原生 scroll-anchoring(锚点节点被分离),上方卡长高(新 agent 行/日志/任务块)即致整页向下跳。
-  // diff 后按 rid 重查该卡,偏移变化即补偿 window.scrollY——跨节点替换依然有效。
-  const ancEl = [...list.children].find(x => x.getBoundingClientRect().bottom > 2);
-  const anc = ancEl ? (ancEl as HTMLElement).dataset.rid || null : null, off0 = ancEl ? ancEl.getBoundingClientRect().top : 0;
   const q = fstr.toLowerCase();
   const vis = runs.filter(r => (!fproj || (r.cwd || r.project) === fproj) && (!q || (r.name + ' ' + r.runId + ' ' + (r.cwd || r.project) + ' ' + r.status + ' ' + (r.task || '')).toLowerCase().includes(q)));
   const n = (f: (r: Run) => boolean) => vis.filter(f).length;
@@ -160,14 +154,28 @@ function render(): void {
   // 按卡 diff 全在 diffPaint(与会话区同一实现):串稳定的卡绝不重建,滚动/选中/hover 不跳
   diffPaint(list, CARDS, vis.map((r, ii) => ({ id: r.runId, html: card(r, ii) })), painted);
   if (!vis.length && !list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? T('NO MATCH · 无匹配运行，调整搜索或筛选') : T('TELEMETRY SILENT · 近 %1 天无 workflow 运行记录', rdays)}</p>`;
-  if (anc) {
-    const ae = list.querySelector(`:scope>div[data-rid="${CSS.escape(anc)}"]`);
-    if (ae) { const d = ae.getBoundingClientRect().top - off0; if (Math.abs(d) > 1) window.scrollTo(0, window.scrollY + d); }  // 锚点补偿(含 details 重开引起的最终高度)
-  }
   painted = true;
 }
-$<HTMLSelectElement>('fproj').onchange = e => { fproj = (e.target as HTMLSelectElement).value; localStorage.setItem('wfo-fproj', fproj); renderSessions(); render(); };
-$<HTMLInputElement>('fq').oninput = e => { fstr = (e.target as HTMLInputElement).value.trim(); localStorage.setItem('wfo-fstr', fstr); renderSessions(); render(); };
+// ── 页面级视口锚定(tick 与全部重绘入口的统一包装)──
+// 用户反馈「执行任务中,展开工具调用/agent 详情后上下滚动出现上下漂移」的根因:旧实现把锚点
+// 捕获放在 render() 函数体开头,而 tick() 先跑 renderSessions()——执行中会话卡每轮长高(新步骤行)
+// 时基线已被增长污染,补偿恒 0;且锚点只在运行卡区找,视线在会话区时不该补的也补。
+// 正确语义(等价于浏览器原生 scroll-anchoring 在外壳被 outerHTML 重建后依然生效):
+// 基线必须在**任何重建之前**捕获;锚点=文档序(会话卡→运行卡)中第一张底边仍在视口的卡——
+// 锚点之上的内容(区标题变高/上方卡长高)变化即补偿,锚点卡自身在视口顶以下追加不补偿。
+function renderAnchored(): void {
+  const cards = [...$<HTMLElement>('sess').children, ...$<HTMLElement>('list').children] as HTMLElement[];
+  const ancEl = cards.find(x => x.getBoundingClientRect().bottom > 2);
+  const anc = ancEl ? ancEl.dataset.rid || null : null, off0 = ancEl ? ancEl.getBoundingClientRect().top : 0;
+  renderSessions();
+  render();
+  if (anc) {
+    const ae = ([...$<HTMLElement>('sess').children, ...$<HTMLElement>('list').children] as HTMLElement[]).find(c => c.dataset.rid === anc);
+    if (ae) { const d = ae.getBoundingClientRect().top - off0; if (Math.abs(d) > 1) window.scrollTo(0, window.scrollY + d); }  // 含 details open 恢复后的最终高度
+  }
+}
+$<HTMLSelectElement>('fproj').onchange = e => { fproj = (e.target as HTMLSelectElement).value; localStorage.setItem('wfo-fproj', fproj); renderAnchored(); };
+$<HTMLInputElement>('fq').oninput = e => { fstr = (e.target as HTMLInputElement).value.trim(); localStorage.setItem('wfo-fstr', fstr); renderAnchored(); };
 $<HTMLInputElement>('auto').onchange = e => { auto = (e.target as HTMLInputElement).checked; localStorage.setItem('wfo-auto', auto ? '1' : '0'); };
 // 首次展开:按 agentId 拉全文(transcript+journal),替换截断预览;FULL 缓存跨轮询重建存活
 // data-src 两种形态:proj|sess|run|agent(workflow) 或 S|proj|sess|agent(主/子会话,agent=main#msgId 为主会话单步)
