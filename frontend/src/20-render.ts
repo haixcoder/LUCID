@@ -64,41 +64,59 @@ function sessCard(r: SessionState, i: number): string {
   const wbody = wf.r ? mdLite(wrapLong(unent(wf.r))) : wf.m ? `<i style="opacity:.7">${esc(T('⚠ 该步已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(r.lastText || '')));
   const wtag = wf.r ? T('全文') : wf.m ? T('不可回取') : T('最后输出');
   const whint = (wf.r || wf.m) ? '' : `<div class="hint">${wmid ? T('展开后自动拉取该步所在回合的全部输出(超出转录留存范围会显式提示)') : T('转录留存字段有上限；整步全文请展开下方对应步骤行(超出留存范围会显式提示)')}</div>`;
-  // 输入寄存器(卡顶):❯=终端提示符 —— 机器等你(⏸ 琥珀)对仗你已给出(❯ 青)。尾窗上限写进眉标(铁律7);
-  // 摘要行=折叠,展开即按记录 uuid 懒拉全文(IN pane,FULL 缓存跨轮询存活),与等待行/步骤行同一契约。
+  // ── 回合分组(1.2.20):一次真人输入 = 一个任务 = 一个独立展示单元,不再把所有步骤平铺一锅端。──
+  // 输入行成为组头(仍是 promptline 抽屉契约:data-k=<sid>:prompt:<uuid> 与 data-src 不变 → FULL 缓存、
+  // 展开态、懒拉全文跨升级延续),该回合的步骤行挂在组头下。归属只认后端 step.turn
+  // ("什么算用户输入"住 _user_prompt 单点,前端不猜边界——CLAUDE.md 不变量)。
+  // ❯=终端提示符:机器等你(⏸ 琥珀)对仗你已给出(❯ 青);尾窗口径写进眉标(铁律7)。
   const ps = (r.prompts || []).filter(p => p.u);
-  const pblk = ps.length ? `<div class="phead"><span>${T('你输入 · 尾窗 %1 条', ps.length)}</span></div>
-  ${ps.map(p => {
-    const k = r.sessionId + ':prompt:' + p.u, pf: Fu = FULL[k] || {};
+  const pmap: Record<string, PromptEcho> = {};
+  for (const p of ps) if (!pmap[p.u]) pmap[p.u] = p;
+  const byTurn: Record<string, Step[]> = {};
+  for (const s of st) { const k = s.turn || ''; (byTurn[k] = byTurn[k] || []).push(s); }
+  // 组序=时间序:输入行用其 ts,仅有步骤的组(输入超尾窗)用首步 ts;''(尾窗起点前的孤儿组)置顶
+  const ords: { u: string; ts: number }[] = ps.map(p => ({ u: p.u, ts: Date.parse(p.ts || '') || 0 }));
+  for (const k in byTurn) ords.push({ u: k, ts: k ? Date.parse(byTurn[k][0].ts || '') || 0 : -1 });
+  const seenG: Record<string, 1> = {};
+  const grps = ords.sort((a, b) => a.ts - b.ts).filter(o => !seenG[o.u] && (seenG[o.u] = 1));
+  const turnHead = (u: string, n: number): string => {
+    const p = pmap[u];
+    const k = r.sessionId + ':prompt:' + u, pf: Fu = FULL[k] || {};
     const ptag = pf.p ? T('全文') : pf.m ? T('不可回取') : T('截断预览');
-    const pbody = pf.p ? mdLite(wrapLong(unent(pf.p))) : pf.m ? `<i style="opacity:.7">${esc(T('⚠ 该条输入已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(p.t || '')));
+    const pbody = pf.p ? mdLite(wrapLong(unent(pf.p))) : pf.m ? `<i style="opacity:.7">${esc(T('⚠ 该条输入已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(p ? p.t || '' : '')));
     const phint = (pf.p || pf.m) ? '' : `<div class="hint">${T('展开后自动拉取整条输入全文(超出转录留存范围会显式提示)')}</div>`;
-    return `<details class="term promptline" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(p.u)}">
-  <summary><span class="pk">${p.ts ? fmtC(Date.parse(p.ts)) : '—'}</span>${p.f ? `<span class="fchip">${T('最初')}</span>` : ''}<span class="pt">${esc((p.t || '').replace(/\s+/g, ' ').trim())}</span></summary>
+    const summ = p ? `<span class="pk">${p.ts ? fmtC(Date.parse(p.ts)) : '—'}</span>${p.f ? `<span class="fchip">${T('最初')}</span>` : ''}<span class="pt">${esc((p.t || '').replace(/\s+/g, ' ').trim())}</span>`
+                   : `<span class="pk">—</span><span class="pt"><i style="opacity:.45">${esc(T('(该任务输入超出尾窗 · 展开取全文)'))}</i></span>`;
+    return `<details class="term promptline turnhd" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(u)}">
+  <summary>${summ}<span class="tc">${T('%1 步', n)}</span></summary>
   <div class="term-body solo"><div class="pane" data-t="IN · ${ptag}"><div class="rich">${pbody}</div>${phint}</div></div></details>`;
-  }).join('')}` : '';
-  return `<div class="card${r.alive ? ' live' : ''}${stuck ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
-  <div class="hd"><span class="b b-${wait ? (stuck ? 'input_required' : 'turn') : esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
-  <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
-  <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
-  <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${T('尾窗工具调用')} ${r.toolCalls}</div>
-  ${pblk}
-  ${wait ? `<details class="term waitline${stuck ? '' : ' turn'}" data-k="${esc(r.sessionId)}:wait"${wsrc}${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${stuck ? T('在等') + ' · ' + (r.waitTool ? esc(r.waitTool) : T('你的回复')) : T('最后输出')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
-  <div class="term-body solo"><div class="pane" data-t="OUT · ${wtag}"><div class="rich">${wbody}</div>${whint}</div></div></details>` : ''}
-  <div class="strip"><span class="ph ${r.pendingTools.length ? 'on' : ''}">${T('最近工具')} ${esc(r.pendingTools[0] || '—')}${r.pendingTools.length > 1 ? ' ' + T('等%1项', r.pendingTools.length) : ''}</span>
-  <span class="ph fin">tok in ${fmtN(tk.input)} / out ${fmtN(tk.output)} / cacheR ${fmtN(tk.cacheRead)}</span>
-  <span class="ph ${done < sa.length ? 'on' : 'fin'}">subagents ${done}/${sa.length}</span></div>
-  ${st.length ? `<div class="thead"><span></span><span>${T('步骤 · 输出')}</span><span>${T('工具')}</span><span class="num">TOK in/out</span><span class="num">${T('时间')}</span><span class="num"></span><span></span></div>
-  ${st.map((s, j) => {
-    const last = j === st.length - 1, g = (last && r.status === 'running' && r.pendingTools.length > 0) ? 'running' : 'done', k = r.sessionId + ':' + s.msgId, fu: Fu = FULL[k] || {}, P = fu.p || '', R = fu.r !== undefined ? fu.r : (s.text || '');
-    return `<details class="term" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(s.msgId)}">
+  };
+  const orphanHead = (n: number): string => `<div class="turnhd orphan"><span class="pk">—</span><span class="pt"><i style="opacity:.45">${esc(T('(该回合开场输入在尾窗之前)'))}</i></span><span class="tc">${T('%1 步', n)}</span></div>`;
+  const lastMid = st.length ? st[st.length - 1].msgId : '';
+  const stepRow = (s: Step): string => {
+    const last = s.msgId === lastMid, g = (last && r.status === 'running' && r.pendingTools.length > 0) ? 'running' : 'done', k = r.sessionId + ':' + s.msgId, fu: Fu = FULL[k] || {}, P = fu.p || '', R = fu.r !== undefined ? fu.r : (s.text || '');
+    return `<details class="term tstep" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(s.msgId)}">
   <summary class="arow">
   <span class="glyph s-${g}" ${g === 'running' ? `style="${AD(1.5)}"` : ''} title="${esc(s.model || '')}">${g === 'running' ? '◈' : '▸'}</span>
   <span class="lbl" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((s.text || '').replace(/\s+/g, ' ').slice(0, 110)) || `<i style="opacity:.45">${T('(工具调用步)')}</i>`}</span>
   <span class="tool">${esc((s.tools || []).join(' '))}</span>
   <span class="num">${fmtN(s.tokIn)}/${fmtN(s.tokOut)}</span><span class="num">${s.ts ? fmtC(Date.parse(s.ts)) : '—'}</span><span class="tw"></span></summary>
   <div class="term-body${R && P ? '' : ' solo'}"><div class="pane" data-t="IN · ${T(P ? '工具入参全文' : '工具')}"><div class="rich">${P ? mdLite(wrapLong(unent(P))) : esc((s.tools || []).map(t => '● ' + t).join(' ')) || T('(本步无工具调用)')}</div></div>${R ? paneOut(T(fu.r !== undefined ? '全文' : '截断预览'), R) : ''}</div></details>`;
-  }).join('')}` : ''}
+  };
+  const taskRegion = (st.length || ps.length) ? `<div class="phead"><span>${T('任务(回合)· 尾窗 %1 输入 · %2 步骤', ps.length, st.length)}</span></div>
+  <div class="thead"><span></span><span>${T('步骤 · 输出')}</span><span>${T('工具')}</span><span class="num">TOK in/out</span><span class="num">${T('时间')}</span><span class="num"></span><span></span></div>
+  ${grps.map(o => `<div class="tg">${o.u ? turnHead(o.u, (byTurn[o.u] || []).length) : orphanHead((byTurn[''] || []).length)}${(byTurn[o.u] || []).map(stepRow).join('')}</div>`).join('')}` : '';
+  return `<div class="card${r.alive ? ' live' : ''}${stuck ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
+  <div class="hd"><span class="b b-${wait ? (stuck ? 'input_required' : 'turn') : esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
+  <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
+  <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
+  <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${T('尾窗工具调用')} ${r.toolCalls}</div>
+  ${wait ? `<details class="term waitline${stuck ? '' : ' turn'}" data-k="${esc(r.sessionId)}:wait"${wsrc}${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${stuck ? T('在等') + ' · ' + (r.waitTool ? esc(r.waitTool) : T('你的回复')) : T('最后输出')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
+  <div class="term-body solo"><div class="pane" data-t="OUT · ${wtag}"><div class="rich">${wbody}</div>${whint}</div></div></details>` : ''}
+  <div class="strip"><span class="ph ${r.pendingTools.length ? 'on' : ''}">${T('最近工具')} ${esc(r.pendingTools[0] || '—')}${r.pendingTools.length > 1 ? ' ' + T('等%1项', r.pendingTools.length) : ''}</span>
+  <span class="ph fin">tok in ${fmtN(tk.input)} / out ${fmtN(tk.output)} / cacheR ${fmtN(tk.cacheRead)}</span>
+  <span class="ph ${done < sa.length ? 'on' : 'fin'}">subagents ${done}/${sa.length}</span></div>
+  ${taskRegion}
   ${sa.length ? `<div class="thead"><span></span><span>AGENT</span><span>${T('类型 · 模型')}</span><span>${T('最近工具')}</span><span class="num">TOK in/out</span><span class="num">${T('最后活动')}</span><span></span></div>
   ${sa.map(a => {
     const k = r.sessionId + ':' + a.agentId, fu: Fu = FULL[k] || {}, P = fu.p || a.prompt, R = fu.r !== undefined ? fu.r : a.lastText;

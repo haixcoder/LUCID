@@ -13,7 +13,7 @@ interface Run {
   tokens?: number | null; agentCount: number; phases: Ph[]; agents: Agent[]; logs: string[];
   task: string; result: string; orphan?: boolean; lastActivityAt?: number;
 }
-interface Step { msgId: string; tools: string[]; text: string; model: string | null; tokIn: number; tokOut: number; ts: string | null }
+interface Step { msgId: string; turn?: string; tools: string[]; text: string; model: string | null; tokIn: number; tokOut: number; ts: string | null }  // turn=开启所在回合的真人输入记录 uuid(''=尾窗之前的输入;后端 _user_prompt 单点判定,前端不猜边界)
 interface Subagent {
   agentId: string; label: string; agentType?: string | null; description?: string;
   model?: string | null; kind: string; teamName?: string | null; color?: string | null;

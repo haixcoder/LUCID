@@ -149,6 +149,13 @@ main.sesstop{padding-bottom:2px}
 .promptline .pt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .promptline .term-body{margin:2px 9px 8px 8px}
 .fchip{border:1px solid var(--cy);color:var(--cy);font:600 8px var(--mono);letter-spacing:.18em;padding:0 5px;white-space:nowrap;align-self:center}
+/* 回合分组(1.2.20):一次真人输入=一个任务=一个独立展示单元。.tg 包住组头(输入行)与其步骤;组头沿用 .promptline 契约,步骤行左缩进挂在组下 */
+.tg{margin:10px 0 0}
+.turnhd .tc{border:1px solid var(--ln);color:var(--dim2);font:600 8px var(--mono);letter-spacing:.12em;padding:0 5px;white-space:nowrap;align-self:center}
+.turnhd.orphan{display:flex;align-items:baseline;gap:9px;padding:4px 9px 4px 8px;font:500 11px var(--mono);border-left:2px solid var(--ln);background:color-mix(in srgb,var(--ln) 20%,transparent)}
+.turnhd.orphan .pk{color:var(--cy);letter-spacing:.08em;white-space:nowrap}
+.turnhd.orphan .pt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tg .tstep{margin-left:10px}
 .pane .hint{margin-top:8px;font:500 10px/1.65 var(--mono);color:var(--dim2);letter-spacing:.02em;border-top:1px dashed var(--ln);padding-top:6px}
 .wtag{color:var(--am);font-weight:700}
 @keyframes blink{50%{opacity:.45}}

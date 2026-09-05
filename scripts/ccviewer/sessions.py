@@ -286,16 +286,25 @@ def _first_user_text(path):
 
 def _main_steps(path, limit=30):
     """主 agent 执行步骤：按 message.id 聚合尾窗内的 assistant 消息(流式分块会重复同 id)。
-    返回稳定键(msgId)的步骤列表 —— 前端抽屉跨轮询重建靠它保持展开态。"""
-    steps, tids = {}, {}
+    返回稳定键(msgId)的步骤列表 —— 前端抽屉跨轮询重建靠它保持展开态。
+    turn 键(1.2.20「一次任务=一个独立展示单元」)= 开启该步所在回合的"真人输入"记录 uuid;
+    边界判定复用 _user_prompt 单点(前端不猜),工具回执/isMeta 不开新回合,
+    同 id 重传在首次出现定格 turn(尾窗滑动不漂移)。"""
+    steps, tids, cur, pseen = {}, {}, '', set()
     for d in tail_records(path):
+        if d.get('type') == 'user':
+            pu = d.get('uuid') or ''
+            if pu and _user_prompt(d):
+                cur = pu
+                pseen.add(pu)
+            continue
         if d.get('type') != 'assistant':
             continue
         m = d.get('message') or {}
         mid = m.get('id')
         if not mid:
             continue
-        s = steps.setdefault(mid, {'msgId': mid, 'tools': [], 'text': '', 'model': None,
+        s = steps.setdefault(mid, {'msgId': mid, 'turn': cur, 'tools': [], 'text': '', 'model': None,
                                    'tokIn': 0, 'tokOut': 0, 'ts': None})
         tids.setdefault(mid, set())
         if d.get('timestamp'):
@@ -313,7 +322,30 @@ def _main_steps(path, limit=30):
                 s['tools'].append(b.get('name') or '?')
             elif b.get('type') == 'text' and (b.get('text') or '').strip():
                 s['text'] = b['text']
-    out = [{'msgId': s['msgId'], 'tools': s['tools'], 'text': s['text'][:300], 'model': s['model'],
+    # 孤儿归属回填(真机踩到:单条超长回合把开场输入挤出 256KB 尾窗 → 一批步骤 turn='')。
+    # 反向扫"窗外最近一条真人输入"(rev_lines 自尾,首个不在 pseen 的真实输入=该回合开启者)回填,
+    # 使组头仍可按该 uuid 懒拉全文(锚点在,只是摘要不在窗内)。找不到(会话开头即 assistant)则保持
+    # ''——不造假锚点,前端显式标为无锚孤児组。
+    if any(not s['turn'] for s in steps.values()):
+        opener = ''
+        scanned = 0
+        for ln in rev_lines(path):
+            scanned += 1
+            if scanned > 400000:  # 病态大会话止损线(同 _step_detail/_turn_texts)
+                break
+            try:
+                w = json.loads(ln)
+            except Exception:
+                continue
+            pu = w.get('uuid') or ''
+            if pu and pu not in pseen and _user_prompt(w):
+                opener = pu
+                break
+        if opener:
+            for s in steps.values():
+                if not s['turn']:
+                    s['turn'] = opener
+    out = [{'msgId': s['msgId'], 'turn': s['turn'], 'tools': s['tools'], 'text': s['text'][:300], 'model': s['model'],
             'tokIn': s['tokIn'], 'tokOut': s['tokOut'], 'ts': s['ts']} for s in steps.values()]
     return out[-limit:]
 

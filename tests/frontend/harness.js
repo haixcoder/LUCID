@@ -372,7 +372,7 @@ const SESSION_FIX = {
   lastPrompt: 'please continue', lastText: 'I need an answer to proceed with the golden fixture.', lastTextMid: 'msg_g1',
   prompts: [{ u: '11111111-2222-3333-4444-555555555555', t: 'golden prompt text', ts: '2026-09-05T04:00:00.000Z' },
             { u: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', t: 'oldest prompt', ts: '2026-09-05T03:00:00.000Z', f: 1 }],
-  steps: [{ msgId: 'msg_g1', tools: ['AskUserQuestion'], text: 'I need an answer', model: 'claude-fable-5', tokIn: 100, tokOut: 50, ts: '2026-09-05T04:00:01.000Z' }],
+  steps: [{ msgId: 'msg_g1', turn: '11111111-2222-3333-4444-555555555555', tools: ['AskUserQuestion'], text: 'I need an answer', model: 'claude-fable-5', tokIn: 100, tokOut: 50, ts: '2026-09-05T04:00:01.000Z' }],
   subagents: [{ agentId: 'cafe1234', label: 'worker', agentType: 'general-purpose', description: 'do work', model: 'claude-haiku-4-5-20251001', kind: 'task', teamName: null, color: null, state: 'done', lastTool: 'Bash', pendingTools: [], toolCalls: 3, tokens: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 }, lastActivityAt: 1757000150000, prompt: 'sub task', lastText: 'sub result' }],
 };
 function payload(runs, sessions) {
