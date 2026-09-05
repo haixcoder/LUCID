@@ -117,6 +117,14 @@ main{padding:18px 16px 70px;display:flex;flex-direction:column;gap:16px;max-widt
 .secttl::after{content:'';flex:1;height:1px;background:var(--ln)}
 main.sesstop{padding-bottom:2px}
 .b-blocked{color:var(--cy);border-color:color-mix(in srgb,var(--cy) 50%,transparent)}
+/* 等待用户输入(3.2)：反白实心徽标 = 页面里唯一"该你动手"的信号，与 running(空心闪) / waiting(静青) 区分 */
+.b-input_required{color:var(--pnl);background:var(--am);border-color:var(--am);animation:blink 1.8s infinite}
+.b-input_required::before{content:'⏸ '}
+.card.wait{box-shadow:inset 3px 0 0 var(--am),var(--sh)}
+.waitline{display:flex;align-items:baseline;gap:9px;margin-top:7px;padding:5px 9px;border:1px dashed var(--am);background:color-mix(in srgb,var(--am) 8%,transparent);font:500 11px var(--mono)}
+.waitline .wk{color:var(--am);letter-spacing:.08em;white-space:nowrap}
+.waitline .wt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wtag{color:var(--am);font-weight:700}
 @keyframes blink{50%{opacity:.45}}
 h2{margin:0;font:600 17px var(--disp);letter-spacing:.05em}
 .rid{font-size:10px;color:var(--dim2);letter-spacing:.08em}
@@ -211,6 +219,11 @@ details.term{margin:0}
 <div class="mrow">
 <input type="text" id="hurl" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxx（群设置→群机器人→自定义机器人）" data-i18n-ph="https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxx（群设置→群机器人→自定义机器人）" spellcheck="false">
 <button class="tgl" id="htest" data-i18n="发送测试">发送测试</button>
+<button class="tgl" id="htest2" data-i18n="发送等待测试">发送等待测试</button>
+</div>
+<div class="mrow">
+<select id="hinp"><option value="off" data-i18n="等待输入通知：关闭">等待输入通知：关闭</option><option value="blocked" data-i18n="等待输入通知：仅卡住时(等回答/等授权)">等待输入通知：仅卡住时(等回答/等授权)</option><option value="all" data-i18n="等待输入通知：全部(含回合结束)">等待输入通知：全部(含回合结束)</option></select>
+<span class="modnote" data-i18n="会话卡在「等你」时单独推送一类 input_required 通知；回合结束每轮都算等待，故默认只在真卡住时提醒">会话卡在「等你」时单独推送一类 input_required 通知；回合结束每轮都算等待，故默认只在真卡住时提醒</span>
 </div>
 </div></div>
 <div class="mod"><div class="modtag"><b>02</b><span data-i18n="端口设置">端口设置</span></div><div class="modbody"><div class="mrow">

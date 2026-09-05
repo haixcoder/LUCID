@@ -37,11 +37,17 @@ function card(r: Run, i: number): string {
 
 function sessCard(r: SessionState, i: number): string {
   const tk = r.tokens || ({} as Tok), sa = r.subagents || [], st = r.steps || [], done = sa.filter(a => a.state === 'done').length;
-  return `<div class="card${r.alive ? ' live' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
-  <div class="hd"><span class="b b-${esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${esc(r.status.toUpperCase())}</span>
+  // 等待用户输入(3.2)：徽标换成中文短标签 + 反白高亮，另起一行交代"在等什么"。串内不放逐秒变化字段(ageSec)，
+  // 否则每轮 diff 必失配 → 展开的步骤抽屉"点开即关"(见 CLAUDE.md 前端不变量)。
+  const wait = r.status === 'input_required';
+  const wlab = r.waitReason === 'ask' ? T('等待回答') : r.waitReason === 'permission' ? T('等待授权') : T('等待输入');
+  const wtxt = (r.lastText || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+  return `<div class="card${r.alive ? ' live' : ''}${wait ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
+  <div class="hd"><span class="b b-${esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
   <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
   <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
   <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${T('尾窗工具调用')} ${r.toolCalls}</div>
+  ${wait ? `<div class="waitline"><span class="wk">${T('在等')} · ${r.waitTool ? esc(r.waitTool) : T('你的回复')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></div>` : ''}
   <div class="strip"><span class="ph ${r.pendingTools.length ? 'on' : ''}">${T('最近工具')} ${esc(r.pendingTools[0] || '—')}${r.pendingTools.length > 1 ? ' ' + T('等%1项', r.pendingTools.length) : ''}</span>
   <span class="ph fin">tok in ${fmtN(tk.input)} / out ${fmtN(tk.output)} / cacheR ${fmtN(tk.cacheRead)}</span>
   <span class="ph ${done < sa.length ? 'on' : 'fin'}">subagents ${done}/${sa.length}</span></div>

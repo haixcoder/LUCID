@@ -4,6 +4,7 @@
 #   <proj>/<sess>.jsonl                     主 agent 转录(message.usage/model/stop_reason/工具块/ai-title/permissionMode)
 #   <proj>/<sess>/subagents/agent-*.jsonl   Task/teammate 子代理转录 + .meta.json(agentType/name/description/taskKind)
 # 状态为尽力而为的推断（无权威 journal），用 tail 窗口解析控制成本。
+# 主 agent 状态：running / input_required(等待用户，细分 ask|permission|turn) / waiting / ended，见 main_state()。
 import json
 import os
 import re
@@ -20,6 +21,10 @@ STALL_SEC = 120          # 主 agent:进程活着且 2min 内有写入 -> runnin
 SUB_ACTIVE_SEC = 90      # subagent:同上阈值判 running
 SESSION_HOURS = 2        # 非活跃会话只保留最近 2h 内的
 MAX_SESSIONS = 40
+# 明确"要人来回答/确认"的工具：挂起即等于卡住等用户(与是否需要授权无关)
+ASK_TOOLS = ('AskUserQuestion', 'ExitPlanMode')
+# 模型主动交回话轮的 stop_reason(其余 tool_use=等工具，None=尾窗没采到)
+TURN_END = ('end_turn', 'stop_sequence')
 
 
 def _tail(path, n=TAIL_BYTES):
@@ -43,10 +48,10 @@ def _texts(content):
 
 
 def _analyze(text):
-    """从转录尾窗提取:模型/usage 合计/pending 工具/最近文本/最近用户输入/权限模式"""
+    """从转录尾窗提取:模型/usage 合计/pending 工具/最近文本/最近用户输入/权限模式/末条消息角色"""
     usage, seen_mid = {}, {}
     pend = {}
-    last_model = last_stop = last_perm = None
+    last_model = last_stop = last_perm = last_kind = None
     last_text = last_prompt = ''
     tool_calls = 0
     for ln in text.splitlines():
@@ -59,6 +64,9 @@ def _analyze(text):
         m = d.get('message')
         if not isinstance(m, dict):
             continue
+        # 末条"带 message 的记录"是什么角色：判定「模型已交回话轮」还是「用户刚发了/工具刚回来」
+        if d.get('type') in ('assistant', 'user'):
+            last_kind = d['type']
         content = m.get('content')
         blocks = content if isinstance(content, list) else []
         if isinstance(content, list):
@@ -92,9 +100,31 @@ def _analyze(text):
         tot['output'] += u.get('output_tokens') or 0
         tot['cacheRead'] += u.get('cache_read_input_tokens') or 0
         tot['cacheWrite'] += u.get('cache_creation_input_tokens') or 0
-    return {'model': last_model, 'stopReason': last_stop, 'permissionMode': last_perm,
+    return {'model': last_model, 'stopReason': last_stop, 'permissionMode': last_perm, 'lastKind': last_kind,
             'tokens': tot, 'pendingTools': list(pend.values())[:8], 'toolCalls': tool_calls,
             'lastText': (last_text or '')[:300], 'lastPrompt': (last_prompt or '')[:300]}
+
+
+def main_state(info, alive, age):
+    """主 agent 状态(3.2)：running / input_required(等待用户) / waiting / ended。
+    input_required 按成因细分 waitReason ——
+      ask        : 挂起 AskUserQuestion / ExitPlanMode，模型在等用户回答或确认计划;
+      permission : 挂起普通工具且转录已静默 >= STALL_SEC，最合理解释是卡在授权确认(无法与"长命令仍在跑"区分,故文档里写"疑似");
+      turn       : 无挂起工具、末条为 assistant 且 stop_reason 为交回话轮 —— 模型说完了,等你下一句。
+    纯推断(无权威 journal),与既有 running/waiting 同级;误报代价只是一条可关的通知。"""
+    if not alive:
+        return 'ended', None, None
+    pend = info['pendingTools']
+    if pend:
+        ask = next((t for t in pend if t in ASK_TOOLS), None)
+        if ask:
+            return 'input_required', 'ask', ask
+        if age >= STALL_SEC:
+            return 'input_required', 'permission', pend[0]
+        return 'running', None, None
+    if info.get('lastKind') == 'assistant' and info['stopReason'] in TURN_END:
+        return 'input_required', 'turn', None
+    return ('running', None, None) if age < STALL_SEC else ('waiting', None, None)
 
 
 def _title(path, tail_text):
@@ -310,30 +340,45 @@ def agent_detail(proj, sess, agent, msg=''):
     return {'prompt': _first_user_text(p), 'result': _rev_texts(p, 'assistant')}
 
 
+SESS_RE = re.compile(r'[0-9a-f][0-9a-f-]{7,}')
+
+
+def _candidates(now, reg):
+    """会话候选 = 转录 <sess>.jsonl ∪ 会话目录 <sess>/(只有子代理等附属文件时才存在)。
+    只遍历目录会漏掉"纯交互会话"——没有子代理就没有目录,而它正是「等待用户输入」最该出现的对象。
+    活度取两者较新的 mtime;目录可能缺失,故 subagents 一律按可选处理。"""
+    for proj in (p for p in PROJ.iterdir() if p.is_dir()):
+        try:
+            entries = list(proj.iterdir())
+        except Exception:
+            continue
+        dirs, files = {}, {}
+        for e in entries:
+            if not SESS_RE.fullmatch(e.stem):
+                continue
+            (dirs if e.is_dir() else files if e.suffix == '.jsonl' else {}).setdefault(e.stem, e)
+        for sid in set(dirs) | set(files):
+            tp, sd = files.get(sid), dirs.get(sid)
+            try:
+                mt = max([p.stat().st_mtime for p in (tp, sd) if p])
+            except Exception:
+                continue
+            alive = sid in reg
+            if not alive and (now - mt > SESSION_HOURS * 3600 or now - mt > recent_sec()):
+                continue
+            yield mt, alive, proj, sid, tp, sd
+
+
 def scan_sessions():
     now = time.time()
     reg = _registry()
-    cands = []
     try:
-        projects = [p for p in PROJ.iterdir() if p.is_dir()]
-    except Exception:
+        cands = sorted(_candidates(now, reg), key=lambda x: (-x[1], -x[0]))  # 活跃优先，其后按最近活动
+    except OSError:
         return []
-    for proj in projects:
-        for sess in proj.iterdir():
-            if not sess.is_dir() or not re.fullmatch(r'[0-9a-f][0-9a-f-]{7,}', sess.name):
-                continue
-            try:
-                mt = sess.stat().st_mtime
-            except Exception:
-                continue
-            alive = sess.name in reg
-            if not alive and (now - mt > SESSION_HOURS * 3600 or now - mt > recent_sec()):
-                continue
-            cands.append((mt, alive, proj, sess))
-    cands.sort(key=lambda x: (-x[1], -x[0]))  # 活跃优先，其后按最近活动
     out = []
-    for mt, alive, proj, sess in cands[:MAX_SESSIONS]:
-        tpath = PROJ / proj.name / (sess.name + '.jsonl')
+    for mt, alive, proj, sid, tpath, sdir in cands[:MAX_SESSIONS]:
+        tpath = tpath or PROJ / proj.name / (sid + '.jsonl')
         text = _tail(tpath)
         info = _analyze(text)
         try:
@@ -341,17 +386,18 @@ def scan_sessions():
         except Exception:
             fact = mt
         age = now - fact
-        ent = reg.get(sess.name) or {}
+        ent = reg.get(sid) or {}
         try:
-            submt = max([f.stat().st_mtime for f in (sess / 'subagents').glob('agent-*.jsonl')], default=0)
+            submt = max([f.stat().st_mtime for f in (sdir / 'subagents').glob('agent-*.jsonl')], default=0) if sdir else 0
         except Exception:
             submt = 0
         age = min(age, now - submt if submt else age)
-        status = ('running' if age < STALL_SEC else 'waiting') if alive else 'ended'
-        subs = _subagents(sess, now)
-        cwd = ent.get('cwd') or session_cwd(proj.name, sess.name)
-        out.append({'sessionId': sess.name, 'project': proj.name, 'cwd': cwd,
+        status, why, wtool = main_state(info, alive, age)
+        subs = _subagents(sdir, now) if sdir else []
+        cwd = ent.get('cwd') or session_cwd(proj.name, sid)
+        out.append({'sessionId': sid, 'project': proj.name, 'cwd': cwd,
                     'title': _title(tpath, text), 'status': status, 'alive': alive,
+                    'waitReason': why, 'waitTool': wtool,
                     'pid': ent.get('pid'), 'kind': ent.get('kind') or ent.get('entrypoint'),
                     'version': ent.get('version'), 'startedAt': ent.get('startedAt') or int(mt * 1000),
                     'lastActivityAt': int((fact if fact >= submt else submt) * 1000),
@@ -361,3 +407,14 @@ def scan_sessions():
                     'lastPrompt': info['lastPrompt'], 'lastText': info['lastText'],
                     'steps': _main_steps(tpath), 'subagents': subs})
     return out
+
+
+_SESS_CACHE = {'t': 0, 'sessions': []}
+
+
+def scan_sessions_cached(maxage):
+    # 同 scan_cached 的取舍：通知线程 5s 一轮，复用 maxage 秒内的扫描结果省掉重复全盘 I/O
+    if time.time() - _SESS_CACHE['t'] > maxage:
+        _SESS_CACHE['sessions'] = scan_sessions()
+        _SESS_CACHE['t'] = time.time()
+    return _SESS_CACHE['sessions']

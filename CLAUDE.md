@@ -48,7 +48,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 | `guard.py` | 自启动/看护：双触发口——`hooks/hooks.json` 的 SessionStart 钩子（主入口，任意版本可用）+ `monitors/monitors.json` 官方后台 monitor（需 CC ≥2.1.105 且宿主支持，实测第三方网关宿主会静默跳过）；两者都跑 `--detach`：guard.pid 跨会话幂等确保常驻看护循环，循环 TCP 探活 `127.0.0.1:<port>` 未监听→setsid 分离启动 `server.py`（独立于会话存活），周期复查崩溃自动重启；循环仅状态变化输出一行（落 server.log），常稳态零输出 |
 | `scan.py` | 扫描与状态重建（下表"扫描/存活"两层） |
 | `agent.py` | `api_agent()` 单 agent 全文 |
-| `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:注册表 pid 存活且 120s 内有写入=running，活但更久=waiting，进程亡=ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白） |
+| `sessions.py` | 主 agent 与子代理状态（`scan_sessions()`→`/api/sessions`）：**无权威 journal，尾窗启发式推断**——主:`main_state()` 四态 running / **input_required**(等待用户，`waitReason`=ask〔挂起 AskUserQuestion/ExitPlanMode〕\| permission〔挂起普通工具且静默 ≥120s，"疑似"，与长命令同形〕\| turn〔无挂起、末条 assistant 且 `stop_reason`∈end_turn/stop_sequence〕) / waiting / ended；子:mtime<90s=running，尾行 `stop_reason==end_turn`=done，否则 idle。候选 = **转录 `<sess>.jsonl` ∪ 会话目录**（只遍历目录会漏掉无子代理的纯交互会话，即"在等你"的那个）；`scan_sessions_cached(6)` 供通知线程复用。只扫"活跃或近 2h"会话，上限 40，转录只读尾 256KB 控制成本；**按步全文 `_step_detail` 例外:1MB 块反向深扫至 16MB**（截图附件是 MB 级 base64,会把旧步骤挤出固定尾窗;找不到返回 `miss:True`,前端必须显式提示而非静默空白） |
 | `notify.py` | webhook 通知线程（下表） |
 | `web.py` | HTTP handler `class H`、`make_server()`，启动时读入 `static/index.html` |
 | `static/index.html` | 前端运行时文件：**HTML/CSS 壳 = `frontend/template.html`，脚本块 = `frontend/src/*.ts` 的 tsc 编译产物**（禁手改，见铁律 6） |
@@ -60,8 +60,8 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 |----|------|------|
 | 扫描/状态重建 | `scan.scan()` → `parse_completed()` / `parse_live()` | run JSON **只在正常收尾时写**；进行中状态由 journal.jsonl + agent-*.jsonl 实时重建 |
 | 存活判定 | `scan.live_session_ids()` + `scan.parse_live()` 尾部 | 权威信号 = `~/.claude/sessions/<pid>.json` 注册表且进程存活；父进程已死且有未完成 agent → `aborted`（孤儿），无 pending → `completed`；60s 宽限防竞态；`STALE_SEC=30min` 无活动 → `stale` |
-| Webhook 通知 | `notify.notify_loop()` → `send_hook()` | 守护线程 5s 一轮；**启动首轮静默播种**（`sweep`，防历史运行刷屏）；去重靠 sent.json（保留 800 条）；macOS 钥匙串导出 CA 解决公司 TLS 代理（`macOS_ca_bundle()`，每日刷新） |
-| HTTP 端点 | `web.class H` | API：`/api/runs` `/api/sessions` `/api/agent` `/api/subagent` `/api/config` `/api/config/save` `/api/config/test` |
+| Webhook 通知 | `notify.notify_loop()` → `send_hook(r, text, kind)` | 守护线程 5s 一轮；**两类分型**：`workflow_status`（run 终态，`STATUS_ZH` 白名单）+ `input_required`（`notify_inputs()`，档位 `notifyInput`=off/blocked/all，默认 blocked 只发 ask/permission；正文 `sess_text()`）；**启动首轮静默播种**（`sweep`，防历史刷屏），键一律播种只把发送门控住（防"事后开启"补发历史）；去重靠 sent.json（保留 2000 条，run 键 `wf_*` 与 session 键 `sess|<id>|<静默起点>` 混存，字典序截断故上限抬高）；macOS 钥匙串导出 CA 解决公司 TLS 代理（`macOS_ca_bundle()`，每日刷新） |
+| HTTP 端点 | `web.class H` | API：`/api/runs` `/api/sessions` `/api/agent` `/api/subagent` `/api/config` `/api/config/save`（含 `notifyInput` 档位，缺省值不改）`/api/config/test`（body `{"kind":"input_required"}` 按等待型发） |
 
 端口优先级：**config.json 的 port > `--port` 参数**；网页改端口保存后服务 `os.execv` 自重启到新端口（PID 不变），响应带 `reloc` 字段由页面自动跳转。
 
@@ -79,6 +79,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 - **tick 的 try/catch 分离**：fetch 失败与 render 失败必须分开报告——JS bug 不许冒充掉线（见 `tick()` 注释）。
 - **详情抽屉滚动位置 / details 展开态**跨轮询保持（`sc` 快照 + `open` 集合恢复）；全文靠 `FULL` 缓存 + `/api/agent` 首次展开拉取。
 - **筛选/视图状态必须 localStorage 持久化**（`wfo-fproj`/`wfo-fstr`/`wfo-auto`）：项目筛选/搜索词/自动刷新只存内存模块变量 → 刷新(含部署自动 reload)后全丢（真实用户 bug）；启动恢复 + 选项重建带 `selected`，保存值已不在数据源时清空回落。新增筛选字段同理。
+- **会话等待态（3.2）**：`input_required` 的判定只在后端 `sessions.main_state()` 一处（三分 `waitReason`），前端只做展示与高亮，不许再推断；卡 HTML 里放的是 `wlab`/`wtxt` 等**每轮稳定**字段，绝不放 `ageSec`（同上一条不变量）。新增等待成因只改 `main_state` + 前端 `wlab` 三分支 + `notify.WAIT_ZH` + i18n 四处，缺一处即出现"页面说等待授权、推送写未知"。
 - **多语言：新增用户可见文案一律走 `T()`（`frontend/src/05-i18n.ts`）** —— key 就是简体中文原文（源语言，zh 不入字典），插值 `%1..%n`；查不到自动回落 key，所以漏译显示中文而非空白。静态壳文案挂 `data-i18n`（换 textContent）/`data-i18n-ph`（换 placeholder），由 `applyI18n()` 统一刷；`<b>01</b>` 这类编号必须包到内层 `<span>`，否则整块被覆盖。CSS `content:` 里的文案走 `html[lang=x]{--tr-more:…}` 变量（与 JS 字典各一份）。语种存 `localStorage.wfo-lang`（与 `wfo-theme` 同为"视图状态"，**不进服务端 config.json**），首访按 `navigator.language` 猜。切语言必须走 `setLang()`：它清 `CARDS/SCARDS/GSTR` 与旧 `.idle` 节点后整屏重绘，漏清则该语言下 diff 陈旧。后端 `msg` 只做精确命中（`已保存` 等静息文案），含插值数字的校验错回落原文，不为此加模糊匹配。
 - `mdLite` 用 \u0001 控制字符做占位符抽取围栏/表格，改动分段逻辑注意转义。
 

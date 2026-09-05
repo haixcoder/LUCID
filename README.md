@@ -22,9 +22,10 @@ XRay 是一个 **Claude Code 本地插件**：在工作流运行时打开一个�
 
 - **实时透视**：进行中的运行由 journal + agent 转录实时重建，前端每 2 秒轮询刷新；已完成的读完整 run JSON（全量富数据）
 - **Workflow 全景**：phase 条、agent 表格（状态 / 最近工具 / tokens / 用时）、运行产物、系统日志尾
-- **会话监控**：主 agent（running / waiting / ended）+ 全部非 workflow 子代理（task / teammate），pending 工具、权限模式、尾窗步骤表
+- **会话监控**：主 agent（running / **input_required 等待用户** / waiting / ended）+ 全部非 workflow 子代理（task / teammate），pending 工具、权限模式、尾窗步骤表。等待原因再细分三档：**等待回答**（挂起 AskUserQuestion / ExitPlanMode）、**等待授权**（工具挂起且已静默 ≥2min，疑似卡在授权确认）、**等待输入**（回合结束、无挂起工具，模型在等你下一句）——命中即用反白 ⏸ 高亮徽标 + 左侧色条 +「在等 …」一行显示它在等什么
+- **纯交互会话也在列**：会话候选 = 转录 `<sess>.jsonl` ∪ 会话目录，没有子代理的会话同样出现在监控里（此前只遍历目录，恰恰漏掉最该提醒"在等你"的那个会话）
 - **全文抽屉**：点击任意 agent / 步骤行展开详情——自动拉取完整 prompt / result（转录 + journal 深扫全文，替换截断预览），滚动位置跨轮询保持
-- **终态通知**：workflow 进入终态（completed / failed / killed）时后台线程推送**飞书**或**通用 JSON** webhook，不依赖浏览器开着
+- **分型通知**：后台线程推两类**飞书**或**通用 JSON** webhook（不依赖浏览器开着）——① workflow 进入终态（completed / failed / killed）；② 会话进入 `input_required`「在等你」，独立一档可关可放宽（关闭 / 仅卡住时 / 全部含回合结束，默认**仅卡住时**），通用 JSON 里带 `kind` 字段供消费方分流。真痛点是「卡住了在等我」，不是「跑完了让我看」
 - **自启动看护**：任意会话开始即检测服务、未运行自动拉起，崩溃自动重启——双触发口：官方后台 monitor（`monitors/monitors.json`，需 Claude Code ≥2.1.105 且宿主支持）＋ `SessionStart` 钩子兜底（`hooks/hooks.json`，任意版本可用）。两者都收敛到 `scripts/guard.py --detach`：按 guard.pid 幂等确保常驻看护循环在跑，服务与看护进程均独立于会话存活
 - **多语言界面**：⚙ 设置 → 语言，五种常用语种（简体中文 / English / Español / Français / Deutsch），即点即生效、localStorage 记忆，首次访问跟随浏览器语言；界面文案（含卡片标签、pane 标题、空态、设置面板、通知回执）全部走同一文案层，缺译自动回落中文，不会出现空白
 - **仪式感细节**：项目筛选、全文搜索（名称 / runId / 任务 / 状态）、自动刷新开关、五主题切换：☀ 日光台 / ☾ 磷光夜 / ❄ 冰原 / ⚡ 磁暴 / ◈ 墨铁（localStorage 记忆）、网页改端口保存即自动重启迁移
@@ -108,31 +109,38 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 
 ## 页面功能
 
-**顶部**：仪表盘（RUNS / LIVE / DONE / ALERT 计数）、项目筛选、全文搜索、自动刷新开关、版本角标；右上「⚙ 设置」：01 通知钩子 / 02 端口 / 03 主题 / 04 语言 / 05 自动扫描 / 06 回看窗口，其中主题·语言·自动扫描即点即生效，其余由底栏统一保存。
+**顶部**：仪表盘（RUNS / LIVE / DONE / ALERT 计数）、项目筛选、全文搜索、自动刷新开关、版本角标；右上「⚙ 设置」：01 通知钩子（含「等待输入通知」档位与 ⏸ 分型测试按钮）/ 02 端口 / 03 主题 / 04 语言 / 05 自动扫描 / 06 回看窗口，其中主题·语言·自动扫描即点即生效，其余由底栏统一保存。
 
 **运行列表**（进行中置顶）：状态徽章（running / completed / failed / killed / stale / aborted）、phase 条、agent 表格（状态 / 最近工具 / tokens / 用时）、任务详情、系统日志尾、运行产物。
 
-**AGENT 状态区**（会话层）：主 agent 状态 / pending 工具 / 尾窗 tokens / 权限模式 / 最近输入输出 + 子代理表（类型 / 模型 / 状态 / 最近工具 / tokens / 最后活动）+ 尾窗 30 条执行步骤表（工具 / 输出预览 / tokens / 时间）。
+**AGENT 状态区**（会话层）：主 agent 状态 / pending 工具 / 尾窗 tokens / 权限模式 / 最近输入输出 + 子代理表（类型 / 模型 / 状态 / 最近工具 / tokens / 最后活动）+ 尾窗 30 条执行步骤表（工具 / 输出预览 / tokens / 时间）。会话卡在「等你」时置顶高亮：反白 ⏸ 徽标（等待回答 / 等待授权 / 等待输入）+ 左侧色条 + 一行「在等 · 你的回复 / Bash」并带最后输出；区标题右侧计数 `⏸ 等待输入 N`。
 
 **详情抽屉**：点击任意 agent / 步骤行全宽展开——自动从 `/api/agent` / `/api/subagent` 拉取**完整** prompt / result（转录 + journal 深扫，替换截断预览），pane 内可滚动且滚动位置跨轮询保持；由实体转义还原（`unent`）后经迷你 markdown 渲染器呈现（分段 / 列表 / 标题 / 围栏 / 表格）。
 
 ## 通知钩子
 
-workflow 进入**终态**时由服务器后台线程（5s 扫描，不要求浏览器开着）推送飞书 / 通用 JSON：
-任务名 + 状态、描述摘要、项目与 runId、消费 token、用时、agent 完成数、产物概要。
-配置入口在「⚙ 设置 → 通知钩子」，支持测试连通。详见 [scripts/README.md](scripts/README.md)。
+服务器后台线程（5s 一轮，不要求浏览器开着）推**两类**消息到飞书 / 通用 JSON：
+
+| 类型 `kind` | 触发 | 正文 |
+|------|------|------|
+| `workflow_status` | workflow 进入终态（completed / failed / killed …） | 任务名 + 状态、描述摘要、项目与 runId、消费 token、用时、agent 完成数、产物概要 |
+| `input_required` | 会话卡在「等你」 | `⏸ 会话 等待回答/等待授权(疑似)/等待输入: 标题`、项目 · 会话、**在等**哪个工具、已静默时长 + 权限模式、最后输出预览 |
+
+`input_required` 单独一档（「⚙ 设置 → 通知钩子 → 等待输入通知」）：**关闭** / **仅卡住时**（默认，只发等回答·等授权）/ **全部**（含每轮回合结束——噪音大，适合你盯着多个会话时开）。
+去重键含「本轮静默起点」，所以**一次等待只发一条**：你回话后活动戳前移，下次再等才算新事件；服务重启首轮静默播种，不补发历史。
+状态本身是尾窗启发式推断（无权威 journal）：「等待授权」读作"疑似"——它与"某条长命令仍在跑"在转录里同形。配置入口在「⚙ 设置 → 通知钩子」，两个测试按钮分别验证两类通路。详见 [scripts/README.md](scripts/README.md)。
 
 ## HTTP API
 
 | 端点 | 说明 |
 |------|------|
 | `GET /api/runs` | 全量运行快照（`{now, runs[]}`；进行中由 journal/转录实时重建） |
-| `GET /api/sessions` | 会话状态：主 agent（注册表判活 + 转录尾窗推断）+ 执行步骤 + 全部非 workflow 子代理；含活跃会话与最近 2h 会话，上限 40 |
+| `GET /api/sessions` | 会话状态：主 agent（注册表判活 + 转录尾窗推断，status 含 `input_required` + `waitReason`/`waitTool`）+ 执行步骤 + 全部非 workflow 子代理；候选 = 转录 ∪ 会话目录，含活跃会话与最近 2h 会话，上限 40 |
 | `GET /api/agent?proj=&sess=&run=&agent=` | 单 agent 完整转录 + journal 事件（运行卡抽屉数据源） |
 | `GET /api/subagent?proj=&sess=&agent=[&msg=]` | 会话层全文抽屉：`agent=main` 返回主会话最近输入/输出；加 `msg=<messageId>` 返回该步骤全文；否则返回子代理任务与结果 |
 | `GET /api/config` | 当前 webhook 配置 + 最近推送结果 |
-| `POST /api/config/save` | 保存配置（URL 须 http(s)、端口 1-65535 且空闲、`recentDays` 1-3650 默认 14；改端口触发自重启） |
-| `POST /api/config/test` | 发送测试通知验证连通 |
+| `POST /api/config/save` | 保存配置（URL 须 http(s)、端口 1-65535 且空闲、`recentDays` 1-3650 默认 14、`notifyInput` ∈ off/blocked/all（缺省不改）；改端口触发自重启） |
+| `POST /api/config/test` | 发送测试通知验证连通；body `{"kind":"input_required"}` 则按等待型发一条 |
 
 ```bash
 curl -s http://127.0.0.1:8787/api/runs | python3 -m json.tool

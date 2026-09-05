@@ -24,12 +24,13 @@ interface SessionState {
   sessionId: string; project: string; cwd: string; title: string; status: string; alive: boolean;
   pid?: number | null; kind?: string | null; version?: string | null; startedAt: number; lastActivityAt: number;
   ageSec: number; model?: string | null; stopReason?: string | null; permissionMode?: string | null;
+  waitReason?: string | null; waitTool?: string | null;  // status=input_required 时的成因:ask|permission|turn
   tokens: Tok; pendingTools: string[]; toolCalls: number; lastPrompt: string; lastText: string;
   steps: Step[]; subagents: Subagent[];
 }
 interface RunsResp { now: number; ver?: string; recentDays?: number; runs: Run[] }
 interface SessionsResp { now: number; sessions: SessionState[] }
-interface Conf { enabled: boolean; format: string; url: string; insecure: boolean; port: number; recentDays: number }
+interface Conf { enabled: boolean; format: string; url: string; insecure: boolean; port: number; recentDays: number; notifyInput: string }
 interface LastHook { at: number; ok: boolean | null; status: string; reply: string }
 interface ConfResp { conf: Conf; last: LastHook }
 interface SaveResp { ok?: boolean; msg?: string; reloc?: string; conf?: Conf }

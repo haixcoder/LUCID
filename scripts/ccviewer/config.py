@@ -22,6 +22,9 @@ def port_free(p):
         return False
 
 
+INPUT_TIERS = ('off', 'blocked', 'all')  # 等待输入通知档位：关闭 / 仅等回答·等授权 / 含回合结束待输入
+
+
 def load_conf():
     try:
         c = json.load(open(CONF_DIR / 'config.json'))
@@ -29,12 +32,13 @@ def load_conf():
             rdays = max(1, min(3650, int(c.get('recentDays') or 14)))
         except (TypeError, ValueError):
             rdays = 14
+        tier = c.get('notifyInput') if c.get('notifyInput') in INPUT_TIERS else 'blocked'
         return {'enabled': bool(c.get('enabled')), 'format': c.get('format', 'feishu'),
                 'url': str(c.get('url', '')), 'insecure': bool(c.get('insecure')),
-                'port': int(c.get('port') or 0), 'recentDays': rdays}
+                'port': int(c.get('port') or 0), 'recentDays': rdays, 'notifyInput': tier}
     except Exception:
         return {'enabled': False, 'format': 'feishu', 'url': '', 'insecure': False,
-                'port': 0, 'recentDays': 14}
+                'port': 0, 'recentDays': 14, 'notifyInput': 'blocked'}
 
 
 def recent_sec():

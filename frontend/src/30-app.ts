@@ -18,11 +18,12 @@ $<HTMLInputElement>('auto').checked = auto;
 // 通知钩子面板
 const cfg = $('cfg'), hmsg = $('hmsg'), hookbtn = $<HTMLButtonElement>('hookbtn'), hsave = $<HTMLButtonElement>('hsave');
 const hena = $<HTMLInputElement>('hena'), hfmt = $<HTMLSelectElement>('hfmt'), hurl = $<HTMLInputElement>('hurl'), hinsec = $<HTMLInputElement>('hinsec'), hport = $<HTMLInputElement>('hport'), hdays = $<HTMLInputElement>('hdays');
+const hinp = $<HTMLSelectElement>('hinp'), htest2 = $<HTMLButtonElement>('htest2');
 function showLast(l?: LastHook | null): void {
   if (l && l.at) {
     const t = new Date(l.at * 1000).toLocaleTimeString(loc(), { hour12: false });
     hmsg.textContent = `${T('最近推送')} ${t} ${l.ok ? '✓' : '✗'} ${String(l.reply || '').slice(0, 90)}`; hmsg.style.color = l.ok ? 'var(--gr)' : 'var(--rd)';
-  } else hmsg.textContent = T('终态运行自动推送；通知依赖本服务进程存活');
+  } else hmsg.textContent = T('终态运行 + 等待输入自动推送；通知依赖本服务进程存活');
 }
 cfg.addEventListener('input', () => hsave.classList.add('dirty'));  // 全局保存:任何字段改动→APPLY 亮未存红点
 hookbtn.onclick = async () => {
@@ -31,13 +32,14 @@ hookbtn.onclick = async () => {
   try {
     const d = await (await fetch('/api/config')).json() as ConfResp;
     hena.checked = !!d.conf.enabled; hfmt.value = d.conf.format; hurl.value = d.conf.url; hinsec.checked = !!d.conf.insecure;
+    hinp.value = d.conf.notifyInput || 'blocked';
     hport.value = String(d.conf.port || location.port); hdays.value = String(d.conf.recentDays || 14); hsave.classList.remove('dirty'); showLast(d.last);
   } catch (e) { hmsg.textContent = T('配置读取失败'); }
 };
 hsave.onclick = async () => {
   const r = await (await fetch('/api/config/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: hena.checked, format: hfmt.value, url: hurl.value.trim(), insecure: hinsec.checked, port: +hport.value || 0, recentDays: +hdays.value || 14 }) })).json() as SaveResp;
-  hmsg.textContent = T(r.msg || '') + (r.ok && !r.reloc ? T('，运行进入终态后自动推送') : ''); hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
+    body: JSON.stringify({ enabled: hena.checked, format: hfmt.value, url: hurl.value.trim(), insecure: hinsec.checked, port: +hport.value || 0, recentDays: +hdays.value || 14, notifyInput: hinp.value }) })).json() as SaveResp;
+  hmsg.textContent = T(r.msg || '') + (r.ok && !r.reloc ? T('，运行终态与等待输入将自动推送') : ''); hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
   if (r.ok) hsave.classList.remove('dirty');
   if (r.reloc) { const rl = r.reloc; setTimeout(() => { location.href = rl; }, 1800); }  // 等 execv 重启落到新端口后自动跳转
   else if (r.ok) { cfg.hidden = true; hookbtn.classList.remove('on'); }  // 设置完成即收起;失败留在面板内看红字
@@ -46,6 +48,12 @@ $('htest').onclick = async () => {
   hmsg.textContent = T('发送中…'); hmsg.style.color = 'var(--dim)';
   const r = await (await fetch('/api/config/test', { method: 'POST' })).json() as TestResp;
   hmsg.textContent = (r.ok ? T('✓ 测试消息已送达 ') : '✗ ' + T(r.msg || '失败')) + String((r.last && r.last.reply) || '').slice(0, 80);
+  hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
+};
+htest2.onclick = async () => {  // 分型测试：按「等待用户输入」的真实正文/载荷发一条，验证新类型通路
+  hmsg.textContent = T('发送中…'); hmsg.style.color = 'var(--dim)';
+  const r = await (await fetch('/api/config/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"kind":"input_required"}' })).json() as TestResp;
+  hmsg.textContent = (r.ok ? T('✓ 等待通知已送达 ') : '✗ ' + T(r.msg || '失败')) + String((r.last && r.last.reply) || '').slice(0, 80);
   hmsg.style.color = r.ok ? 'var(--gr)' : 'var(--rd)';
 };
 const VER = (($('wfo-ver') as HTMLMetaElement) && $('wfo-ver').getAttribute('content')) || '';
@@ -77,9 +85,9 @@ function renderSessions(): void {
   if (!sess.length) { tt.hidden = true; el.innerHTML = ''; return; }
   tt.hidden = false;
   const q = fstr.toLowerCase();
-  const hit = (s: SessionState) => (!fproj || (s.cwd || s.project) === fproj) && (!q || (s.title + ' ' + s.sessionId + ' ' + (s.cwd || s.project) + ' ' + s.status + ' ' + (s.lastPrompt || '') + ' ' + (s.subagents || []).map(a => a.label + ' ' + (a.description || '')).join(' ')).toLowerCase().includes(q));
-  const vis = sess.filter(hit), live = sess.filter(s => s.alive).length;
-  tt.innerHTML = `${T('AGENT 状态 · 会话(主+子)')} ${vis.length}${live ? ' · ' + T('活跃') + ' ' + live : ''}`;
+  const hit = (s: SessionState) => (!fproj || (s.cwd || s.project) === fproj) && (!q || (s.title + ' ' + s.sessionId + ' ' + (s.cwd || s.project) + ' ' + s.status + ' ' + (s.waitReason || '') + ' ' + (s.waitTool || '') + ' ' + (s.lastPrompt || '') + ' ' + (s.subagents || []).map(a => a.label + ' ' + (a.description || '')).join(' ')).toLowerCase().includes(q));
+  const vis = sess.filter(hit), live = sess.filter(s => s.alive).length, waiting = vis.filter(s => s.status === 'input_required').length;
+  tt.innerHTML = `${T('AGENT 状态 · 会话(主+子)')} ${vis.length}${live ? ' · ' + T('活跃') + ' ' + live : ''}${waiting ? ' · <b class="wtag">⏸ ' + T('等待输入') + ' ' + waiting + '</b>' : ''}`;
   if (!vis.length) { el.innerHTML = `<p class="idle">${T('NO MATCH · 无匹配会话')}</p>`; spainted = true; return; }
   if (el.querySelector('.idle')) el.innerHTML = '';
   // 展开态与 pane 滚动位置快照:活跃会话卡每轮 HTML 都会变→outerHTML 重建→不恢复则"点开即关"(与 render() 同契约)

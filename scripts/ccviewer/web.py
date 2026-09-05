@@ -14,8 +14,8 @@ from urllib.parse import parse_qs, urlparse
 
 from . import config
 from .agent import api_agent
-from .config import load_conf, port_free, save_conf
-from .notify import LAST_HOOK, send_hook
+from .config import INPUT_TIERS, load_conf, port_free, save_conf
+from .notify import LAST_HOOK, send_hook, sess_text
 from .scan import scan
 from .sessions import agent_detail, scan_sessions
 
@@ -97,10 +97,13 @@ class H(BaseHTTPRequestHandler):
                 out = {'ok': False, 'msg': f'端口 {port} 已被占用，请换一个（本次未保存任何改动）'}
             elif not 1 <= rdays <= 3650:
                 out = {'ok': False, 'msg': f'回看天数非法：{data.get("recentDays")}（需 1-3650，默认 14）'}
+            tier = data.get('notifyInput')
+            if tier not in INPUT_TIERS:
+                tier = load_conf().get('notifyInput', 'blocked')  # 未携带/非法值 → 保持原档位，绝不清空
             if out is None:
                 c = {'enabled': bool(data.get('enabled')), 'format': 'json' if data.get('format') == 'json' else 'feishu',
                      'url': url, 'insecure': bool(data.get('insecure')), 'port': port,
-                     'recentDays': rdays}
+                     'recentDays': rdays, 'notifyInput': tier}
                 save_conf(c)
                 if port != config.CURRENT_PORT:
                     out = {'ok': True, 'msg': f'已保存，服务 {port} 端口重启中',
@@ -110,9 +113,16 @@ class H(BaseHTTPRequestHandler):
                 else:
                     out = {'ok': True, 'msg': '已保存', 'conf': c}
         elif u.path == '/api/config/test':
-            ok, msg = send_hook({'name': 'xray', 'status': 'completed', 'task': '测试消息：通知钩子连通正常 ✓',
-                                 'cwd': '—', 'runId': 'test', 'tokens': 12345, 'durationMs': 65000,
-                                 'agents': [{'state': 'done'}], 'agentCount': 1, 'result': 'test'})
+            if data.get('kind') == 'input_required':  # 分型测试：正文/载荷走真实构造函数
+                s = {'sessionId': 'test0000-dead', 'project': 'xray', 'title': '测试消息：等待输入通知连通 ✓',
+                     'cwd': '/path/to/project', 'status': 'input_required', 'waitReason': 'permission',
+                     'waitTool': 'Bash', 'permissionMode': 'default', 'ageSec': 137,
+                     'lastActivityAt': int(time.time() * 1000), 'lastText': '需要你授权(或改问一句)我才能继续。'}
+                ok, msg = send_hook(s, sess_text(s), 'input_required')
+            else:
+                ok, msg = send_hook({'name': 'xray', 'status': 'completed', 'task': '测试消息：通知钩子连通正常 ✓',
+                                     'cwd': '—', 'runId': 'test', 'tokens': 12345, 'durationMs': 65000,
+                                     'agents': [{'state': 'done'}], 'agentCount': 1, 'result': 'test'})
             out = {'ok': ok, 'msg': msg, 'last': LAST_HOOK}
         else:
             self.send_error(404)

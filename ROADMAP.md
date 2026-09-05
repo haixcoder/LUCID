@@ -61,9 +61,10 @@ run 级 `durationMs`/`toolCalls`/`startTime` —— 成本面板与甘特视图*
 - 数据：本地全有，零新依赖；**标注「估算」**（缓存写按 1.25×、不精确区分 5min/1h TTL）。
 - 收益：社区（claude-code-hub）验证过的刚需；仅此一项即可让 xray 从「看板」升级为「记账」。
 
-**3.2 等待用户输入/阻塞标记 + 通知分型**
+**3.2 等待用户输入/阻塞标记 + 通知分型** ✅ 已实现（v1.2.10）
 - 方案：已有 `stopReason`/pending 数据；把 session 卡状态细分「⏸ 等待用户输入」高亮；webhook 通知增加 `input_required` 类消息（区别于终态）。
 - 收益：多数真痛点是「卡住了在等我」，而不是「跑完了让我看」。
+- 落地：`sessions.main_state()` 三分成因（ask/permission/turn）→ 卡面反白 ⏸ 徽标 + 色条 +「在等 …」行；通知 `kind=input_required` 独立档位 off/blocked/all（默认 blocked＝只发真卡住）；去重键 `sess|<id>|<静默起点>`＝一次等待一条。**顺带修掉一个挡路的既有 bug**：会话候选原来只遍历目录，无子代理的纯交互会话（正是"在等你"的那个）根本不出现在 `/api/sessions`。
 
 **3.3 hooks 即时事件源（hooks/hooks.json）** ⭐ 架构升级点
 - 方案：插件自带 `hooks/hooks.json`：
