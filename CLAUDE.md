@@ -8,7 +8,7 @@ Claude Code 插件 **xray**：网页版 Workflow 执行进度实时查看器。
 零依赖（仅 Python3 stdlib）、无构建步骤、服务只绑定 127.0.0.1。
 本目录同时就是本地市场 `kw-dev-plugins`（`.claude-plugin/marketplace.json` 中 source 为 `"./"`）。
 
-- 用户文档：`README.md`（原理、安装、页面功能、API、安全）
+- 用户文档：`README.md`（英文版，GitHub 默认展示）/ `README.zh-CN.md`（中文版），两份互链；内容（原理、安装、页面功能、API、安全）改动时须同步对方
 - webhook 详解：`scripts/README.md`
 
 ## 铁律（违反即 bug）

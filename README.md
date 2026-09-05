@@ -2,223 +2,217 @@
 
 <p align="center"><img src="assets/xray-logo.svg" alt="XRay" width="180"></p>
 
-<p align="center"><b>Claude Code 插件的 Workflow 实时透视镜</b><br>
-把 Claude 的 Workflow 运行"照成 X 光片"：每个 phase、agent、工具调用、tokens、耗时，2 秒一帧实时可见。<br>
-零依赖 · 纯本机 · 只读</p>
+<p align="center"><b>The Workflow X-ray lens for Claude Code</b><br>
+Put Claude's Workflow runs under an X-ray: every phase, agent, tool call, token count and duration — one live frame every 2 seconds.<br>
+Zero dependencies · Local-only · Read-only</p>
 
-<p align="center"><img src="assets/screenshot.png" alt="XRay 界面截图"></p>
+<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
-## XRay 是什么
+<p align="center"><img src="assets/screenshot.png" alt="XRay screenshot"></p>
 
-XRay 是一个 **Claude Code 本地插件**：在工作流运行时打开一个网页，实时看到内部每个 agent 正在做什么——
-从**全局仪表盘**（运行数 / 存活数 / 完成数 / 告警数）到**单个 agent 的生命体征**
-（阶段、最近工具、token 消耗、耗时、pending 工具、完整 prompt / result），再到**会话层的操作步骤回溯**。
+## What is XRay
 
-它不拦截、不注入、不修改任何东西——只读 Claude Code 自己落盘的状态文件，用零依赖的 Python 标准库服务呈现。
+XRay is a **local Claude Code plugin**: while a workflow runs, it opens a web page showing, in real time, what every agent inside is doing — from the **global dashboard** (runs / live / done / alerts) down to a **single agent's vital signs** (phase, latest tool, token usage, duration, pending tools, full prompt / result), and further to **session-level step-by-step history**.
 
-**为什么需要**：Workflow 运行时内部是黑盒。你想知道「它卡在哪一步」「这个 agent 在跑什么工具」「上那条链子烧了多少 token」——XRay 就是为这个时刻准备的。
+It intercepts nothing, injects nothing, modifies nothing — it only reads the state files Claude Code itself writes to disk and serves them through a dependency-free Python standard-library server.
 
-## 特性
+**Why you need it**: while a Workflow runs, its internals are a black box. You want to know "which step is it stuck on", "what tool is this agent running", "how many tokens did that chain burn" — XRay is built for exactly that moment.
 
-- **实时透视**：进行中的运行由 journal + agent 转录实时重建，前端每 2 秒轮询刷新，且页面恢复可见/窗口回焦时立即补扫一轮（浏览器会把后台标签页的定时器降到约 1 次/分钟，不补扫就会出现「在终端输入完切回页面，看到的还是旧状态」）；已完成的读完整 run JSON（全量富数据）
-- **Workflow 全景**：phase 条、agent 表格（状态 / 最近工具 / tokens / 用时）、运行产物、系统日志尾
-- **会话监控**：主 agent（running / **input_required 等待用户** / waiting / ended）+ 全部非 workflow 子代理（task / teammate），pending 工具、权限模式、尾窗步骤表（**按 turn 回合分组：一次用户输入 + 它引发的全部步骤 = 一个独立展示单元**，输入行作组头、左色条成簇，不再把整段会话的步骤平铺一锅端）。等待原因再细分三档：**等待回答**（挂起 AskUserQuestion / ExitPlanMode）、**等待授权**（工具挂起且已静默 ≥2min，疑似卡在授权确认）——这两类是"真卡住、该你动手"，用反白 ⏸ 高亮徽标 + 左侧色条 +「在等 …」一行显示它在等什么；而**回合已完**（模型说完、正常交回话轮 = 执行完成，无挂起工具）只是"空闲等你下一句",不占用告警视觉：青色静态徽标、无色条、区标题 ⏸ 计数也不计（`notifyInput` 通知档位管的是推送，与页面显示各管各的）
-- **提示词回显（回合组头）**：会话卡的每个任务单元以「❯ 你输入」行开头——把"用户真正打进来的话"从转录里提出来（自动剔除工具回执 / 系统注入 / 无参命令，`/goal …` 取 `<command-args>`），组头带时间戳与该回合步数徽章，展开即懒拉整条输入全文（记录 uuid 锚定，与步骤行同契约）；掉出尾窗的首条以「最初」标出；某步骤的开场输入超出尾窗时组头显式标注并仍可展开回取全文，绝不静默吞掉归属
-- **纯交互会话也在列**：会话候选 = 转录 `<sess>.jsonl` ∪ 会话目录，没有子代理的会话同样出现在监控里（此前只遍历目录，恰恰漏掉最该提醒"在等你"的那个会话）
-- **全文抽屉**：点击任意 agent / 步骤行展开详情——自动拉取完整 prompt / result（转录 + journal 深扫全文，替换截断预览），滚动位置跨轮询保持。全文在途约 1 秒，抽屉会先做一段渐变转场：拉取中 pane 有扫描光预告，到达时新内容淡入 + 一次性高光扫过，不再是"突然一闪换内容"。会话步骤的右侧输出面板按「回合」累计：一次回答常拆成多条消息（过渡文本+工具+收尾文本），抽屉会按时间序拼出该步所在回合（自上一条真人输入起）的全部输出，而不是只给最新一条。工具活动同样计入全文——`▸ 工具: 入参` 与 `◂ 工具: 回执` 逐条内联（单条回执超长会标注「截断」，命令发出但尚无回执标「未回执」）；此前只拼文本块时，模型"过渡句：→ 调工具"的回合在抽屉里只剩一串以冒号收尾的句子、冒号后永远没内容，1.2.18 修复
-- **分型通知**：后台线程推两类**飞书**或**通用 JSON** webhook（不依赖浏览器开着）——① workflow 进入终态（completed / failed / killed）；② 会话进入 `input_required`「在等你」，独立一档可关可放宽（关闭 / 仅卡住时 / 全部含回合结束，默认**仅卡住时**），通用 JSON 里带 `kind` 字段供消费方分流。真痛点是「卡住了在等我」，不是「跑完了让我看」
-- **自启动看护**：任意会话开始即检测服务、未运行自动拉起，崩溃自动重启——双触发口：官方后台 monitor（`monitors/monitors.json`，需 Claude Code ≥2.1.105 且宿主支持）＋ `SessionStart` 钩子兜底（`hooks/hooks.json`，任意版本可用）。两者都收敛到 `scripts/guard.py --detach`：按 guard.pid 幂等确保常驻看护循环在跑，服务与看护进程均独立于会话存活
-- **多语言界面**：⚙ 设置 → 语言，五种常用语种（简体中文 / English / Español / Français / Deutsch），即点即生效、localStorage 记忆，首次访问跟随浏览器语言；界面文案（含卡片标签、pane 标题、空态、设置面板、通知回执）全部走同一文案层，缺译自动回落中文，不会出现空白
-- **仪式感细节**：项目筛选、全文搜索（名称 / runId / 任务 / 状态）、自动刷新开关、五主题切换：☀ 日光台 / ☾ 磷光夜 / ❄ 冰原 / ⚡ 磁暴 / ◈ 墨铁（localStorage 记忆）、网页改端口保存即自动重启迁移
-- **隐私友好**：只监听 `127.0.0.1`，只读 `~/.claude/projects/`，唯一可写目录是 `~/.claude/cc-viewer/`（配置 / PID / 去重记录）
+## Features
 
-## 原理
+- **Live transparency**: in-progress runs are reconstructed in real time from the journal + agent transcripts; the frontend polls every 2 seconds and immediately catches up when the page becomes visible or the window regains focus (browsers throttle background-tab timers to ~1 tick/minute — without the catch-up sweep you'd get "typed in the terminal, switched back to the page, still seeing stale state"); completed runs read the full run JSON (complete, rich data)
+- **Workflow panorama**: phase bars, an agent table (status / latest tool / tokens / elapsed), run artifacts, system log tail
+- **Session monitoring**: main agent (running / **input_required — waiting for you** / waiting / ended) + all non-workflow subagents (task / teammate), pending tools, permission mode, and a tail-window step table **grouped by turn: one user input + all the steps it triggered = one self-contained display unit** — the input line is the group header, left color bars cluster each group (steps are no longer flattened into one long list). Wait reasons split further: **waiting for an answer** (AskUserQuestion / ExitPlanMode pending) and **waiting for permission** (a tool pending and silent ≥2 min, suspected stuck on an approval prompt) — these two mean "truly stuck, your move" and get an inverted ⏸ alert badge + left color bar + a "waiting for …" line showing what it waits on; while **turn finished** (model spoke up, control handed back normally = execution done, no pending tools) is just "idle, waiting for your next message" and takes no alert visuals: a static cyan badge, no color bar, and it is not counted in the `⏸ N` section title either (`notifyInput` governs push notifications — page display is a separate concern)
+- **Prompt echo (turn group headers)**: every task unit in a session card starts with a "❯ You said" line — it extracts what the user actually typed from the transcript (tool results / system injections / argument-less commands are automatically dropped; `/goal …` takes `<command-args>`); the group header carries a timestamp and a step-count badge, and expanding it lazily fetches the full input text (anchored by record uuid, same contract as step rows); the very first prompt that fell out of the tail window is marked "earliest"; when a step's opening input lies beyond the tail window, the header says so explicitly and can still be expanded to fetch the full text — attribution is never silently swallowed
+- **Pure interactive sessions are listed too**: session candidates = transcript `<sess>.jsonl` ∪ session directory, so sessions without subagents still show up in the monitor (previously only directories were walked, which missed exactly the session most worth flagging as "waiting for you")
+- **Full-text drawer**: click any agent / step row to expand details — the complete prompt / result is fetched automatically (deep scan of transcript + journal, replacing the truncated preview); scroll position survives polling. Fetching the full text takes ~1 second, so the drawer plays a short gradient transition while it's in flight: a scanning shimmer previews the pending pane, and on arrival the new content fades in with a one-shot highlight sweep — no more "content swaps in a blink". The right-hand output pane of a session step accumulates **by turn**: one answer is often split across several messages (bridging text + tool + closing text), so the drawer stitches together, in chronological order, the entire output of the turn the step belongs to (since the last real user input) instead of only the latest message. Tool activity counts as full text too — `▸ Tool: input` and `◂ Tool: result` are inlined line by line (an over-long single result is marked "truncated"; a command issued without a result yet is marked "no result yet"). Previously only text blocks were concatenated: for a turn shaped like "bridging sentence: → calls tool", the drawer ended up as a string of sentences ending in colons with nothing after the colon — fixed in 1.2.18
+- **Typed notifications**: a background thread pushes two kinds of **Feishu** or **generic JSON** webhooks (no browser has to be open) — ① a workflow reaches a terminal state (completed / failed / killed); ② a session enters `input_required` ("waiting for you"), a separate tier you can switch off or widen (off / **only when stuck** (default: answer + permission) / all including every turn-end), and the generic JSON carries a `kind` field for consumers to route by. The real pain is "it's stuck waiting for me", not "it finished, come look"
+- **Self-starting watchdog**: on any session start it checks the service and brings it up if down, restarting it on crash — two trigger doors: the official background monitor (`monitors/monitors.json`, requires Claude Code ≥2.1.105 and host support) plus a `SessionStart` hook fallback (`hooks/hooks.json`, works on any version). Both converge on `scripts/guard.py --detach`: `guard.pid` keeps the resident watchdog loop idempotent, and both the service and the watchdog process outlive the session
+- **Multilingual UI**: ⚙ Settings → Language, five languages (简体中文 / English / Español / Français / Deutsch), instant switching with localStorage memory, first visit follows the browser language; all UI copy (card labels, pane titles, empty states, settings panel, notification receipts) goes through one copy layer, and missing translations fall back to Chinese — never blank
+- **Ritual-level details**: project filter, full-text search (name / runId / task / status), auto-refresh toggle, five themes: ☀ Daylight / ☾ Phosphor night / ❄ Icefield / ⚡ Magnetic storm / ◈ Ink & iron (localStorage), and changing the port on the web page restarts and migrates automatically
+- **Privacy-friendly**: binds `127.0.0.1` only, reads `~/.claude/projects/` only, and the one writable directory is `~/.claude/cc-viewer/` (config / PID / dedupe record)
 
-Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<session>/` 下（实测）：
+## How it works
 
-| 文件 | 时机 | 内容 |
-|------|------|------|
-| `workflows/wf_*.json` | 仅完成时写入 | 完整 `workflowProgress`（agent 状态/tokens/耗时/phase）、logs、result |
-| `subagents/workflows/wf_*/journal.jsonl` | 实时追加 | 每个 agent 的 `started` / `result` 事件 |
-| `subagents/workflows/wf_*/agent-*.jsonl` | 实时增长 | agent 完整转录（tail 可得最近工具） |
-| `workflows/scripts/<name>-wf_*.js` | 启动即写 | `meta.name` / phases |
+Claude Code writes workflow run state under `~/.claude/projects/<project>/<session>/` (observed in practice):
 
-服务合并两个数据源：**已完结的读 run JSON（全量），进行中的由 journal + 转录实时重建**。
-状态判定（实例化实现）：
+| File | When | Contents |
+|------|------|----------|
+| `workflows/wf_*.json` | only on completion | full `workflowProgress` (agent status / tokens / duration / phase), logs, result |
+| `subagents/workflows/wf_*/journal.jsonl` | appended live | each agent's `started` / `result` events |
+| `subagents/workflows/wf_*/agent-*.jsonl` | grows live | full agent transcript (tail gives the latest tool) |
+| `workflows/scripts/<name>-wf_*.js` | written at start | `meta.name` / phases |
 
-| 状态 | 判定规则 |
-|------|----------|
-| `running` | 父会话进程存活（`~/.claude/sessions/<pid>.json` 注册表）且 30 分钟内（`STALE_SEC`）有文件活动 |
-| `stale` | 进程存活但 >30 min 无活动（疑似挂起） |
-| `completed` | run JSON 正常收尾；或父进程已退出且无未完成 agent |
-| `failed` / `killed` | run JSON 记录（agent 失败 / 用户终止） |
-| `aborted` | 孤儿运行：父会话进程已死且仍有未完成 agent |
+The service merges the two data sources: **completed runs read the run JSON (complete data); in-progress runs are reconstructed live from journal + transcripts**. Status determination (as implemented):
 
-扫描范围：最近 N 天内有活动的 session 目录（N = 设置「回看窗口」，默认 14，可在 ⚙ 设置中调整）；已完结 run 的元数据进程内永久缓存。
+| Status | Rule |
+|--------|------|
+| `running` | parent session process alive (`~/.claude/sessions/<pid>.json` registry) and file activity within 30 min (`STALE_SEC`) |
+| `stale` | process alive but >30 min without activity (suspected hang) |
+| `completed` | run JSON finished normally; or parent process exited with no unfinished agents |
+| `failed` / `killed` | recorded in the run JSON (agent failure / user termination) |
+| `aborted` | orphan run: parent session process dead while agents still unfinished |
 
-## 安装
+Scan scope: session directories active in the last N days (N = the "lookback window" setting, default 14, adjustable in ⚙ Settings); metadata of completed runs is cached in-process forever.
 
-前提：macOS / Linux，Claude Code 2.0+，Python 3.9+（**无需 pip 任何东西**）。自启动主入口是插件 SessionStart 钩子（任意版本可用）；官方后台 monitor（`monitors/monitors.json`）作为同类触发口需 Claude Code ≥2.1.105 且宿主支持。
+## Installation
 
-**方式一（推荐，GitHub 市场）**——本仓库即标准市场，任何机器均可安装：
+Prerequisites: macOS / Linux, Claude Code 2.0+, Python 3.9+ (**no pip installs, nothing at all**). The primary self-start entry is the plugin's SessionStart hook (works on any version); the official background monitor (`monitors/monitors.json`) is a second trigger door requiring Claude Code ≥2.1.105 and host support.
 
-```bash
-claude plugin marketplace add haixcoder/XRay                 # 即本仓库(marketplace.json, source="./")
-claude plugin install xray@kw-dev-plugins                    # 安装插件
-# 版本锁定装法（可选，装 tag 快照）：
-# claude plugin marketplace add haixcoder/XRay#v1.2.5   后同 install
-```
-
-**方式二（本地开发）**：
+**Option 1 (recommended, GitHub marketplace)** — this repository is a standard marketplace, installable from any machine:
 
 ```bash
-claude plugin marketplace add ~/projectDir/cc-viewer     # 注册本地市场(本目录兼作市场 kw-dev-plugins)
-claude plugin install xray@kw-dev-plugins                # 安装插件
+claude plugin marketplace add haixcoder/XRay                 # this repo (marketplace.json, source "./")
+claude plugin install xray@kw-dev-plugins                    # install the plugin
+# Version-pinned install (optional, installs a tag snapshot):
+# claude plugin marketplace add haixcoder/XRay#v1.2.5   then the same install as above
 ```
 
-验证：
+**Option 2 (local development)**:
 
 ```bash
-claude plugin list                       # 应见 xray@kw-dev-plugins ✔ enabled
-claude plugin details xray@kw-dev-plugins  # 组件清单(wf-view 命令、token 成本)
+claude plugin marketplace add ~/projectDir/cc-viewer     # register the local marketplace (this dir doubles as kw-dev-plugins)
+claude plugin install xray@kw-dev-plugins                # install the plugin
 ```
 
-## 使用
-
-在任意 Claude Code 会话中输入 **`/wf-view`** —— 自动启动服务（默认端口 8787，网页设置优先）并打开浏览器。
-
-或手动：
+Verify:
 
 ```bash
-python3 scripts/server.py --port 8787   # 打开 http://127.0.0.1:8787
-python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|kill)
+claude plugin list                       # should show xray@kw-dev-plugins ✔ enabled
+claude plugin details xray@kw-dev-plugins  # component list (wf-view command, token cost)
 ```
 
-`/wf-view` 命令做的事：
+## Usage
 
-1. 读 `~/.claude/cc-viewer/config.json` 取端口；
-2. `curl /api/runs` 探测 —— 服务已在运行则直接复用；
-3. 未运行则后台拉起 `server.py`，等 1 秒确认 200；
-4. `open http://127.0.0.1:<PORT>` 并汇报进行/完成数量。
+In any Claude Code session, type **`/wf-view`** — the service starts automatically (default port 8787, the web setting wins) and your browser opens.
 
-> 端口被占用时服务直接退出并提示改 config 或换 `--port`；**网页改端口保存后服务 `execv` 自重启到新端口（PID 不变），页面自动跳转**。
+Or manually:
 
-日常其实不需要手动启动：插件的 `hooks/hooks.json`（SessionStart，任意版本生效）与
-`monitors/monitors.json`（后台 monitor，需 Claude Code ≥2.1.105 且宿主支持）都会在每次会话开始时
-通过 `guard.py --detach` 确保服务在跑、崩溃自动重启 —— `/wf-view` 只是顺便打开浏览器。
-看护循环只写 `~/.claude/cc-viewer/server.log` 与 `guard.pid`，不影响任何既有配置。
+```bash
+python3 scripts/server.py --port 8787   # open http://127.0.0.1:8787
+python3 scripts/server.py --stop        # graceful stop via PID file (no lsof|kill needed)
+```
 
-## 页面功能
+What `/wf-view` does:
 
-**顶部**：仪表盘（RUNS / LIVE / DONE / ALERT 计数——统计的是当前筛选视图；有项目/搜索过滤时 RUNS 显示「命中/总数」并悬停说明，避免误读为总数）、项目筛选、全文搜索、自动刷新开关、版本角标；右上「⚙ 设置」：01 通知钩子（含「等待输入通知」档位与 ⏸ 分型测试按钮）/ 02 端口 / 03 主题 / 04 语言 / 05 自动扫描 / 06 回看窗口，其中主题·语言·自动扫描即点即生效，其余由底栏统一保存。
+1. reads `~/.claude/cc-viewer/config.json` for the port;
+2. probes `curl /api/runs` — if the service is already running, reuses it;
+3. otherwise starts `server.py` in the background and waits 1s to confirm 200;
+4. runs `open http://127.0.0.1:<PORT>` and reports running/completed counts.
 
-**运行列表**（进行中置顶）：状态徽章（running / completed / failed / killed / stale / aborted）、phase 条、agent 表格（状态 / 最近工具 / tokens / 用时）、任务详情、系统日志尾、运行产物。
+> If the port is taken, the service exits immediately and tells you to edit the config or pass `--port`; **after changing the port on the web page, the service `execv`-restarts onto the new port (PID unchanged) and the page follows automatically**.
 
-**AGENT 状态区**（会话层）：主 agent 状态 / pending 工具 / 尾窗 tokens / 权限模式 / 最近输入输出 + 子代理表（类型 / 模型 / 状态 / 最近工具 / tokens / 最后活动）+ **回合分组区**（1.2.20）：尾窗最近 ≤30 条真人输入与各 ≤30 条步骤按回合聚成独立任务单元——「❯ 输入行」作组头（展开懒拉全文 + 步数徽章），该回合的步骤行挂在其下（工具 / 输出预览 / tokens / 时间），左色条成簇；只输入还未执行的新回合也自成单元。会话**真卡住**（等回答 / 等授权）时置顶高亮：反白 ⏸ 徽标 + 左侧色条 + 一行「在等 · 你的回复 / Bash」并带最后输出，区标题右侧计数 `⏸ 等待输入 N`；回合结束型（`waitReason=turn`）显示安静的青色「回合已完」、最后输出单行可展开，不计入 ⏸、不闪烁——**执行完成 ≠ 等待输入**。
+Day to day you never start anything manually: the plugin's `hooks/hooks.json` (SessionStart, effective on any version) and `monitors/monitors.json` (background monitor, requires Claude Code ≥2.1.105 and host support) both run `guard.py --detach` at every session start to ensure the service is up and to restart it on crash — `/wf-view` just also opens the browser. The watchdog loop only writes `~/.claude/cc-viewer/server.log` and `guard.pid`; it touches no existing configuration.
 
-**详情抽屉**：点击任意 agent / 步骤行全宽展开——自动从 `/api/agent` / `/api/subagent` 拉取**完整** prompt / result（转录 + journal 深扫，替换截断预览），pane 内可滚动且滚动位置跨轮询保持；由实体转义还原（`unent`）后经迷你 markdown 渲染器呈现（分段 / 列表 / 标题 / 围栏 / 表格）。
+## Page tour
 
-**输出一律可看全**：任何日志 / 转录 / 错误回执都不会"看一眼就到头"——长文走定高展示框 + 上下滚动（agent 全文、系统日志尾、运行产物、JS 渲染异常整条堆栈、设置面板的通知回执），摘要行（会话卡 ⏸ 等待行）可点开并自动拉取该步所在回合的累计全文成滚动框；后端只给 30 行日志就显示 30 行（不再前端砍半），单行 500 字、转录字段等**数据源上限会写在标题上**，取不到全文时显式提示「⚠ 该步已超出转录留存范围」，不会静默留白。
+**Top bar**: dashboard (RUNS / LIVE / DONE / ALERT counters — they count the current filtered view; with a project/search filter active, RUNS shows `hits/total` with a hover explanation, so filtered-away runs are never mistaken for bad data), project filter, full-text search, auto-refresh toggle, version badge; top-right "⚙ Settings": 01 webhook (incl. the "input-required notification" tier and ⏸ per-kind test buttons) / 02 port / 03 theme / 04 language / 05 auto-scan / 06 lookback window — theme, language and auto-scan take effect at once, everything else is saved by the footer bar.
 
-## 通知钩子
+**Run list** (in-progress pinned first): status badge (running / completed / failed / killed / stale / aborted), phase bar, agent table (status / latest tool / tokens / elapsed), task details, system log tail, run artifacts.
 
-服务器后台线程（5s 一轮，不要求浏览器开着）推**两类**消息到飞书 / 通用 JSON：
+**AGENT status section** (session layer): main agent status / pending tools / tail-window tokens / permission mode / latest input & output + subagent table (type / model / status / latest tool / tokens / last activity) + the **turn-grouped area** (1.2.20): up to 30 recent real user inputs and up to 30 steps each are clustered by turn into independent task units — the "❯ input" line is the group header (expanding lazily fetches the full text + step-count badge) and its turn's step rows hang beneath it (tool / output preview / tokens / time) with left color bars clustering the group; a brand-new turn with input but no execution yet is its own unit. When a session is **truly stuck** (waiting for an answer / for permission) it floats to the top, highlighted: inverted ⏸ badge + left color bar + a "waiting · your reply / Bash" line carrying the latest output, and the section title counts `⏸ waiting for input N`; turn-end kind (`waitReason=turn`) shows a quiet cyan "turn finished" with its latest output on one expandable line — not counted in ⏸, no flashing — **execution finished ≠ waiting for input**.
 
-| 类型 `kind` | 触发 | 正文 |
-|------|------|------|
-| `workflow_status` | workflow 进入终态（completed / failed / killed …） | 任务名 + 状态、描述摘要、项目与 runId、消费 token、用时、agent 完成数、产物概要 |
-| `input_required` | 会话卡在「等你」 | `⏸ 会话 等待回答/等待授权(疑似)/等待输入: 标题`、项目 · 会话、**在等**哪个工具、已静默时长 + 权限模式、最后输出预览 |
+**Detail drawer**: click any agent / step row to expand full-width — the **complete** prompt / result is fetched automatically from `/api/agent` / `/api/subagent` (deep scan of transcript + journal, replacing the truncated preview); panes scroll and scroll position survives polling; content is unescaped first (`unent`) and then rendered by the mini markdown renderer (paragraphs / lists / headings / fences / tables).
 
-`input_required` 单独一档（「⚙ 设置 → 通知钩子 → 等待输入通知」）：**关闭** / **仅卡住时**（默认，只发等回答·等授权）/ **全部**（含每轮回合结束——噪音大，适合你盯着多个会话时开）。
-去重键含「本轮静默起点」，所以**一次等待只发一条**：你回话后活动戳前移，下次再等才算新事件；服务重启首轮静默播种，不补发历史。
-状态本身是尾窗启发式推断（无权威 journal）：「等待授权」读作"疑似"——它与"某条长命令仍在跑"在转录里同形。配置入口在「⚙ 设置 → 通知钩子」，两个测试按钮分别验证两类通路。详见 [scripts/README.md](scripts/README.md)。
+**Output is always fully viewable**: no log / transcript / error receipt is ever "peek once, that's it" — long text gets a fixed-height scroll box (agent full text, system log tail, run artifacts, the whole JS render-error stack, the notification receipt in Settings); summary rows (the ⏸ wait lines on session cards) open on click and lazily fetch the cumulative full text of the step's turn into a scroll box; if the backend gives 30 log lines the page shows 30 (never halved in the frontend), and **data-source limits are written into the title** (single line ≤500 chars, transcript fields, etc.); when the full text can't be retrieved the page says so explicitly — "⚠ this step is beyond transcript retention" — never a silent blank.
+
+## Webhooks
+
+A server background thread (one round every 5s, no browser required) pushes **two kinds** of messages to Feishu / generic JSON:
+
+| Kind | Trigger | Body |
+|------|---------|------|
+| `workflow_status` | a workflow reaches a terminal state (completed / failed / killed …) | task name + status, description summary, project & runId, tokens consumed, duration, agents completed, artifact summary |
+| `input_required` | a session gets stuck "waiting for you" | `⏸ session waiting for answer/permission(suspected)/input: title`, project · session, **which tool** it waits on, silent duration + permission mode, latest output preview |
+
+`input_required` has its own tier ("⚙ Settings → Webhook → input-required notification"): **off** / **only when stuck** (default: answer + permission only) / **all** (including every turn-end — noisy, useful when you watch several sessions at once). The dedupe key includes "this wait's silence start", so **one wait sends one message**: once you reply, the activity stamp moves forward and the next wait counts as a new event; the first round after a service start seeds silently and never re-sends history. The status itself is a tail-window heuristic (no authoritative journal): "waiting for permission" reads as "suspected" — it is indistinguishable in the transcript from "a long command still running". Configuration lives under "⚙ Settings → Webhook", with two test buttons validating each channel separately. See [scripts/README.md](scripts/README.md) for details.
 
 ## HTTP API
 
-| 端点 | 说明 |
-|------|------|
-| `GET /api/runs` | 全量运行快照（`{now, runs[]}`；进行中由 journal/转录实时重建） |
-| `GET /api/sessions` | 会话状态：主 agent（注册表判活 + 转录尾窗推断，status 含 `input_required` + `waitReason`/`waitTool`）+ `prompts`（卡顶提示词回显：尾窗用户输入摘要 + uuid + 首条 `f:1`）+ 执行步骤 + 全部非 workflow 子代理；候选 = 转录 ∪ 会话目录，含活跃会话与最近 2h 会话，上限 40 |
-| `GET /api/agent?proj=&sess=&run=&agent=` | 单 agent 完整转录 + journal 事件（运行卡抽屉数据源） |
-| `GET /api/subagent?proj=&sess=&agent=[&msg=]` | 会话层全文抽屉：`agent=main` 返回主会话最近输入/输出；加 `msg=<messageId>` 返回该步全文（IN=该步工具入参，OUT=所在回合累计输出），`msg=<uuid>` 返回该条用户输入全文（提示词回显锚点）；否则返回子代理任务与结果 |
-| `GET /api/config` | 当前 webhook 配置 + 最近推送结果 |
-| `POST /api/config/save` | 保存配置（URL 须 http(s)、端口 1-65535 且空闲、`recentDays` 1-3650 默认 14、`notifyInput` ∈ off/blocked/all（缺省不改）；改端口触发自重启） |
-| `POST /api/config/test` | 发送测试通知验证连通；body `{"kind":"input_required"}` 则按等待型发一条 |
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/runs` | full run snapshot (`{now, runs[]}`; in-progress runs rebuilt live from journal/transcripts) |
+| `GET /api/sessions` | session status: main agent (liveness via registry + transcript tail-window inference, status incl. `input_required` + `waitReason`/`waitTool`) + `prompts` (card-top prompt echo: tail-window user-input summaries + uuid + first entry `f:1`) + execution steps + all non-workflow subagents; candidates = transcripts ∪ session dirs, covering active and last-2h sessions, cap 40 |
+| `GET /api/agent?proj=&sess=&run=&agent=` | one agent's full transcript + journal events (data source of the run-card drawer) |
+| `GET /api/subagent?proj=&sess=&agent=[&msg=]` | session-layer full-text drawer: `agent=main` returns the main session's latest input/output; add `msg=<messageId>` for that step's full text (IN = the step's tool input, OUT = the turn's cumulative output), `msg=<uuid>` for one user input's full text (the prompt-echo anchor); otherwise returns the subagent's task and result |
+| `GET /api/config` | current webhook config + recent push results |
+| `POST /api/config/save` | save config (URL must be http(s), port 1-65535 and free, `recentDays` 1-3650 default 14, `notifyInput` ∈ off/blocked/all (absent = unchanged); changing the port triggers a self-restart) |
+| `POST /api/config/test` | send a test notification to verify connectivity; body `{"kind":"input_required"}` sends a wait-kind one instead |
 
 ```bash
 curl -s http://127.0.0.1:8787/api/runs | python3 -m json.tool
 curl -s "http://127.0.0.1:8787/api/subagent?proj=<proj>&sess=<sess>&agent=main&msg=<msgId>"
 ```
 
-## 安全
+## Security
 
-- 仅绑定 `127.0.0.1`，不对外网开放；
-- 所有 POST 带同源 Origin 守卫（防任意网页 DNS rebinding 后改配置 / 重定向 webhook 做外泄通道），无 Origin 的脚本调用放行；
-- webhook 的 HTTPS 在公司 TLS 代理下自动导出 macOS 钥匙串根证书完成校验，「跳过证书校验」仅作兜底。
+- binds `127.0.0.1` only, never exposed to the network;
+- all POSTs carry a same-origin `Origin` guard (defends against arbitrary web pages DNS-rebinding into config changes / webhook redirection as an exfiltration channel); scripted calls without `Origin` are allowed through;
+- webhook HTTPS validation automatically exports macOS keychain root certificates under corporate TLS proxies; "skip certificate verification" remains a fallback only.
 
-## 项目结构
+## Project layout
 
 ```
 XRay/
 ├── .claude-plugin/
-│   ├── plugin.json        # 插件清单(名称/描述/版本,plugin manager 展示来源)
-│   └── marketplace.json   # 市场清单 —— 本目录同时就是 kw-dev-plugins 市场(插件 source 为 "./")
+│   ├── plugin.json        # plugin manifest (name/description/version, shown by the plugin manager)
+│   └── marketplace.json   # marketplace manifest — this dir doubles as the kw-dev-plugins marketplace (plugin source "./")
 ├── assets/
-│   ├── xray-logo.svg      # 图标(X 射线透视眼 + 心跳线)
-│   └── screenshot.png     # 界面截图
-├── frontend/              # 前端源码(TS,仅开发用;运行时零依赖不变)
-│   ├── src/*.ts           # 00-types/05-i18n/10-util/20-render/30-app,按名序拼接为全局脚本
-│   ├── template.html      # HTML/CSS 壳(手写;含 3 行主题 boot 内联脚本)
-│   ├── build.py           # 构建:拼接→tsc --strict→注入产物到 scripts/ccviewer/static/index.html
-│   └── dist/              # 中间产物(不进安装副本,git 忽略)
+│   ├── xray-logo.svg      # icon (X-ray eye + heartbeat line)
+│   └── screenshot.png     # UI screenshot
+├── frontend/              # frontend source (TS, dev-only; runtime stays zero-dependency)
+│   ├── src/*.ts           # 00-types/05-i18n/10-util/20-render/30-app, concatenated by filename order into a global script
+│   ├── template.html      # HTML/CSS shell (hand-written; incl. the 3-line theme boot script)
+│   ├── build.py           # build: concat → tsc --strict → inject artifact into scripts/ccviewer/static/index.html
+│   └── dist/              # intermediate artifacts (not in the install copy, git-ignored)
 ├── commands/
-│   └── wf-view.md         # /wf-view 斜杠命令(commands/ 自动发现,无需在清单中声明)
+│   └── wf-view.md         # /wf-view slash command (commands/ auto-discovered, no manifest entry needed)
 ├── hooks/
-│   └── hooks.json         # SessionStart 钩子:会话开始跑 guard.py --detach(自启动主入口,任意版本可用)
+│   └── hooks.json         # SessionStart hook: runs guard.py --detach at session start (primary self-start entry, any version)
 ├── monitors/
-│   └── monitors.json      # 官方后台 monitor 声明(同 hook 效果;需 Claude Code ≥2.1.105 且宿主支持)
+│   └── monitors.json      # official background monitor declaration (same effect as the hook; needs Claude Code ≥2.1.105 + host support)
 └── scripts/
-    ├── server.py          # 入口:参数解析、启动/停止(核心逻辑在 ccviewer/ 包)
-    ├── guard.py           # 自启动/看护:--detach 幂等确保常驻循环;循环探活未监听→setsid 分离启动 server.py,崩溃自动重启
-    ├── README.md          # webhook 通知钩子详解
-    └── ccviewer/          # 内核包(仅 stdlib)
-        ├── config.py      # 路径/端口/PID 与配置读写
-        ├── scan.py        # 扫描 ~/.claude/projects 与运行状态重建
-        ├── agent.py       # 单 agent 完整 prompt/result 全文
-        ├── sessions.py    # 主 agent + 非 workflow 子代理状态推断
-        ├── notify.py      # webhook 终态通知线程(飞书/通用 JSON)
-        ├── web.py         # HTTP handler(页面 + JSON API)
-        └── static/index.html  # 前端运行时文件(由 frontend/ 构建产生;插件分发/运行时仍无构建)
+    ├── server.py          # entry point: arg parsing, start/stop (core logic lives in the ccviewer/ package)
+    ├── guard.py           # self-start/watchdog: --detach idempotently ensures the resident loop; the loop probes TCP liveness → setsid-detached server.py → auto-restart on crash
+    ├── README.md          # webhook notification details (Chinese)
+    └── ccviewer/          # kernel package (stdlib only)
+        ├── config.py      # paths/port/PID and config read/write
+        ├── scan.py        # scans ~/.claude/projects and rebuilds run state
+        ├── agent.py       # one agent's full prompt/result text
+        ├── sessions.py    # main agent + non-workflow subagent status inference
+        ├── notify.py      # webhook terminal-state notifier (Feishu / generic JSON)
+        ├── web.py         # HTTP handler (page + JSON API)
+        └── static/index.html  # frontend runtime file (built from frontend/; plugin distribution/runtime still need no build step)
 ```
 
-## 架构速览
+## Architecture at a glance
 
-| 层 | 入口 | 要点 |
-|----|------|------|
-| 自启动看护 | `guard.py --detach` | 双触发口（SessionStart 钩子 + 官方 monitors，入口幂等）；常驻循环写 `guard.pid` 跨会话去重；TCP 探活未监听→setsid 分离启动 server.py（独立于会话存活）；周期复查崩溃自动重启 |
-| 扫描/状态重建 | `scan.scan()` | run JSON 只在正常收尾时写；进行中状态由 journal.jsonl + agent-*.jsonl 实时重建 |
-| 存活判定 | `scan.live_session_ids()` + `parse_live()` | 权威信号 = `~/.claude/sessions/<pid>.json` 注册表且进程存活；60s 宽限防竞态 |
-| Webhook 通知 | `notify.notify_loop()` | 守护线程 5s 一轮；启动首轮静默播种防刷屏；去重靠 `sent.json`（保留 800 条） |
-| HTTP 端点 | `web.class H` | 页面 + 上述 7 个 JSON API |
+| Layer | Entry | Notes |
+|-------|-------|-------|
+| Self-start watchdog | `guard.py --detach` | two trigger doors (SessionStart hook + official monitors, idempotent entry point); the resident loop writes `guard.pid` for cross-session dedupe; TCP probe not listening → `setsid`-detached `server.py` (survives the session); periodic re-check auto-restarts on crash |
+| Scan / state rebuild | `scan.scan()` | run JSON is written only on normal completion; in-progress state is rebuilt live from journal.jsonl + agent-*.jsonl |
+| Liveness | `scan.live_session_ids()` + `parse_live()` | authoritative signal = `~/.claude/sessions/<pid>.json` registry and a live process; 60s grace against races |
+| Webhook notifications | `notify.notify_loop()` | daemon thread, one round per 5s; first round after start seeds silently to prevent historical spam; dedupe via `sent.json` (keeps 800 records) |
+| HTTP endpoints | `web.class H` | the page + the 7 JSON APIs above |
 
-前端（`frontend/src/*.ts`，全局脚本模式按名序拼接）按**卡 diff** 渲染：完成卡数据冻结 → HTML 串稳定 → DOM 永不重建；仅数据真变的运行卡局部重建，重建时恢复展开态与滚动位置——所以多轮刷新不打断阅读。
+The frontend (`frontend/src/*.ts`, global-script mode concatenated by filename order) renders by **per-card diff**: completed cards' data is frozen → the HTML string is stable → the DOM is never rebuilt; only run cards whose data actually changed are rebuilt locally, restoring expanded state and scroll position on rebuild — so repeated refreshes never interrupt reading.
 
-## 开发
+## Development
 
 ```bash
-python3 frontend/build.py     # 前端:TS→tsc --strict→注入产物(首次自动抽 template.html)
-claude plugin validate .      # 校验两份清单(CI 加 --strict)
-python3 scripts/server.py     # 前台启动(默认 8787,config 优先)
+python3 frontend/build.py     # frontend: TS → tsc --strict → inject artifact (extracts template.html on first run)
+claude plugin validate .      # validate both manifests (add --strict in CI)
+python3 scripts/server.py     # foreground start (default 8787, config wins)
 ```
 
-铁律：
+Iron rules:
 
-1. **零依赖**：`server.py` 与 `ccviewer/` 包只许 import stdlib；**前端只许 TS**，`index.html` 脚本块是 build 产物禁止手改；
-2. **双路径陷阱**：插件安装后运行时加载的是缓存副本（`~/.claude/plugins/cache/kw-dev-plugins/xray/<版本>/`），改完源码要同步 + 重装 + 重启服务进程；
-3. **改版本才生效**：`plugin.json` 的 `version` 决定缓存目录，升版本后重装落到新 cache 目录，旧版本残留可清理。
+1. **Zero dependencies**: `server.py` and the `ccviewer/` package may import stdlib only; **the frontend is TS-only** — the `index.html` script block is a build artifact and must never be hand-edited;
+2. **Dual-path trap**: once installed, the plugin runs from the cache copy (`~/.claude/plugins/cache/kw-dev-plugins/xray/<version>/`); after editing source you must sync + reinstall + restart the service process;
+3. **Only version bumps take effect**: `version` in `plugin.json` decides the cache directory; after bumping, reinstalling lands in a new cache dir and old leftovers can be cleaned.
 
-## 已知边界
+## Known limits
 
-- 会话转录默认只读**尾窗 256KB** 控制成本；步骤全文走**按 msg 反向深扫（1MB 块，至 16MB）**——截图附件是 MB 级 base64 时会把旧步骤挤出尾窗，深扫也定位不到则前端显式提示「该步已超出转录留存范围」；
-- 会话扫描只覆盖「活跃 + 近 2h」会话（上限 40）；run 扫描覆盖最近 N 天（近期「回看窗口」设置，默认 14）；
-- 状态推断是尾窗启发式（无权威 journal），极端时序下可能有 ±60s 的判定延迟。
+- Session transcripts are read from a **256KB tail window** by default to bound cost; per-step full text uses a **per-msg reverse deep scan (1MB blocks, up to 16MB)** — MB-scale base64 screenshot attachments can push old steps out of the tail window; if even the deep scan can't locate a step, the frontend says "this step is beyond transcript retention" explicitly;
+- session scanning covers only "active + last 2h" sessions (cap 40); run scanning covers the last N days (the "lookback window" setting, default 14);
+- status inference is a tail-window heuristic (no authoritative journal): under extreme timing, verdicts may lag by ±60s.
