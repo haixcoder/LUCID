@@ -71,9 +71,14 @@ async function tick(): Promise<void> {
   try {
     runs = d.runs; sess = s.sessions || []; rdays = d.recentDays || 14;
     const sel = $<HTMLSelectElement>('fproj');
-    const projs = [...new Set([...runs, ...sess].map(r => r.cwd || r.project))];
+    // 下拉数据源 = 后端 projects(回看窗口内有活动的项目全集,含无 workflow 运行的纯会话项目——
+    // 旧行为只从 runs∪sessions 推导,窗口调到 180 天下拉的"总项目数"仍对不上,1.2.35 修)
+    // ∪ 当前载荷键(兜底:窗口外活跃会话等 projects 覆盖不到的键)。
+    const projs = [...new Set([...(d.projects || []), ...runs.map(r => r.cwd || r.project), ...sess.map(x => x.cwd || x.project)])];
     if (fproj && !projs.includes(fproj)) { fproj = ''; localStorage.setItem('wfo-fproj', ''); }  // 已保存的项目不在数据源(窗口滑动/被删)→ 回落全部项目,避免永久 NO MATCH
-    if (sel.options.length - 1 !== projs.length) { sel.innerHTML = `<option value="">${T('◆ 全部项目')}</option>` + projs.map(p => `<option${p === fproj ? ' selected' : ''}>${esc(p)}</option>`).join(''); }
+    // 重建判定按内容而非数量:数量相同、集合不同(一进一出)时旧判定会永久保留陈旧选项(同症状的另一半根因)
+    const pstr = projs.join('\n');
+    if (PSTR !== pstr) { PSTR = pstr; sel.innerHTML = `<option value="">${T('◆ 全部项目')}</option>` + projs.map(p => `<option${p === fproj ? ' selected' : ''}>${esc(p)}</option>`).join(''); }
     renderAnchored();  // 页面级视口锚定:基线在任何重建前捕获(修「执行中展开详情上下滚动漂移」,详见 renderAnchored 注释)
   } catch (e) {
     console.error('render error:', e);

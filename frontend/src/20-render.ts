@@ -2,6 +2,7 @@
 let runs: Run[] = [], sess: SessionState[] = [], fproj = '', fstr = '', auto = true, painted = false, spainted = false, rdays = 14;
 const FULL: Record<string, Fu> = {};  // runId:agentId 或 sessionId:msgId/agentId → 全文缓存(跨轮询重建不丢失)
 const CARDS: Record<string, string> = {}, SCARDS: Record<string, string> = {}, GSTR: string[] = [''];  // runId/sessionId→上次渲染 HTML(按卡 diff);仪表串缓存
+let PSTR = '';  // 项目下拉内容串缓存(1.2.35:重建判定按内容而非数量——数量相同集合变化时旧判定留下陈旧选项)
 
 function card(r: Run, i: number): string {
   const done = r.agents.filter(a => a.state === 'done').length, total = r.agentCount || r.agents.length || 1;

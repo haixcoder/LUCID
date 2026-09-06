@@ -32,7 +32,7 @@ interface SessionState {
   turns?: number;  // 主 agent 调用任务次数(尾窗全量+头扫首条;prompts 摘要 30 条封顶不影响它)
   steps: Step[]; subagents: Subagent[];
 }
-interface RunsResp { now: number; ver?: string; recentDays?: number; runs: Run[] }
+interface RunsResp { now: number; ver?: string; recentDays?: number; runs: Run[]; projects?: string[] }
 interface SessionsResp { now: number; sessions: SessionState[] }
 interface Conf { enabled: boolean; format: string; url: string; insecure: boolean; port: number; recentDays: number; notifyInput: string }
 interface LastHook { at: number; ok: boolean | null; status: string; reply: string }

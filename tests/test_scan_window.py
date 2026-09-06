@@ -53,6 +53,18 @@ with tempfile.TemporaryDirectory() as td:
          'workflowProgress': [], 'startTime': int(time.time() * 1000)}), encoding='utf-8')
     (proj / 'cccc3333.jsonl').write_text('{"x":1}\n', encoding='utf-8')
 
+    # 项目 -noref:回看窗口内有活动但【没有 workflow 运行】的纯交互会话——真实反馈的现场:
+    # 回看窗口设 180 天后,项目选择列表仍只列"有运行/活跃"的项目,这类项目永远不出现(总数不对)。
+    nq = root / '-noref'
+    nq.mkdir()
+    (nq / 'dddd4444.jsonl').write_text(json.dumps({'type': 'user', 'cwd': '/work/nq'}) + '\n', encoding='utf-8')
+    # 项目 -cold:唯一会话 40 天前活动(超出 14 天窗口)→ 整项目不许出现
+    cold = root / '-cold'
+    cold.mkdir()
+    tr_e = cold / 'eeee5555.jsonl'
+    tr_e.write_text('{"x":1}\n', encoding='utf-8')
+    os.utime(tr_e, (old, old))
+
     # 单点重定向:scan/sessions 均以 config.PROJ/config.recent_sec 属性读取(1.2.18 集中化),不再逐模块打补丁
     config.PROJ = root
     config.recent_sec = lambda: 14 * 86400
@@ -64,5 +76,13 @@ with tempfile.TemporaryDirectory() as td:
         ck('window/live-status', r['live'] and r['status'] == 'running', '%s live=%s' % (r['status'], r['live']))
     ck('window/stale-session-still-excluded', 'wf_old' not in ids, str(ids))
     ck('window/fresh-session-included', 'wf_new' in ids, str(ids))
+
+    # ── 项目选择列表数据源:窗口内有会话活动的【全部】项目(含无 workflow 运行的纯会话项目)──
+    pl = scan.projects_in_window()
+    ck('pl/pure-session-project-included', '/work/nq' in pl, str(pl))
+    ck('pl/workflow-project-included', '-proj' in pl, str(pl))
+    ck('pl/out-of-window-project-excluded', all('cold' not in x and 'eeee' not in x for x in pl), str(pl))
+    ck('pl/dedup-one-per-project', len(pl) == len(set(pl)), str(pl))
+    ck('pl/sorted-stable', pl == sorted(pl), str(pl))
 
 done()

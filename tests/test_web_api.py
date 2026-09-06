@@ -130,7 +130,9 @@ try:
     d = json.loads(raw)
     ck('runs: 200 + JSON 头 + no-store', code == 200 and hd.get('Content-Type') == 'application/json; charset=utf-8'
        and hd.get('Cache-Control') == 'no-store', str(hd))
-    ck('runs: 顶层键 now/ver/recentDays/runs', set(d) == {'now', 'ver', 'recentDays', 'runs'}, str(sorted(d)))
+    ck('runs: 顶层键 now/ver/recentDays/runs/projects', set(d) == {'now', 'ver', 'recentDays', 'runs', 'projects'}, str(sorted(d)))
+    # 项目选择列表数据源:窗口内有活动的全部项目(按转录 cwd 解析)——fixture 两会话同项目 → 去重一条
+    ck('runs: projects 含回看窗口内活动项目且去重', d.get('projects') == ['/work/fix'], str(d.get('projects')))
     runs = {r['runId']: r for r in d['runs']}
     ck('runs: 含 fixture 两个运行', set(runs) == {'wf_done', 'wf_live1'}, str(sorted(runs)))
     rd_ = runs.get('wf_done') or {}
