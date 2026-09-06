@@ -22,14 +22,15 @@ from ccviewer import sessions
 
 def sub_agent(sess_dir, aid, stop, blocks, name='research', model='claude-fable-5'):
     """写 <sess>/subagents/agent-<aid>.jsonl + .meta.json,返回文件路径(mtime 由调用方定)。
-    _subagents 读 f.with_name(f.name+'.meta.json'),故 meta 文件名带 .jsonl 后缀。
+    meta 文件名一律真机拼法 agent-<aid>.meta.json(find 实测 182/182;旧固件曾按代码臆造
+    agent-<aid>.jsonl.meta.json——1.2.40 修「网页子代理名恒截断 id」时一并正名,见 test_subagent_label.py)。
     model 默认取真实模型名;传 '<synthetic>' 模拟 Claude Code 本地合成的错误注入(非模型成功应答)。"""
     sdir = sess_dir / 'subagents'
     sdir.mkdir(parents=True, exist_ok=True)
     recs = [user('分析任务'), asst('m-' + aid, stop, blocks, text_model=model)]
     f = sdir / ('agent-' + aid + '.jsonl')
     f.write_text('\n'.join(__import__('json').dumps(r, ensure_ascii=False) for r in recs) + '\n', encoding='utf-8')
-    (sdir / ('agent-' + aid + '.jsonl.meta.json')).write_text(
+    (sdir / ('agent-' + aid + '.meta.json')).write_text(
         __import__('json').dumps({'agentType': name, 'name': aid}), encoding='utf-8')
     return f
 

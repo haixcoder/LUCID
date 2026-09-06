@@ -15,7 +15,7 @@ import time
 from . import config
 from .config import DETAIL_CAP, TURN_RESULT_CAP  # 全文契约常量(与 api_agent 同值同契约,住 config 单点)
 from .jsonl import head_records, iter_records, rev_lines, tail_records, tail_text
-from .scan import TOOL_RE, session_cwd
+from .scan import TOOL_RE, read_agent_meta, session_cwd
 
 STALL_SEC = 120          # 主 agent:进程活着且 2min 内有写入 -> running，否则 waiting
 SUB_ACTIVE_SEC = 90      # subagent:同上阈值判 running
@@ -207,12 +207,7 @@ def _subagents(sess_dir, now):
         except Exception:
             continue
         aid = f.stem[len('agent-'):]
-        meta = {}
-        try:
-            with open(f.with_name(f.name + '.meta.json')) as fh:
-                meta = json.load(fh)
-        except Exception:
-            pass
+        meta = read_agent_meta(f)  # 单点读取;真机拼法 agent-x.meta.json(1.2.40:旧拼法恒读不到 → 名字恒截断 id)
         age = now - st.st_mtime
         info = _analyze(tail_text(f, 131072))
         if info['model'] == SYNTHETIC_MODEL:

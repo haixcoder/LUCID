@@ -92,7 +92,9 @@ lw.mkdir(parents=True)
     json.dumps({'type': 'assistant', 'message': {'id': 'am1', 'role': 'assistant',
                                                  'content': [{'type': 'text', 'text': '转录尾条'}]}})]),
     encoding='utf-8')
-(lw / 'agent-b1.jsonl.meta.json').write_text(json.dumps({'agentType': 'Explore'}), encoding='utf-8')
+# meta 用真机拼法与真机 workflow 形态(find 实测 118/118 = agentType generic+spawnDepth,无 name)
+(lw / 'agent-b1.meta.json').write_text(json.dumps({'agentType': 'workflow-subagent', 'spawnDepth': 1}),
+                                       encoding='utf-8')
 
 # ── 起真服务 ────────────────────────────────────────────────────────────
 sk = socket.socket()
@@ -161,10 +163,12 @@ try:
        ag0.get('label') == 'scout' and ag0.get('state') == 'done' and ag0.get('tokens') == 500
        and ag0.get('lastTool') == 'Bash', str(ag0))
     lr = runs.get('wf_live1') or {}
+    # label:workflow meta 真机无 name(agentType 恒 generic "workflow-subagent",118/118)→ 回落 hex,
+    #       不许把同名 agentType 顶进 label(17 个 agent 一模一样的新回归,1.2.40 边界;name 路径钉在 test_subagent_label)
     ck('runs: 实时重建(live/running/agent 状态由 journal+meta 合成)',
        lr.get('live') is True and lr.get('status') == 'running'
        and (lr.get('agents') or [{}])[0].get('state') == 'done'
-       and (lr.get('agents') or [{}])[0].get('label') == 'Explore'
+       and (lr.get('agents') or [{}])[0].get('label') == 'b1'
        and (lr.get('agents') or [{}])[0].get('result') == 'JOURNAL-FULL-RESULT', str(lr)[:220])
 
     # ── /api/sessions ──

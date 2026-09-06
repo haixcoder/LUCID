@@ -162,6 +162,22 @@ def live_session_ids():
     return ids
 
 
+def read_agent_meta(f):
+    """子代理 meta 读取单点(sessions._subagents 与 scan.parse_live 共用)。
+    真机拼法(Claude Code 实写)= agent-x.meta.json —— find 实测 182 份全为此形,"agent-x.jsonl.meta.json"
+    0 份。旧代码按后者拼(f.name+'.meta.json'),open 恒抛被 try 吞 → meta 恒空,网页子代理名恒为
+    截断 agentId、与终端后台面板显示的名字不一致(1.2.40 修)。真机形优先;旧形作兜底(第三方宿主
+    格式不可控,读取零成本),两形都无则返回 {}。"""
+    for cand in (f.with_name(f.name[:-len('.jsonl')] + '.meta.json'), f.with_name(f.name + '.meta.json')):
+        try:
+            with open(cand) as fh:
+                d = json.load(fh)
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            continue
+    return {}
+
+
 def parse_live(d, proj, sess, cwd, now, parent_alive):
     run_id = d.name
     files = [f for f in d.iterdir() if f.is_file()]
@@ -189,13 +205,12 @@ def parse_live(d, proj, sess, cwd, now, parent_alive):
     for f in sorted(d.glob('agent-*.jsonl'), key=lambda f: f.stat().st_mtime):
         a = f.stem[len('agent-'):]
         e = ev.get(a, {})
-        try:
-            with open(f.with_name(f.name + '.meta.json')) as fh:
-                atype = json.load(fh).get('agentType')
-        except Exception:
-            atype = None
+        # label 只认 name,不用 agentType —— workflow run 目录的 meta 真机恒为
+        # agentType="workflow-subagent"(find 实测 118/118,无 name),对同 run 全部 agent 同名无区分度,
+        # 用它会把可辨识的 hex 换成一模一样的 N 行(修名字反造新回归)。
+        label = read_agent_meta(f).get('name') or a[:8]
         agents.append({
-            'label': atype or a[:8], 'phase': None, 'agentId': a,
+            'label': label, 'phase': None, 'agentId': a,
             'state': 'done' if e.get('done') else 'running',
             'tokens': None, 'toolCalls': None, 'durationMs': None,
             'lastTool': None if e.get('done') else last_tool(f),
