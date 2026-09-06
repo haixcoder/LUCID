@@ -271,51 +271,6 @@ def scan():
     return runs[:200]
 
 
-_SESS_NAME_RE = re.compile(r'[0-9a-f][0-9a-f-]{7,}')
-
-
-def projects_in_window():
-    """项目选择列表的数据源:回看窗口内有会话活动的【全部】项目——含没有 workflow 运行、
-    当前也不活跃的纯交互会话项目(旧行为:下拉只从 runs∪sessions 推导,这类项目永远不出现,
-    用户把窗口调到 180 天仍见"项目总数不对")。
-    活动度判定与 scan() 同一口径:max(会话目录 mtime, 转录 <sess>.jsonl mtime);
-    候选=目录∪转录(sessions._candidates 同判据,只有转录无目录的会话也算活动)。
-    每个项目按【最近活跃】会话解析展示名(session_cwd,转录没有 cwd 字段时回落项目目录名),
-    与前端过滤键 r.cwd||r.project 同源可直接去重;按名排序保证轮询间稳定。"""
-    now = time.time()
-    recent = config.recent_sec()
-    try:
-        projects = [p for p in config.PROJ.iterdir() if p.is_dir()]
-    except Exception:
-        return []
-    labels = set()
-    for proj in projects:
-        try:
-            entries = list(proj.iterdir())
-        except Exception:
-            continue
-        best = None  # (mt, sid) —— 该项目窗口内最近活动的会话
-        for e in entries:
-            sid = e.name if e.is_dir() else (e.stem if e.suffix == '.jsonl' else None)
-            if not sid or not _SESS_NAME_RE.fullmatch(sid):
-                continue
-            try:
-                mt = e.stat().st_mtime
-            except OSError:
-                continue
-            try:  # 转录 mtime 是权威活动信号(目录 mtime 碰不到消息追加,同 scan() 的取舍)
-                mt = max(mt, (proj / (sid + '.jsonl')).stat().st_mtime)
-            except OSError:
-                pass
-            if now - mt > recent:
-                continue
-            if best is None or mt > best[0]:
-                best = (mt, sid)
-        if best:
-            labels.add(session_cwd(proj.name, best[1]))
-    return sorted(labels)
-
-
 _scan_cache = {'t': 0.0, 'runs': []}
 
 

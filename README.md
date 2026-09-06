@@ -53,7 +53,7 @@ The service merges the two data sources: **completed runs read the run JSON (com
 | `failed` / `killed` | recorded in the run JSON (agent failure / user termination) |
 | `aborted` | orphan run: parent session process dead while agents still unfinished |
 
-Scan scope: session directories active in the last N days (N = the "lookback window" setting, default 14, adjustable in ⚙ Settings); metadata of completed runs is cached in-process forever.
+Scan scope: the "lookback window" (N days, default 14, adjustable in ⚙ Settings). Workflow runs are gated by session activity time (directory/transcript mtime); the project list and the TASKS counter are gated by each prompt's own timestamp inside the transcripts — a project counts as "used in the window" only if you actually typed something in it then (fs mtime alone, e.g. refreshed by a non-prompt write, doesn't qualify); metadata of completed runs is cached in-process forever.
 
 ## Installation
 

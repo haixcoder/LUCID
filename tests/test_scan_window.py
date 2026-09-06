@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _util import ck, done
 
-from ccviewer import config, scan
+from ccviewer import config, scan, sessions, sessions
 
 with tempfile.TemporaryDirectory() as td:
     root = Path(td)
@@ -78,7 +78,8 @@ with tempfile.TemporaryDirectory() as td:
     ck('window/fresh-session-included', 'wf_new' in ids, str(ids))
 
     # ── 项目选择列表数据源:窗口内有会话活动的【全部】项目(含无 workflow 运行的纯会话项目)──
-    pl = scan.projects_in_window()
+    # 1.2.36 起与 TASKS 同住 sessions.window_activity() 单点(列表与计数口径必须一致,切换窗口时两处一起变)
+    pl = sessions.window_activity()['projects']
     ck('pl/pure-session-project-included', '/work/nq' in pl, str(pl))
     ck('pl/workflow-project-included', '-proj' in pl, str(pl))
     ck('pl/out-of-window-project-excluded', all('cold' not in x and 'eeee' not in x for x in pl), str(pl))

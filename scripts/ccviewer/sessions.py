@@ -604,21 +604,22 @@ def count_user_inputs(proj, sid):
     return _inputs_entry(proj, sid)[0]
 
 
-def tasks_summary():
-    """TASKS 仪表数据源:真人输入【自身时间戳落在回看窗口内】的次数 + 按项目小计(项目过滤的命中口径)。
-    跨窗口的长会话只计窗口内的输入(会话 mtime 判窗会把 30 天前的任务记进「近 4 天」总数——
-    实测 151 vs 127 的偏差,1.2.36 与精确计数同批修);无时间戳的旧记录按会话活动度兜底判窗。
-    活动度判定与 scan.projects_in_window 同口径(目录∪转录 max mtime)。写入不晚于 mtime ⇒
-    窗外会话必无窗内输入,直接跳过不读盘。旧仪表只 tsum(视图内会话),而视图=「活跃+近2h」,
-    用户把窗口设 180 天仪表仍只显近几小时的数(实测 5 vs 全库真相 346)。"""
+def window_activity():
+    """项目选择列表 + TASKS 仪表的【单一数据源】(1.2.36)——两处必须同一判窗口径,切换窗口时一起正确。
+    返回 {'projects': [展示名 sorted], 'tasks': {'total': N, 'byCwd': {展示名: n}}}。
+    判窗看转录内容里每条真人输入的【自身时间戳】:fs mtime 只做「内容不可能比它新」的粗筛(负控制 sound),
+    不作入选依据——真实反馈:4 天窗口列出没操作过的项目(researchProject mtime 被非输入写入顶到 4.0d,
+    最后一次输入其实在 4.9 天前)。无时间戳输入的会话(旧数据/只有 journal 无转录的目录)回落 mtime 判窗;
+    跨窗长会话只计窗内输入(全量计会多算:实测 4 天窗口 151 vs 127)。
+    展示名=session_cwd(与前端过滤键 cwd||project 同源可去重);写入不晚于 mtime ⇒ mt 出窗者必无窗内输入,跳过不读盘。"""
     now = time.time()
     recent = config.recent_sec()
     cutoff = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - recent))
-    total, by_cwd = 0, {}
+    total, by_cwd, labels = 0, {}, set()
     try:
         projects = [p for p in config.PROJ.iterdir() if p.is_dir()]
     except OSError:
-        return {'total': 0, 'byCwd': {}}
+        return {'projects': [], 'tasks': {'total': 0, 'byCwd': {}}}
     for proj in projects:
         try:
             entries = list(proj.iterdir())
@@ -643,12 +644,15 @@ def tasks_summary():
             if now - mt > recent:
                 continue
             _, tss, nots = _inputs_entry(proj.name, sid)
-            n = (len(tss) - bisect.bisect_left(tss, cutoff)) + nots  # ISO8601Z 串字典序=时间序
+            if tss and tss[-1] < cutoff:
+                continue  # 最后一次输入已在窗外(mtime 被非输入写入顶新)——不算操作过,不入列
+            lbl = session_cwd(proj.name, sid)
+            labels.add(lbl)
+            n = len(tss) - bisect.bisect_left(tss, cutoff) + nots  # ISO8601Z 串字典序=时间序
             if n:
                 total += n
-                lbl = session_cwd(proj.name, sid)
                 by_cwd[lbl] = by_cwd.get(lbl, 0) + n
-    return {'total': total, 'byCwd': by_cwd}
+    return {'projects': sorted(labels), 'tasks': {'total': total, 'byCwd': by_cwd}}
 
 
 def scan_sessions():

@@ -93,10 +93,37 @@ with tempfile.TemporaryDirectory() as td:
     ent = {s['sessionId']: s for s in sessions.scan_sessions()}.get(sml_id) or {}
     ck('entry/turns-exact', ent.get('turns') == 2, str(ent.get('turns')))
 
-    # ── tasks_summary:仪表口径=输入自身时间戳落窗(跨窗长会话只计窗内);无时间戳按会话活动度兜底 ──
-    ts = sessions.tasks_summary()
-    # big:1 条无时间戳输入,会话 mt 在窗内→兜底计入;sml:任务甲 30 天前(窗外)不计,任务乙窗内;old 会话出窗不读
-    ck('summary/timestamp-window-semantics', ts['total'] == 1 + 1, str(ts))
-    ck('summary/byCwd-project-subtotals', ts['byCwd'].get('/work/tp') == 2, str(ts['byCwd']))
+    # ── 项目列表窗口判定=按【转录内容时间戳】,mtime 被外部 touch 变新不算"操作过" ──
+    # (真实反馈:4 天窗口列出 6 个项目,但 researchProject 最后一次真人输入在 4.9 天前——
+    #  转录 mtime 4.0d 比内容时间戳新,旧 mtime 判窗把它错拉进列表)
+    tch = root / '-tch'
+    tch.mkdir()
+    tch_tr = tch / 'f1e50000-0000-0000-0000-000000000004.jsonl'
+    old10 = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - 10 * 86400))
+    tch_tr.write_text('\n'.join([
+        urec('f' * 36, '十天前的输入', timestamp=old10, cwd='/work/tch'),
+        json.dumps({'type': 'summary', 'summary': '无 timestamp 字段的尾部写入把 mtime 顶新'}, separators=(',', ':')),
+    ]) + '\n', encoding='utf-8')  # mtime 保持"刚刚",内容最后输入在 10 天前——mtime 判窗必错的对象
+
+    # ── 多次切换回看窗口:项目列表与任务数必须逐窗口正确(用户验收场景) ──
+    config.recent_sec = lambda: 4 * 86400
+    w4 = sessions.window_activity()
+    ck('window/4d: tch(mtime 新但输入 10d 前)不入列;sml 只计窗内任务乙',
+       w4['projects'] == ['/work/tp'] and w4['tasks']['total'] == 2 and w4['tasks']['byCwd'] == {'/work/tp': 2}, str(w4))
+    config.recent_sec = lambda: 14 * 86400
+    w14 = sessions.window_activity()
+    ck('window/14d: tch 入列且贡献 1 个任务', set(w14['projects']) == {'/work/tp', '/work/tch'}
+       and w14['tasks']['byCwd'].get('/work/tch') == 1 and w14['tasks']['total'] == 3, str(w14))
+    config.recent_sec = lambda: 45 * 86400
+    w45 = sessions.window_activity()
+    ck('window/45d: old(40d 无 ts,mt 兜底)入列贡献 5;任务甲(30d)也回到窗内', set(w45['projects']) == {'/work/tp', '/work/tch', '-tp'}
+       and w45['tasks']['byCwd'].get('-tp') == 5 and w45['tasks']['total'] == 3 + 1 + 5, str(w45))
+    config.recent_sec = lambda: 1 * 86400
+    w1 = sessions.window_activity()
+    ck('window/1d: 任务甲(30d)/tch(10d)/old(40d)全出列,只剩 /work/tp',
+       w1['projects'] == ['/work/tp'] and w1['tasks']['total'] == 2, str(w1))
+    config.recent_sec = lambda: 14 * 86400  # 还原(后续如有断言依赖)
+    ts = sessions.window_activity()['tasks']
+    ck('summary/timestamp-window-semantics(14d)', ts['total'] == 3 and ts['byCwd'].get('/work/tp') == 2, str(ts))
 
 done()
