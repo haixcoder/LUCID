@@ -121,13 +121,16 @@ function diffPaint(el: HTMLElement, store: Record<string, string>, items: { id: 
     if (open.has(dk)) { x.open = true; x.classList.add('noanim'); const v = sc[dk]; if (v) x.querySelectorAll<HTMLElement>('.rich,.pane pre').forEach((s2, i2) => { if (v[i2]) s2.scrollTop = v[i2]; }); }
   });
 }
+// 会话命中判定单点(renderSessions 与仪表 TASKS 共用——同一过滤口径,两处不许各写一份)
+const sessHit = (s: SessionState): boolean => {
+  const q = fstr.toLowerCase();
+  return (!fproj || (s.cwd || s.project) === fproj) && (!q || (s.title + ' ' + s.sessionId + ' ' + (s.cwd || s.project) + ' ' + s.status + ' ' + (s.waitReason || '') + ' ' + (s.waitTool || '') + ' ' + (s.lastPrompt || '') + ' ' + (s.prompts || []).map(p => p.t).join(' ') + ' ' + (s.subagents || []).map(a => a.label + ' ' + (a.description || '')).join(' ')).toLowerCase().includes(q));
+};
 function renderSessions(): void {
   const el = $('sess'), tt = $('secttl');
   if (!sess.length) { tt.hidden = true; el.innerHTML = ''; return; }
   tt.hidden = false;
-  const q = fstr.toLowerCase();
-  const hit = (s: SessionState) => (!fproj || (s.cwd || s.project) === fproj) && (!q || (s.title + ' ' + s.sessionId + ' ' + (s.cwd || s.project) + ' ' + s.status + ' ' + (s.waitReason || '') + ' ' + (s.waitTool || '') + ' ' + (s.lastPrompt || '') + ' ' + (s.prompts || []).map(p => p.t).join(' ') + ' ' + (s.subagents || []).map(a => a.label + ' ' + (a.description || '')).join(' ')).toLowerCase().includes(q));
-  const vis = sess.filter(hit), live = sess.filter(s => s.alive).length, waiting = vis.filter(sessStuck).length;  // ⏸ 只数真卡住(ask/permission);回合已完(turn)不算等待(1.2.13)
+  const vis = sess.filter(sessHit), live = sess.filter(s => s.alive).length, waiting = vis.filter(sessStuck).length;  // ⏸ 只数真卡住(ask/permission);回合已完(turn)不算等待(1.2.13)
   tt.innerHTML = `${T('AGENT 状态 · 会话(主+子)')} ${vis.length}${live ? ' · ' + T('活跃') + ' ' + live : ''}${waiting ? ' · <b class="wtag">⏸ ' + T('等待输入') + ' ' + waiting + '</b>' : ''}`;
   if (!vis.length) { el.innerHTML = `<p class="idle">${T('NO MATCH · 无匹配会话')}</p>`; spainted = true; return; }
   if (el.querySelector('.idle')) el.innerHTML = '';
@@ -143,7 +146,10 @@ function render(): void {
   // 过滤/搜索是持久化视图状态(1.2.9)——仪表计数随之变化,若不自证口径就会被当成"数据不准"(用户真实报过:
   // 只见 "3 RUNS" 不知还有第 4 个被筛掉)。有过滤时 RUNS 显示「命中/总数」+ tooltip 交代原因。
   const flt = !!(fproj || q);
-  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行', vis.length, runs.length))}"` : ''}><b>${vis.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
+  // TASKS = 视图内各会话主 agent 调用任务次数之和(后端 turns 单点:尾窗全量+头扫首条;老数据缺字段按 0 计不冒充)
+  const tsum = (ls: SessionState[]): number => ls.reduce((a, s) => a + (s.turns || 0), 0);
+  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行 · 任务 %3/%4', vis.length, runs.length, tsum(sess.filter(sessHit)), tsum(sess)))}"` : ''}><b>${vis.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
+    <div class="g"><b>${tsum(sess.filter(sessHit))}${flt ? '/' + tsum(sess) : ''}</b><span>TASKS</span></div>
     <div class="g lv"><b>${n(r => r.status === 'running')}</b><span>LIVE</span></div>
     <div class="g ok"><b>${n(r => r.status === 'completed')}</b><span>DONE</span></div>
     <div class="g er"><b>${n(r => ALERT_ST.has(r.status))}</b><span>ALERT</span></div>`;

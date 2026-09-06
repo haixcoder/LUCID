@@ -21,6 +21,8 @@ const { ck, done } = makeCk();
   ck('会话卡落 DOM + 区标题可见', sessEl.children.length === 1 && env.$('secttl').hidden === false);
   const g0 = env.$('gauges').innerHTML;
   ck('仪表无过滤态:RUNS 纯计数(无命中/总数,无 title 说明)', /<b>2<\/b><span>RUNS/.test(g0) && g0.indexOf('title=') < 0, g0.slice(0, 160));
+  // TASKS=视图内各会话主 agent 调用任务次数之和(数据只认后端 turns 字段;SESSION_FIX turns=2)
+  ck('仪表:TASKS 紧跟 RUNS 展示总和(无过滤=纯计数)', /<b>2<\/b><span>TASKS<\/span><\/div>\s*<div class="g lv/.test(g0), g0.slice(0, 240));
   ck('会话区标题含 ⏸ 计数(ask=真卡住)', /⏸/.test(env.$('secttl').innerHTML), env.$('secttl').innerHTML);
 
   // ── 按卡 diff:完成卡身份保持;会话卡数据稳定同样不重建 ──
@@ -76,6 +78,8 @@ const { ck, done } = makeCk();
   const g1 = env.$('gauges').innerHTML;
   ck('有过滤:RUNS 显示 命中/总数', /<b>1\/2<\/b><span>RUNS/.test(g1), g1.slice(0, 200));
   ck('有过滤:title 交代原因', /已按项目\/搜索过滤|filtered/i.test(g1), g1.slice(0, 240));
+  // 'alpha' 不命中会话标题等字段 → 任务命中和为 0,全量和为 2(与 RUNS 分数口径同构)
+  ck('有过滤:TASKS 也显示 命中/总数', /<b>0\/2<\/b><span>TASKS/.test(g1), g1.slice(0, 260));
 
   // ── RED①:空态→恢复,.idle 残留(render() 从未摘掉) ──
   env.$('fq').oninput!({ target: { value: 'zzz-绝无匹配' } });
