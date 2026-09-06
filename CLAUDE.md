@@ -11,6 +11,7 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 - 用户文档：`README.md`（英文版，GitHub 默认展示）/ `README.zh-CN.md`（中文版），两份互链；内容（原理、安装、页面功能、API、安全）改动时须同步对方
 - webhook 详解：`scripts/README.md`
 - 扩展调研：`docs/feature-extension-research.md`（2026-09 定稿：数据源实证地图 D1–D19 + 官方通道核实 + E1–E15 方案卡；`ROADMAP.md` 为其初版，§7 为勘误表）
+- 扩展调研·第二轮：`docs/runtime-state-deep-research.md`（2026-09-06：新增数据面 **D20–D48**（转录内 18 类：`toolUseResult.structuredPatch` 现成 diff hunk、`task_reminder` 待办图、`last-prompt`、`hook_non_blocking_error`、`goal_status`、`usage.cache_creation.{5m,1h}`…；盘外 10 类：`~/.claude.json` 官方逐项目聚合、teams member 字段、/tmp 任务输出寿命…）+ **E16–E25** 方案卡 + 对 R1 的实测勘误（§3）与官方通道定案（§4：hook 挂载点 32 个、statusline 键簇含分母 `context_window_size`、**OTLP `http/json` 实测支持→零依赖可收官方遥测**、`monitors` 确为 2.1.105 官方组件）。**取证入口值得复用**：`~/.claude/cache/changelog.md`＝官方 CHANGELOG 本机缓存（可引版本号），`strings` 已安装的 `claude.exe` 可核字段/事件/指标是否存在——比搜网更硬，因 WebFetch 对 code.claude.com 长期被拦。新字段上界面前的四问检查单在其 §9，本文 §9.5 列明仍欠的实测）
 - 问题复盘：`docs/lessons-learned.md`（2026-09-06 定稿，覆盖 1.2.0→1.2.38 全史：六类问题的事件↔根因↔规则↔防线对照；**诊断新 bug 先对照其 §7 检查单**；同类型问题第二次出现=防线有洞，回来补该文档与对应测试）
 
 ## 铁律（违反即 bug）
