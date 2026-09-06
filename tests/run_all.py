@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # lucid 回归总入口(改动准入/部署前必跑,零第三方依赖):
 #   · tests/test_*.py            后端:fixture 驱动真实函数 + 真起服务的 HTTP 全链路
-#   · tests/frontend/test_*.js   前端:node 无头 DOM 桩驱动编译产物(无 node 则跳过并警示)
+#   · typecheck(可选)           node_modules/.bin/tsc 存在时跑 tsconfig.check.json(前端 .ts 测试严格类型检查)
+#   · tests/frontend/test_*.ts   前端:node 无头 DOM 桩驱动编译产物;node ≥22.18 原生 type-stripping 直跑
+#                                (无 node / 版本过旧则跳过并警示)
 # 用法:  python3 tests/run_all.py [-v] [关键字...]      (-v 打印全量输出;关键字按文件名子串过滤)
 # 约定:  任一测试退出码非 0 = 失败;全绿才允许部署(见 CLAUDE.md 铁律 5)。
 import os
@@ -12,6 +14,18 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
+
+
+def node_runs_ts(node):
+    """node 能否原生跑 .ts(type-stripping,22.18 起默认开启;23.6+ 同)。"""
+    try:
+        out = subprocess.run([node, '-p', 'process.versions.node'],
+                             capture_output=True, text=True).stdout.strip()
+        major, minor = (int(x) for x in out.split('.')[:2])
+    except (ValueError, OSError):
+        return False
+    return major > 22 or (major == 22 and minor >= 18)
 
 
 def run(cmd, label):
@@ -31,8 +45,15 @@ def main():
     args = [a for a in sys.argv[1:] if a != '-v']
     node = shutil.which('node')
     suites = [(['python3', '-X', 'dev', str(f)], f.name) for f in sorted(HERE.glob('test_*.py'))]
-    if node:
-        suites += [([node, str(f)], f.name) for f in sorted((HERE / 'frontend').glob('test_*.js'))]
+    tsc = REPO / 'node_modules' / '.bin' / 'tsc'
+    if tsc.exists():
+        suites += [([str(tsc), '-p', str(REPO / 'tsconfig.check.json')], 'typecheck.ts')]
+    else:
+        print('  ! 未装 devDependencies:跳过 tsc 类型检查(开发机跑一次 `npm install` 即可;测试本身不受影响)。')
+    if node and node_runs_ts(node):
+        suites += [([node, str(f)], f.name) for f in sorted((HERE / 'frontend').glob('test_*.ts'))]
+    elif node:
+        print('  ! node 版本过旧(原生跑 .ts 需 ≥22.18):跳过前端无头套件,请升级 node。')
     else:
         print('  ! node 不在 PATH:跳过前端无头套件(开发机需 node;CI 同理)。')
     suites = [(c, l) for c, l in suites if not args or any(a in l for a in args)]

@@ -1,6 +1,6 @@
 {
   "name": "kw-lucid",
-  "version": "1.2.30",
+  "version": "1.2.31",
   "description": "Claude Code 插件 LUCID：实时透视 Workflow 与 Agent 执行的网页查看器（零依赖 Python3 stdlib，仅绑定 127.0.0.1）。",
   "license": "Apache-2.0",
   "repository": {
@@ -32,5 +32,12 @@
     "monitors",
     "scripts"
   ],
-  "scripts": {}
+  "scripts": {
+    "build": "tsc -p tsconfig.install.json",
+    "prepare": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0"
+  }
 }

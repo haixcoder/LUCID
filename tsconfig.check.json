@@ -1,0 +1,16 @@
+{
+  "//": "前端无头测试套件的类型检查(只 --noEmit,不产出:测试由 node ≥22.18 原生 type-stripping 直接运行 .ts)。",
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "strict": true,
+    "noEmit": true,
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["tests/frontend/**/*.ts"]
+}

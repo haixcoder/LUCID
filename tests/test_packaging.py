@@ -58,4 +58,22 @@ if bs.is_file() and node:
     p = subprocess.run([node, '--check', str(bs)], capture_output=True, text=True)
     ck('bin-node-syntax', p.returncode == 0, p.stderr[:200])
 
+# ── ⑥ 安装器 TS 化契约(1.2.31 起):源码 tools/install.ts,bin/install.js 为编译产物 ──
+#    产物必须带"编译生成勿手改"标;本地装了 devDependencies(tsc)时进一步核对
+#    产物==编译输出,拦"改了源码忘了 npm run build 就发布"。
+ck('bin-source-exists', (REPO / 'tools' / 'install.ts').is_file(), 'tools/install.ts 缺失')
+if bs.is_file():
+    ck('bin-artifact-marked', '编译产物' in bs.read_text(encoding='utf-8'),
+       'bin/install.js 缺生成标记(疑似手改产物或丢注释)')
+tsc = REPO / 'node_modules' / '.bin' / 'tsc'
+if tsc.exists() and bs.is_file():
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        p = subprocess.run([str(tsc), '-p', str(REPO / 'tsconfig.install.json'), '--outDir', td],
+                           capture_output=True, text=True)
+        gen = Path(td) / 'install.js'
+        ck('bin-artifact-fresh',
+           p.returncode == 0 and gen.is_file() and gen.read_text(encoding='utf-8') == bs.read_text(encoding='utf-8'),
+           (p.stderr or p.stdout)[:200] or '产物与 tools/install.ts 编译输出不一致:跑 npm run build')
+
 done()

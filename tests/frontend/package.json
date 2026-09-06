@@ -1,0 +1,4 @@
+{
+  "//": "本目录的 .ts 测试是 ESM(node 原生 type-stripping 直跑;tsc 的 nodenext 据此判定模块格式)。不进 npm 包(files 白名单不含 tests)。",
+  "type": "module"
+}

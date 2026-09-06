@@ -1,4 +1,3 @@
-'use strict';
 // 前端装配层不变量(复刻历史 t2/t4/t6/t7 的语义并入库):
 //  · 首轮 tick 完成 → 运行卡/会话卡落 DOM,仪表串自证口径(无过滤=纯数,有过滤=命中/总数+title);
 //  · 按卡 diff:同载荷重渲染 → 完成卡节点身份保持(不许整体重绘),数据变的卡才重建;
@@ -6,8 +5,7 @@
 //  · 后台节流补偿 catchUp:visibilitychange/pageshow/focus 立即补扫,1s 冷却去重,auto=off 不越权;
 //  · 两条真实缺陷的 RED 复现:① 搜索空态→恢复后 .idle「NO MATCH」永久残留(render() 漏摘);
 //    ② meta[wfo-ver] 无 id → VER 恒空 → 部署后旧标签页永不自动刷新(桩按规范只认 id,还原真机行为)。
-process.env.TZ = 'UTC';  // 黄金/时间格式化跨机稳定
-const { load, makeCk, payload, RUN_DONE, RUN_LIVE, SESSION_FIX, ARTIFACT } = require('./harness');
+import { load, makeCk, payload, RUN_DONE, RUN_LIVE, SESSION_FIX, ARTIFACT } from './harness.ts';
 const { ck, done } = makeCk();
 
 (async function main() {
@@ -41,9 +39,9 @@ const { ck, done } = makeCk();
   const w = sessEl.querySelector(`details[data-k="${waitK}"]`);
   const st = sessEl.querySelector(`details[data-k="${stepK}"]`);
   ck('等待行/步骤行按 data-k 定位', !!w && !!st, `wait=${!!w} step=${!!st}`);
-  w.open = true;
-  st.open = true;  // 折叠的 details 浏览器本就不滚动,快照契约只管展开态
-  const rich = st.querySelector('.rich');
+  w!.open = true;
+  st!.open = true;  // 折叠的 details 浏览器本就不滚动,快照契约只管展开态
+  const rich = st!.querySelector('.rich')!;
   rich.scrollTop = 137;
   sessions[0].toolCalls = 7;   // 数据变 → 卡 HTML 变 → outerHTML 重建
   env.run('void tick()');
@@ -64,28 +62,28 @@ const { ck, done } = makeCk();
   await env.flush(4);
   ck('三事件同瞬触发被 1s 冷却去重', env.fetchCalls.length === before + 2, String(env.fetchCalls.length - before));
   env.$('auto').checked = false;
-  env.$('auto').onchange({ target: { checked: false } });
+  env.$('auto').onchange!({ target: { checked: false } });
   const b2 = env.fetchCalls.length;
   env.fireTop('visibilitychange');
   await env.flush(4);
   ck('auto=off:补扫不越权刷新', env.fetchCalls.length === b2);
   env.$('auto').checked = true;
-  env.$('auto').onchange({ target: { checked: true } });
+  env.$('auto').onchange!({ target: { checked: true } });
 
   // ── 仪表过滤口径(1.2.14) ──
-  env.$('fq').oninput({ target: { value: 'alpha' } });
+  env.$('fq').oninput!({ target: { value: 'alpha' } });
   await env.flush(2);
   const g1 = env.$('gauges').innerHTML;
   ck('有过滤:RUNS 显示 命中/总数', /<b>1\/2<\/b><span>RUNS/.test(g1), g1.slice(0, 200));
   ck('有过滤:title 交代原因', /已按项目\/搜索过滤|filtered/i.test(g1), g1.slice(0, 240));
 
   // ── RED①:空态→恢复,.idle 残留(render() 从未摘掉) ──
-  env.$('fq').oninput({ target: { value: 'zzz-绝无匹配' } });
+  env.$('fq').oninput!({ target: { value: 'zzz-绝无匹配' } });
   await env.flush(2);
   ck('空态:运行区只剩 NO MATCH 段', list.children.length === 1 && list.children[0].classList.contains('idle'),
      list.children.map(c => c.className || c.tag).join(','));
   ck('空态:会话区同为 NO MATCH', sessEl.children.length === 1 && sessEl.children[0].classList.contains('idle'));
-  env.$('fq').oninput({ target: { value: '' } });
+  env.$('fq').oninput!({ target: { value: '' } });
   await env.flush(2);
   ck('恢复:运行卡全部回来', list.children.filter(c => c.dataset.rid).length === 2,
      list.children.map(c => c.dataset.rid || c.className).join(','));
@@ -107,4 +105,4 @@ const { ck, done } = makeCk();
      'reloads=' + mismatch.location.reloads + ' VER=' + JSON.stringify(mismatch.get('VER')));
 
   done();
-})().catch((e) => { console.error('HARNESS CRASH:', e); process.exit(2); });
+})().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

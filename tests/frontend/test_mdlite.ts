@@ -1,11 +1,9 @@
-'use strict';
 // 迷你 markdown 渲染器/转义层单测(纯字符串变换,历史 895 条真实语料沉淀的行为,回归风险最高的一层)。
-process.env.TZ = 'UTC';
-const { load, makeCk } = require('./harness');
+import { load, makeCk } from './harness.ts';
 const { ck, done } = makeCk();
 
 const env = load({ fetchFor: () => ({ now: 0, ver: 'ffffffffffff', recentDays: 14, runs: [] }) });
-const call = (expr) => env.get(expr);  // 取产物里的全局函数(跨 realm 以 host 参数调用)
+const call = (expr: string): any => env.get(expr);  // 取产物里的全局函数(跨 realm 以 host 参数调用)
 
 // esc:HTML 实体
 ck('esc', call('esc')('<a href="x">&</a>') === '&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;');

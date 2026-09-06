@@ -20,12 +20,13 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 4. **命令模板变量必须写花括号形式** `${CLAUDE_PLUGIN_ROOT}`——裸 `$CLAUDE_PLUGIN_ROOT` 不会被 Claude Code 展开，且该变量不存在于 Bash 工具环境（2026-09-04 实际踩坑：导致从项目源码而非已安装插件启动服务）。`commands/lucid.md` 中已修复，勿回退。
 5. **回归测试已入库，`python3 tests/run_all.py` 是准入门槛（1.2.18 起）**：
    - `tests/test_*.py`（后端，纯 stdlib）：fixture 驱动真实函数 + `test_web_api.py` 真起 server 子进程打全链路 HTTP；
-   - `tests/frontend/test_*.js`（前端，开发期依赖 node——运行时仍零依赖）：`harness.js` 无头 DOM 桩加载**真实编译产物**驱动 render/diff/抽屉/轮询；`test_render_golden.js` 为 card/sessCard 出 HTML 的黄金快照——**任何前端重构前后黄金必须逐字节一致**（故意改文案/结构才 `UPDATE=1` 重录并在提交注明）；
+   - `tests/frontend/test_*.ts`（前端一律 TypeScript，1.2.31 起；开发期依赖 node——运行时仍零依赖）：node 原生 type-stripping 直跑 .ts（**需 node ≥22.18**，无编译步骤；版本过旧 run_all 警示并跳过）；`harness.ts` 无头 DOM 桩加载**真实编译产物**驱动 render/diff/抽屉/轮询；`test_render_golden.ts` 为 card/sessCard 出 HTML 的黄金快照——**任何前端重构前后黄金必须逐字节一致**（故意改文案/结构才 `UPDATE=1` 重录并在提交注明）；类型检查由 `typecheck.ts` 套件代跑（`tsc -p tsconfig.check.json`，需开发机 `npm install` 一次；无 node_modules 则警示跳过）；
    - 历史教训：t1..t8 时代的"无头桩"每次现写现丢在 /tmp，重启即绝迹；入库后新 bug 一律"先补一条会挂的测试，再修"。
    - 部署前仍须真机冒烟：`/api/runs` 返回 200 且 JSON 结构不变、页面 ver==api ver、安装副本==源码。
 6. **前端一律 TypeScript（必须遵守）**：前端唯一合法源码是 `frontend/src/*.ts`（全局脚本模式，按文件名序拼接，不用 import/export）。
    - `scripts/ccviewer/static/index.html` 中主 `<script>` 块是 **build 产物，禁止手改**；改前端 = 改 `frontend/src/` → `python3 frontend/build.py`（tsc --strict 类型检查+编译 → 注入 `frontend/template.html`）。构建失败（任何类型错误）禁止部署。
    - 唯一保留的手写 JS 例外：`template.html` head 里的 3 行夜间主题 boot 片段（须先于 body 存在执行）；HTML/CSS 壳也手改 `template.html`（再 build）。
+   - 1.2.31 起全仓库手写 JS 仅剩该片段（测试与安装器均已 TS 化）：npm 安装器源码是 `tools/install.ts`，`bin/install.js` 为其 **tsc 编译产物（提交入库）**——npm `bin` 指向产物,因用户 node 可能低至 16.7、不能依赖原生 .ts。产物禁手改：改 `.ts` 后 `npm run build`（`npm install`/`npm publish` 的 prepare 钩子自动重建），`tests/test_packaging.py` 会核对产物==编译输出。
    - `frontend/dist/` 为中间产物（拼接源+编译 JS），不进安装副本；同步/安装只需 `scripts/`。
    - 后续本仓库所有新增/修改的前端逻辑都必须用 TS 编写；发现 index.html 与 `frontend/src` 不一致时，以 build 重建为准，禁止直接补丁产物。
 
@@ -88,7 +89,7 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 
 - **按卡 diff 渲染**（`render()`）：完成卡数据冻结 → HTML 串不变 → DOM 不重建，滚动/选中不跳。不许改回整体 innerHTML 重绘。
 - **按卡 diff 只有一份实现：`diffPaint(el, store, items, painted)`（30-app，1.2.18 抽取）**——运行卡区与会话卡区（#sess/`SCARDS`）都走它。上面列的身份保持/ref 同步/open·滚动快照恢复等不变量住在这一个函数里；新增卡片区直接复用，勿再复制循环。其抽屉 `data-src="S|proj|sess|agent[#msgId]"` 走 `/api/subagent`（toggle 监听器双容器复用 `onToggle`）。
-- **回合分组（1.2.20，会话卡任务区）**：一次真人输入=一个任务=一个独立展示单元——输入行（`.promptline.turnhd`）作组头带步数徽章，该回合步骤行挂在同组 `.tg` 下；**归属只认后端 `step.turn`（`_main_steps` 单点），前端不许再猜边界**。组序按时间戳排序（`turn=''`=尾窗前的孤儿组置顶且组头无锚点须显式措辞；只有输入没有步骤的新回合也自成一组）。组头/步骤抽屉键与分组前完全一致（`<sid>:prompt:<uuid>` / `<sid>:<msgId>`）——FULL 缓存与 open/滚动快照跨升级延续，改分组结构不许改键格式。契约测试 `tests/frontend/test_turn_group.js`。
+- **回合分组（1.2.20，会话卡任务区）**：一次真人输入=一个任务=一个独立展示单元——输入行（`.promptline.turnhd`）作组头带步数徽章，该回合步骤行挂在同组 `.tg` 下；**归属只认后端 `step.turn`（`_main_steps` 单点），前端不许再猜边界**。组序按时间戳排序（`turn=''`=尾窗前的孤儿组置顶且组头无锚点须显式措辞；只有输入没有步骤的新回合也自成一组）。组头/步骤抽屉键与分组前完全一致（`<sid>:prompt:<uuid>` / `<sid>:<msgId>`）——FULL 缓存与 open/滚动快照跨升级延续，改分组结构不许改键格式。契约测试 `tests/frontend/test_turn_group.ts`。
 - **IN/OUT 抽屉面板构造只有一份：`paneIn`/`paneOut`（20-render）**——正文统一过 `unent→mdLite`（预览与全文同一口径；曾出现"预览不解实体、展开才解"）；等待行/提示词行带 hint/miss 分支的面板是其近亲，改三态标签时同审。`ALERT_ST`（20-render）是仪表 ALERT 计数唯一判定集。
 - **空态↔非空态对称清理**：`<p.idle>` 无 data-rid，diffPaint 的按卡清理不认识它——两个区的 render 都必须自己负责（`vis` 恢复时先摘 idle，否则永久残留，1.2.18 修过一次运行卡区）。
 - **构建戳自取用 `document.querySelector('meta[name="wfo-ver"]')`**——模板里该 meta **只有 name 没有 id**，`getElementById` 必 null（"部署旧标签页自动刷新 + 版本角标"曾因写法错误静默失效多版，无头桩才暴露；勿回退成 `$('wfo-ver')`）。
@@ -109,7 +110,8 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 ```bash
 python3 tests/run_all.py                 # ★ 回归总入口(改动前基线、部署前门禁;支持关键字过滤与 -v)
 python3 tests/run_all.py web_api -v      # 只跑 HTTP 全链路并打印全部断言
-UPDATE=1 node tests/frontend/test_render_golden.js   # 故意改卡 HTML 后重录黄金快照(提交信息须注明)
+UPDATE=1 node tests/frontend/test_render_golden.ts   # 故意改卡 HTML 后重录黄金快照(提交信息须注明)
+npm install                                          # 开发机一次性(typescript+@types/node:typecheck 套件与安装器编译;运行时仍零依赖)
 python3 frontend/build.py                # 前端:TS→tsc --strict→注入产物(首次自动抽 template.html)
 python3 scripts/server.py                # 前台启动（默认 8787，config 优先）
 python3 scripts/server.py --stop         # 按 PID 优雅停止
@@ -130,7 +132,7 @@ claude plugin validate .                 # 校验两份清单（CI 加 --strict�
 
 **铁律：每次更新 = 版本号 +1。** 任何变更（代码、前端构建产物、命令、README/文档、CLAUDE.md 规则本身、仅配置文件）一旦要同步给用户/市场，必须同步把 `.claude-plugin/plugin.json` 的 `version` +1（patch 级即可），**禁止"只改代码不升版本"**——升版本后 `claude plugin update` 会落到新的 cache 目录（`cache/.../lucid/<版本>/`），旧版本残留可清理；这样每次更新都可在 cache 中追溯。**npm 通道（1.2.30 起）：`package.json` 的 version 必须与 plugin.json 相等**，且运行时新增目录要同时进 `package.json.files` 与 `bin/install.js` 的 `COMPONENTS`，否则装出来的副本缺组件——`tests/test_packaging.py` 钉死这两条。
 
-**npm 发布通道（kw-lucid）**：npm 包即"插件+自足市场"——tarball 根目录带 `.claude-plugin/marketplace.json`（source `"./"` 相对被 add 的目录解析，与仓库目录市场同一语义），用户 `npx -y kw-lucid` 或 `npm install -g kw-lucid` + `marketplace add "$(npm root -g)/kw-lucid"` 完成安装；`bin/install.js` 把包同步到稳定路径 `~/.claude/plugins/marketplaces/kw-lucid-npm/` 再走 claude CLI（避开 npx 缓存失效）。发布流程（需 `npm login`，手动执行）：`python3 tests/run_all.py && claude plugin validate . && npm pack --dry-run` 全绿后 `npm publish`。注意 CLI 的 `{"source":"npm"}` 插件源与 npm marketplace-add 亦存在/缺失（marketplace add npm 官方标注 not yet implemented），本通道刻意不依赖它们，保持本地开发流不变。配套流程（重装前先 `--stop` 旧进程）：
+**npm 发布通道（kw-lucid）**：npm 包即"插件+自足市场"——tarball 根目录带 `.claude-plugin/marketplace.json`（source `"./"` 相对被 add 的目录解析，与仓库目录市场同一语义），用户 `npx -y kw-lucid` 或 `npm install -g kw-lucid` + `marketplace add "$(npm root -g)/kw-lucid"` 完成安装；`bin/install.js`（1.2.31 起为 `tools/install.ts` 的编译产物，`npm publish` 的 prepare 钩子自动重建，`test_packaging` 核对产物不陈旧）把包同步到稳定路径 `~/.claude/plugins/marketplaces/kw-lucid-npm/` 再走 claude CLI（避开 npx 缓存失效）。发布流程（需 `npm login`，手动执行）：`python3 tests/run_all.py && claude plugin validate . && npm pack --dry-run` 全绿后 `npm publish`。注意 CLI 的 `{"source":"npm"}` 插件源与 npm marketplace-add 亦存在/缺失（marketplace add npm 官方标注 not yet implemented），本通道刻意不依赖它们，保持本地开发流不变。配套流程（重装前先 `--stop` 旧进程）：
 
 **铁律：每次功能/文档更新验证通过后，自动 `git commit`，不要等用户开口。** 提交信息按既有风格（`feature:` / `docs:` / `fix:` 前缀 + 中文描述 + 版本号 `1.x.x→1.x.x`）；含未跟踪文件用 `git add -A`；默认只 commit 不 push。若工作区混有历史遗留改动，一并纳入并在提交信息中注明。
 

@@ -1,0 +1,14 @@
+{
+  "//": "npm 安装器:tools/install.ts → bin/install.js(编译产物,提交入库)。产物必须兼容 engines.node ≥16.7,故编译为 CJS 而非原生 .ts;npm install / npm publish 的 prepare 钩子自动重建。",
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "strict": true,
+    "rootDir": "tools",
+    "outDir": "bin",
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["tools/**/*.ts"]
+}
