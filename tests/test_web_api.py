@@ -26,7 +26,7 @@ PROJ = CLD / 'projects'
 (CLD / 'sessions').mkdir(parents=True, exist_ok=True)
 (CLD / 'cc-viewer').mkdir(parents=True, exist_ok=True)
 
-# ── fixture:一个已完成 run + 一个进行中 run + 一个活会话 ─────────────────
+# ── fixture:一个已完成 run + 一个进行中 run + 一个活会话 + 一个窗内历史会话(S3,1.2.38) ──
 proj = PROJ / '-fixproj'
 proj.mkdir(parents=True)
 S1 = str(uuid.uuid4())
@@ -57,6 +57,19 @@ S2 = str(uuid.uuid4())
     json.dumps({'type': 'assistant', 'message': {'id': 'msgT2', 'role': 'assistant', 'stop_reason': 'end_turn',
                                                  'content': [{'type': 'text', 'text': '完成'}]}}),
 ]) + '\n', encoding='utf-8')
+# S3:回看窗口内的历史会话(输入 1 天前∈14d 窗,mtime 5h 前>2h 实时口径,不在活注册表)——
+# 1.2.38 起必须出现在 /api/sessions(仪表 byCwd 数了它,下方列表就要能看到概览)
+S3 = str(uuid.uuid4())
+s3 = proj / (S3 + '.jsonl')
+s3.write_text('\n'.join([
+    json.dumps({'type': 'user', 'cwd': '/work/fix', 'uuid': str(uuid.uuid4()),
+                'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 86400)),
+                'message': {'role': 'user', 'content': '昨天跑完的任务'}}),
+    json.dumps({'type': 'assistant', 'message': {'id': 'msgH1', 'role': 'assistant', 'stop_reason': 'end_turn',
+                                                 'content': [{'type': 'text', 'text': '历史回执'}]}}),
+]) + '\n', encoding='utf-8')
+mt5h = time.time() - 5 * 3600
+os.utime(s3, (mt5h, mt5h))
 wf = proj / S1 / 'workflows'
 wf.mkdir(parents=True)
 (wf / 'wf_done.json').write_text(json.dumps({
@@ -133,9 +146,9 @@ try:
     ck('runs: 顶层键 now/ver/recentDays/runs/projects/tasks', set(d) == {'now', 'ver', 'recentDays', 'runs', 'projects', 'tasks'}, str(sorted(d)))
     # 项目选择列表数据源:窗口内有活动的全部项目(按转录 cwd 解析)——fixture 两会话同项目 → 去重一条
     ck('runs: projects 含回看窗口内活动项目且去重', d.get('projects') == ['/work/fix'], str(d.get('projects')))
-    # TASKS 仪表数据源:回看窗口内全部会话的真人输入精确总数+按项目小计(S1/S2 各 1 条输入)
+    # TASKS 仪表数据源:回看窗口内全部会话的真人输入精确总数+按项目小计(S1/S2/S3 各 1 条输入)
     ck('runs: tasks 覆盖窗口全部会话(含不在视图的已结束会话)',
-       (d.get('tasks') or {}).get('total') == 2 and (d.get('tasks') or {}).get('byCwd') == {'/work/fix': 2}, str(d.get('tasks')))
+       (d.get('tasks') or {}).get('total') == 3 and (d.get('tasks') or {}).get('byCwd') == {'/work/fix': 3}, str(d.get('tasks')))
     runs = {r['runId']: r for r in d['runs']}
     ck('runs: 含 fixture 两个运行', set(runs) == {'wf_done', 'wf_live1'}, str(sorted(runs)))
     rd_ = runs.get('wf_done') or {}
@@ -165,6 +178,13 @@ try:
        and [st['msgId'] for st in e.get('steps') or []] == ['msgW1'], str(e.get('prompts')))
     # turns=主 agent 被调用的任务次数(全转录精确计数,1.2.36;与 prompts 摘要的 30 条上限无关)
     ck('sessions: turns 计数随行回传(全量精确,S1 一条真人输入)', e.get('turns') == 1, repr(e.get('turns')))
+    # 1.2.38:回看窗口内的历史会话(mtime 超 2h、非活跃)必须随列表回传——仪表计了它,列表就要能看到概览
+    e3 = ss.get(S3) or {}
+    ck('sessions: 窗内历史会话入列(与仪表 byCwd 同一判窗口径)',
+       e3.get('status') == 'ended' and e3.get('alive') is False and e3.get('turns') == 1, str(e3)[:160])
+    ck('sessions: 列表各会话 turns 之和 == 仪表 byCwd(用户拿列表核仪表)',
+       sum(x.get('turns') or 0 for x in ss.values()) == (d.get('tasks') or {}).get('byCwd', {}).get('/work/fix'),
+       str({k: v.get('turns') for k, v in ss.items()}))
 
     # ── 全文端点 + 守卫 ──
     a = json.loads(get('/api/agent?proj=-fixproj&sess=%s&run=wf_live1&agent=b1' % S1)[1])

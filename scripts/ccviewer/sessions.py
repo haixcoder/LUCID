@@ -19,8 +19,10 @@ from .scan import TOOL_RE, session_cwd
 
 STALL_SEC = 120          # 主 agent:进程活着且 2min 内有写入 -> running，否则 waiting
 SUB_ACTIVE_SEC = 90      # subagent:同上阈值判 running
-SESSION_HOURS = 2        # 非活跃会话只保留最近 2h 内的
-MAX_SESSIONS = 40
+SESSION_HOURS = 2        # 非活跃会话的实时口径保底(回看窗口之外的近期活动仍入列,见 _candidates)
+# 旧值 40:1.2.38 会话列表改窗口口径后必截断(实测 10d 窗内 64 会话,被截者仪表计了、列表看不到,
+# 症状与所修 bug 同类)。上限是失控库的保险丝:成本 ~3ms/会话,180d 全量 131 会话冷扫实测 0.4s
+MAX_SESSIONS = 200
 # 明确"要人来回答/确认"的工具：挂起即等于卡住等用户(与是否需要授权无关)
 ASK_TOOLS = ('AskUserQuestion', 'ExitPlanMode')
 # 模型主动交回话轮的 stop_reason(其余 tool_use=等工具，None=尾窗没采到)
@@ -514,8 +516,13 @@ SESS_RE = re.compile(r'[0-9a-f][0-9a-f-]{7,}')
 def _candidates(now, reg):
     """会话候选 = 转录 <sess>.jsonl ∪ 会话目录 <sess>/(只有子代理等附属文件时才存在)。
     只遍历目录会漏掉"纯交互会话"——没有子代理就没有目录,而它正是「等待用户输入」最该出现的对象。
-    活度取两者较新的 mtime;目录可能缺失,故 subagents 一律按可选处理。"""
+    活度取两者较新的 mtime;目录可能缺失,故 subagents 一律按可选处理。
+    门禁(1.2.38):活跃 ∪ 近 2h 实时口径 ∪ 【回看窗口口径】——窗内有真人输入的会话必须入选,
+    否则仪表 TASKS 与下方会话卡对不上账(真实反馈:选 claudeConfig 后指示器 10、列表一张卡没有——
+    列表曾只认「活跃 or mtime≤2h」,而仪表 1.2.36/37 已改为按输入时间戳落窗)。判窗走 _window_hit
+    单点,与 projects[]/byCwd 同一口径,切换窗口时列表/计数/项目小计一并跟着变。"""
     recent = config.recent_sec()  # 一轮扫描读一次配置(旧写法每个候选都读盘)
+    cutoff = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - recent))
     for proj in (p for p in config.PROJ.iterdir() if p.is_dir()):
         try:
             entries = list(proj.iterdir())
@@ -533,8 +540,10 @@ def _candidates(now, reg):
             except Exception:
                 continue
             alive = sid in reg
-            if not alive and (now - mt > SESSION_HOURS * 3600 or now - mt > recent):
-                continue
+            if not alive and now - mt > recent:
+                continue  # 粗筛(负控制 sound):mtime 出窗 ⇒ 内容必无窗内输入
+            if not alive and now - mt > SESSION_HOURS * 3600 and not _window_hit(proj.name, sid, cutoff)[1]:
+                continue  # 超 2h 且窗内无真人输入(或被非输入写入顶新、输入其实在窗外)
             yield mt, alive, proj, sid, tp, sd
 
 
@@ -604,8 +613,19 @@ def count_user_inputs(proj, sid):
     return _inputs_entry(proj, sid)[0]
 
 
+def _window_hit(proj, sid, cutoff):
+    """回看窗口判定【唯一实现】(1.2.38):项目列表 / TASKS 仪表 byCwd / 会话卡列表三处共用同一口径,
+    不许再写第二份。只信转录内真人输入的自身时间戳(fs mtime 归调用方做「内容不可能比它新」的粗筛);
+    返回 (最后一条输入是否落窗内, 窗内输入条数)——无时间戳的旧数据回落 mtime 口径,条数计 nots。"""
+    _, tss, nots = _inputs_entry(proj, sid)
+    if tss and tss[-1] < cutoff:
+        return False, 0
+    return True, len(tss) - bisect.bisect_left(tss, cutoff) + nots
+
+
 def window_activity():
-    """项目选择列表 + TASKS 仪表的【单一数据源】(1.2.36)——两处必须同一判窗口径,切换窗口时一起正确。
+    """项目选择列表 + TASKS 仪表的【单一数据源】(1.2.36)——两处必须同一判窗口径,切换窗口时一起正确;
+    会话卡列表(_candidates)自 1.2.38 起也走 _window_hit 同口径——仪表数了什么,下方就能看到什么。
     返回 {'projects': [展示名 sorted], 'tasks': {'total': N, 'byCwd': {展示名: n}}}。
     判窗看转录内容里每条真人输入的【自身时间戳】:fs mtime 只做「内容不可能比它新」的粗筛(负控制 sound),
     不作入选依据——真实反馈:4 天窗口列出没操作过的项目(researchProject mtime 被非输入写入顶到 4.0d,
@@ -643,12 +663,11 @@ def window_activity():
         for sid, mt in cands.items():
             if now - mt > recent:
                 continue
-            _, tss, nots = _inputs_entry(proj.name, sid)
-            if tss and tss[-1] < cutoff:
+            ok, n = _window_hit(proj.name, sid, cutoff)  # 判窗单点(与会话卡列表同一口径,ISO8601Z 串字典序=时间序)
+            if not ok:
                 continue  # 最后一次输入已在窗外(mtime 被非输入写入顶新)——不算操作过,不入列
             lbl = session_cwd(proj.name, sid)
             labels.add(lbl)
-            n = len(tss) - bisect.bisect_left(tss, cutoff) + nots  # ISO8601Z 串字典序=时间序
             if n:
                 total += n
                 by_cwd[lbl] = by_cwd.get(lbl, 0) + n

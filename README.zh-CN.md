@@ -56,7 +56,7 @@ Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<ses
 | `failed` / `killed` | run JSON 记录（agent 失败 / 用户终止） |
 | `aborted` | 孤儿运行：父会话进程已死且仍有未完成 agent |
 
-扫描范围：「回看窗口」最近 N 天（默认 14，可在 ⚙ 设置中调整）。workflow 运行按会话活动度（目录/转录 mtime）入门禁；项目列表与 TASKS 计数则按转录内每条输入【自身的时间戳】判窗——只有你在窗口期真正在某项目输入过，它才算"被操作过"（非输入写入顶新的 mtime 不算）。已完结 run 的元数据进程内永久缓存。
+扫描范围：「回看窗口」最近 N 天（默认 14，可在 ⚙ 设置中调整）。workflow 运行按会话活动度（目录/转录 mtime）入门禁；项目列表与 TASKS 计数则按转录内每条输入【自身的时间戳】判窗——只有你在窗口期真正在某项目输入过，它才算"被操作过"（非输入写入顶新的 mtime 不算）；会话卡列表与之一同判窗——仪表数了的每个任务，下方都有对应的概览卡片。已完结 run 的元数据进程内永久缓存。
 
 ## 安装
 
@@ -152,7 +152,7 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 | 端点 | 说明 |
 |------|------|
 | `GET /api/runs` | 全量运行快照（`{now, runs[], projects[], tasks}`；进行中由 journal/转录实时重建；`projects` = 回看窗口内有会话活动的全部项目，含没有 workflow 运行、当前也不活跃的项目；`tasks` = `{total, byCwd}`，以每条输入自身时间戳落在回看窗口内为准的完整转录精确计数，总数与按项目小计） |
-| `GET /api/sessions` | 会话状态：主 agent（注册表判活 + 转录尾窗推断，status 含 `input_required` + `waitReason`/`waitTool`）+ `prompts`（卡顶提示词回显：尾窗用户输入摘要 + uuid + 首条 `f:1`）+ 执行步骤 + 全部非 workflow 子代理；候选 = 转录 ∪ 会话目录，含活跃会话与最近 2h 会话，上限 40 |
+| `GET /api/sessions` | 会话状态：主 agent（注册表判活 + 转录尾窗推断，status 含 `input_required` + `waitReason`/`waitTool`）+ `prompts`（卡顶提示词回显：尾窗用户输入摘要 + uuid + 首条 `f:1`）+ 执行步骤 + 全部非 workflow 子代理；候选 = 转录 ∪ 会话目录，含活跃会话、最近 2h 会话、以及回看窗口内有真人输入的会话（与 TASKS 仪表/项目列表同一判窗单点，仪表数了的下方可对账），上限 200 |
 | `GET /api/agent?proj=&sess=&run=&agent=` | 单 agent 完整转录 + journal 事件（运行卡抽屉数据源） |
 | `GET /api/subagent?proj=&sess=&agent=[&msg=]` | 会话层全文抽屉：`agent=main` 返回主会话最近输入/输出；加 `msg=<messageId>` 返回该步全文（IN=该步工具入参，OUT=所在回合累计输出），`msg=<uuid>` 返回该条用户输入全文（提示词回显锚点）；否则返回子代理任务与结果 |
 | `GET /api/config` | 当前 webhook 配置 + 最近推送结果 |
@@ -234,5 +234,5 @@ python3 scripts/server.py     # 前台启动(默认 8787,config 优先)
 ## 已知边界
 
 - 会话转录默认只读**尾窗 256KB** 控制成本；步骤全文走**按 msg 反向深扫（1MB 块，至 16MB）**——截图附件是 MB 级 base64 时会把旧步骤挤出尾窗，深扫也定位不到则前端显式提示「该步已超出转录留存范围」；
-- 会话扫描只覆盖「活跃 + 近 2h」会话（上限 40）；run 扫描覆盖最近 N 天（近期「回看窗口」设置，默认 14）；
+- 会话扫描覆盖「活跃 + 近 2h + 回看窗口内有输入的会话」（上限 200；窗口部分与 TASKS 仪表逐一对账）；run 扫描覆盖最近 N 天（近期「回看窗口」设置，默认 14）；
 - 状态推断是尾窗启发式（无权威 journal），极端时序下可能有 ±60s 的判定延迟。

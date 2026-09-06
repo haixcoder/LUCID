@@ -53,7 +53,7 @@ The service merges the two data sources: **completed runs read the run JSON (com
 | `failed` / `killed` | recorded in the run JSON (agent failure / user termination) |
 | `aborted` | orphan run: parent session process dead while agents still unfinished |
 
-Scan scope: the "lookback window" (N days, default 14, adjustable in ⚙ Settings). Workflow runs are gated by session activity time (directory/transcript mtime); the project list and the TASKS counter are gated by each prompt's own timestamp inside the transcripts — a project counts as "used in the window" only if you actually typed something in it then (fs mtime alone, e.g. refreshed by a non-prompt write, doesn't qualify); metadata of completed runs is cached in-process forever.
+Scan scope: the "lookback window" (N days, default 14, adjustable in ⚙ Settings). Workflow runs are gated by session activity time (directory/transcript mtime); the project list and the TASKS counter are gated by each prompt's own timestamp inside the transcripts — a project counts as "used in the window" only if you actually typed something in it then (fs mtime alone, e.g. refreshed by a non-prompt write, doesn't qualify) — the session-card list uses the same predicate, so every task the TASKS gauge counts has its overview card below; metadata of completed runs is cached in-process forever.
 
 ## Installation
 
@@ -144,7 +144,7 @@ A server background thread (one round every 5s, no browser required) pushes **tw
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/runs` | full run snapshot (`{now, runs[], projects[], tasks}`; in-progress runs rebuilt live from journal/transcripts; `projects` = every project with session activity inside the lookback window — including projects that have no workflow runs and aren't currently live; `tasks` = `{total, byCwd}` exact user-input counts whose own timestamps fall inside the lookback window (full-transcript, timestamp-based), total + per-project subtotals) |
-| `GET /api/sessions` | session status: main agent (liveness via registry + transcript tail-window inference, status incl. `input_required` + `waitReason`/`waitTool`) + `prompts` (card-top prompt echo: tail-window user-input summaries + uuid + first entry `f:1`) + execution steps + all non-workflow subagents; candidates = transcripts ∪ session dirs, covering active and last-2h sessions, cap 40 |
+| `GET /api/sessions` | session status: main agent (liveness via registry + transcript tail-window inference, status incl. `input_required` + `waitReason`/`waitTool`) + `prompts` (card-top prompt echo: tail-window user-input summaries + uuid + first entry `f:1`) + execution steps + all non-workflow subagents; candidates = transcripts ∪ session dirs, covering active sessions, last-2h ones, and every session with real user input inside the lookback window (same window predicate as the TASKS gauge / project list — whatever the gauge counts has an overview card below), cap 200 |
 | `GET /api/agent?proj=&sess=&run=&agent=` | one agent's full transcript + journal events (data source of the run-card drawer) |
 | `GET /api/subagent?proj=&sess=&agent=[&msg=]` | session-layer full-text drawer: `agent=main` returns the main session's latest input/output; add `msg=<messageId>` for that step's full text (IN = the step's tool input, OUT = the turn's cumulative output), `msg=<uuid>` for one user input's full text (the prompt-echo anchor); otherwise returns the subagent's task and result |
 | `GET /api/config` | current webhook config + recent push results |
@@ -226,5 +226,5 @@ Iron rules:
 ## Known limits
 
 - Session transcripts are read from a **256KB tail window** by default to bound cost; per-step full text uses a **per-msg reverse deep scan (1MB blocks, up to 16MB)** — MB-scale base64 screenshot attachments can push old steps out of the tail window; if even the deep scan can't locate a step, the frontend says "this step is beyond transcript retention" explicitly;
-- session scanning covers only "active + last 2h" sessions (cap 40); run scanning covers the last N days (the "lookback window" setting, default 14);
+- session scanning covers "active + last 2h + sessions with input activity inside the lookback window" (cap 200; the window part matches the TASKS gauge exactly); run scanning covers the last N days (the "lookback window" setting, default 14);
 - status inference is a tail-window heuristic (no authoritative journal): under extreme timing, verdicts may lag by ±60s.
