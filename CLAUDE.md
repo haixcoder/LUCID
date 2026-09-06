@@ -11,6 +11,7 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 - 用户文档：`README.md`（英文版，GitHub 默认展示）/ `README.zh-CN.md`（中文版），两份互链；内容（原理、安装、页面功能、API、安全）改动时须同步对方
 - webhook 详解：`scripts/README.md`
 - 扩展调研：`docs/feature-extension-research.md`（2026-09 定稿：数据源实证地图 D1–D19 + 官方通道核实 + E1–E15 方案卡；`ROADMAP.md` 为其初版，§7 为勘误表）
+- 问题复盘：`docs/lessons-learned.md`（2026-09-06 定稿，覆盖 1.2.0→1.2.38 全史：六类问题的事件↔根因↔规则↔防线对照；**诊断新 bug 先对照其 §7 检查单**；同类型问题第二次出现=防线有洞，回来补该文档与对应测试）
 
 ## 铁律（违反即 bug）
 
@@ -39,6 +40,12 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
    - 数据源有硬上限时**必须在界面上写明**（日志尾标注「近 N 行·单行≤M 字」；尾窗 256KB / `DETAIL_CAP` 取不到全文时走 `miss:True` → 「⚠ 该步已超出转录留存范围」），不许让用户误以为看到的就是全部。
    - 非页面通道（飞书通知正文、`server.log` 单行）没有滚动：必须自带定位锚（项目 + runId/会话前 8 位）让人回页面看全，且**错误类宁可不截**（webhook 回执/异常串保留 2000 字）。
 
+8. **统计口径单点 + 消费者审计（违反即 bug；1.2.34→1.2.38 连续五版同类用户反馈换来的元规则）**：凡"计数 / 列表 / 门禁 / 过滤命中"这类统计概念——
+   - 判定逻辑只许住**唯一函数**（`_window_hit`/`_user_prompt`/`window_activity`/`sessHit`/`sessStuck`/`diffPaint`…），各展示面只许调用，禁止另写一份"同一口径"；
+   - **改口径 = 先枚举全部消费者**（API 字段→下拉→仪表→卡片→tooltip→通知→测试），同一版本一起改——只改数据源不改消费者列表（或反之）是本项目最贵的失误模式（1.2.36 改仪表埋 1.2.38 之雷）；
+   - 口径类修复的测试必须**把参数切换多次做参数化断言**（如 4d/14d/45d/1d 四档），并钉**对账不变量**（用户能从可见数字核到明细：列表之和==仪表小计）；
+   - fs 元数据（mtime/size/目录项）只支持"内容不可能比它新"的**单向负控制粗筛**，绝不配做入选依据；入选看内容自带语义（timestamp/type/stop_reason）。固定尺寸尾窗只许做显示成本控制，不许做计数与判定数据源。详见 `docs/lessons-learned.md` 类 1/2。
+
 ## 双路径陷阱：源码 ≠ 运行副本
 
 插件已安装后，**运行时加载的是缓存副本**，不是本仓库：
@@ -49,9 +56,8 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 ```
 
 - 改完源码必须同步：前端有改动先 `python3 frontend/build.py`（tsc 过编译，产物落 `static/index.html`）；然后 `claude plugin validate .` + `claude plugin install lucid@kw-dev-plugins` 重装，或手动覆盖安装副本（版本目录一致时等效，**`scripts/` 含 `ccviewer/` 子包与 `static/`，拷贝要递归 `cp -R`；`frontend/` 是开发源码，不进安装副本**）。
-- **正在运行的服务进程是旧代码**——重启才生效：
-  `python3 <脚本路径> --stop`（按 PID 文件停），再后台启动**安装副本路径**的脚本。
-- 排查"改了没生效"先 `ps -o command -p $(cat ~/.claude/cc-viewer/server.pid)` 看进程从哪份代码启动。
+- **正在运行的服务进程是旧代码**——重启才生效。常驻进程有两把：**server 与 guard 看护循环**，且 guard 会从**自己的运行路径** setsid 拉起 server——只重启 server 不杀 guard，旧循环会探测端口后把旧代码原地复活（1.2.10→1.2.11 实际踩坑，此后每次部署必"先杀旧 guard"）。升级动作顺序固定：`kill $(cat ~/.claude/cc-viewer/guard.pid)` → `server.py --stop` → 从**新安装副本路径**后台起 server → 新路径起 `guard.py --detach`。
+- 排查"改了没生效"先 `ps -o command -p $(cat ~/.claude/cc-viewer/server.pid)` **与 guard.pid 两条一起看**：两个路径的版本号必须一致且都指向新目录。
 
 ## 架构（多文件模块地图，按模块/函数名定位）
 
