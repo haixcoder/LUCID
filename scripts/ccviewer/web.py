@@ -17,7 +17,7 @@ from .agent import api_agent
 from .config import INPUT_TIERS, load_conf, port_free, save_conf
 from .notify import LAST_HOOK, send_hook, sess_text
 from .scan import projects_in_window, scan
-from .sessions import agent_detail, scan_sessions
+from .sessions import agent_detail, scan_sessions, tasks_summary
 
 INDEX_HTML = (Path(__file__).parent / 'static' / 'index.html').read_text(encoding='utf-8')
 _m = re.search(r'<script>\n([\s\S]*)\n</script></body>', INDEX_HTML)  # 主脚本块(boot 片段在 head,非 greedy 会错抓,用尾锚点定位)
@@ -44,7 +44,7 @@ class H(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == '/api/runs':
             self._json({'now': time.time(), 'ver': VER, 'recentDays': load_conf()['recentDays'], 'runs': scan(),
-                        'projects': projects_in_window()})
+                        'projects': projects_in_window(), 'tasks': tasks_summary()})
         elif u.path == '/api/sessions':
             self._json({'now': time.time(), 'sessions': scan_sessions()})
         elif u.path == '/api/subagent':

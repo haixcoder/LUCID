@@ -61,8 +61,9 @@ const { ck, done } = makeCk();
   const sd = stepOf('m1');
   ck('步骤 data-src 契约不变', (sd.dataset.src || '') === `S|${s0.project}|${SID}|main#m1`, sd.dataset.src);
   ck('眉标写明尾窗口径(铁律7)', sessEl.textContent.includes('尾窗') && sessEl.textContent.includes('任务(回合)'), '');
-  // 主 agent 调用任务次数上卡面(不展开也可见):数据只认后端 turns 字段,前端不再数 prompts(其摘要 30 条封顶会少数)
-  ck('卡顶行展示「尾窗任务 N」', sessEl.textContent.includes('尾窗任务 4'), sessEl.textContent.slice(0, 200));
+  // 主 agent 调用任务次数上卡面(不展开也可见):数据只认后端 turns 字段(1.2.36 起为全转录精确计数,
+  // 不再是尾窗口径 → 文案去掉「尾窗」前缀,眉标的「任务(回合)· 尾窗…步骤」仍是窗口口径,保留)
+  ck('卡顶行展示「任务 N」(精确计数,非尾窗口径)', sessEl.textContent.includes('任务 4') && !sessEl.textContent.includes('尾窗任务'), sessEl.textContent.slice(0, 200));
   ck('全程无渲染异常', env.errs.length === 0, env.errs.join(' | '));
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

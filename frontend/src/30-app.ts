@@ -69,7 +69,7 @@ async function tick(): Promise<void> {
   } catch (e) { $('gauges').innerHTML = `<div class="g er"><b>⚠</b><span>${T('⚠ 链路中断 重连中')}</span></div>`; return; }
   // 渲染异常不再冒充"链路中断"(历史坑:catch 同包 fetch+render,JS bug 被伪装成掉线且无痕迹)
   try {
-    runs = d.runs; sess = s.sessions || []; rdays = d.recentDays || 14;
+    runs = d.runs; sess = s.sessions || []; rdays = d.recentDays || 14; tasksData = d.tasks || null;
     const sel = $<HTMLSelectElement>('fproj');
     // 下拉数据源 = 后端 projects(回看窗口内有活动的项目全集,含无 workflow 运行的纯会话项目——
     // 旧行为只从 runs∪sessions 推导,窗口调到 180 天下拉的"总项目数"仍对不上,1.2.35 修)
@@ -151,10 +151,14 @@ function render(): void {
   // 过滤/搜索是持久化视图状态(1.2.9)——仪表计数随之变化,若不自证口径就会被当成"数据不准"(用户真实报过:
   // 只见 "3 RUNS" 不知还有第 4 个被筛掉)。有过滤时 RUNS 显示「命中/总数」+ tooltip 交代原因。
   const flt = !!(fproj || q);
-  // TASKS = 视图内各会话主 agent 调用任务次数之和(后端 turns 单点:尾窗全量+头扫首条;老数据缺字段按 0 计不冒充)
+  // TASKS = 主 agent 执行任务总次数,回看窗口口径(1.2.36:旧口径只加视图内会话,而视图=「活跃+近2h」,
+  // 窗口设 180 天仪表仍显近几小时的数)。数据源 tasks{total,byCwd}=后端全转录精确计数;无 tasks(旧后端)回落视图和。
+  // 过滤时:仅项目→byCwd 命中/总数(覆盖该项目全部会话);含搜索→搜索只能命中视图会话,任务命中按视图算并在 title 交代。
   const tsum = (ls: SessionState[]): number => ls.reduce((a, s) => a + (s.turns || 0), 0);
-  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行 · 任务 %3/%4', vis.length, runs.length, tsum(sess.filter(sessHit)), tsum(sess)))}"` : ''}><b>${vis.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
-    <div class="g"><b>${tsum(sess.filter(sessHit))}${flt ? '/' + tsum(sess) : ''}</b><span>TASKS</span></div>
+  const tAll = tasksData ? tasksData.total : tsum(sess);
+  const tHit = !flt ? tAll : tasksData && fproj && !fstr ? (tasksData.byCwd[fproj] || 0) : tsum(sess.filter(sessHit));
+  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行 · 任务 %3/%4', vis.length, runs.length, tHit, tAll))}"` : ''}><b>${vis.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
+    <div class="g"><b>${tHit}${flt ? '/' + tAll : ''}</b><span>TASKS</span></div>
     <div class="g lv"><b>${n(r => r.status === 'running')}</b><span>LIVE</span></div>
     <div class="g ok"><b>${n(r => r.status === 'completed')}</b><span>DONE</span></div>
     <div class="g er"><b>${n(r => ALERT_ST.has(r.status))}</b><span>ALERT</span></div>`;

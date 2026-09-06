@@ -124,7 +124,7 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 
 ## 页面功能
 
-**顶部**：仪表盘（RUNS / TASKS / LIVE / DONE / ALERT 计数——统计的是当前筛选视图；TASKS = 主 agent 被调用的任务总次数，即视图内各会话「尾窗任务」之和；有项目/搜索过滤时 RUNS 与 TASKS 显示「命中/总数」并悬停说明，避免误读为总数）、项目筛选（列表 = 回看窗口内有会话活动的全部项目，不只列有 workflow 运行的）、全文搜索、自动刷新开关、版本角标；右上「⚙ 设置」：01 通知钩子（含「等待输入通知」档位与 ⏸ 分型测试按钮）/ 02 端口 / 03 主题 / 04 语言 / 05 自动扫描 / 06 回看窗口，其中主题·语言·自动扫描即点即生效，其余由底栏统一保存。
+**顶部**：仪表盘（RUNS / TASKS / LIVE / DONE / ALERT 计数——统计的是当前筛选视图；TASKS = 主 agent 被调用的任务总次数，对回看窗口按完整转录精确计数、以每条输入自身时间戳落窗（不再有 256KB 尾窗漏计；跨窗口的长会话只计窗口内的任务；卡顶「任务 N」显示该会话的完整精确值）；有项目/搜索过滤时 RUNS 与 TASKS 显示「命中/总数」并悬停说明，避免误读为总数——项目过滤的命中即窗口内精确小计，搜索只能命中视图内会话）、项目筛选（列表 = 回看窗口内有会话活动的全部项目，不只列有 workflow 运行的）、全文搜索、自动刷新开关、版本角标；右上「⚙ 设置」：01 通知钩子（含「等待输入通知」档位与 ⏸ 分型测试按钮）/ 02 端口 / 03 主题 / 04 语言 / 05 自动扫描 / 06 回看窗口，其中主题·语言·自动扫描即点即生效，其余由底栏统一保存。
 
 **运行列表**（进行中置顶）：状态徽章（running / completed / failed / killed / stale / aborted）、phase 条、agent 表格（状态 / 最近工具 / tokens / 用时）、任务详情、系统日志尾、运行产物。
 
@@ -151,7 +151,7 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 
 | 端点 | 说明 |
 |------|------|
-| `GET /api/runs` | 全量运行快照（`{now, runs[], projects[]}`；进行中由 journal/转录实时重建；`projects` = 回看窗口内有会话活动的全部项目，含没有 workflow 运行、当前也不活跃的项目） |
+| `GET /api/runs` | 全量运行快照（`{now, runs[], projects[], tasks}`；进行中由 journal/转录实时重建；`projects` = 回看窗口内有会话活动的全部项目，含没有 workflow 运行、当前也不活跃的项目；`tasks` = `{total, byCwd}`，以每条输入自身时间戳落在回看窗口内为准的完整转录精确计数，总数与按项目小计） |
 | `GET /api/sessions` | 会话状态：主 agent（注册表判活 + 转录尾窗推断，status 含 `input_required` + `waitReason`/`waitTool`）+ `prompts`（卡顶提示词回显：尾窗用户输入摘要 + uuid + 首条 `f:1`）+ 执行步骤 + 全部非 workflow 子代理；候选 = 转录 ∪ 会话目录，含活跃会话与最近 2h 会话，上限 40 |
 | `GET /api/agent?proj=&sess=&run=&agent=` | 单 agent 完整转录 + journal 事件（运行卡抽屉数据源） |
 | `GET /api/subagent?proj=&sess=&agent=[&msg=]` | 会话层全文抽屉：`agent=main` 返回主会话最近输入/输出；加 `msg=<messageId>` 返回该步全文（IN=该步工具入参，OUT=所在回合累计输出），`msg=<uuid>` 返回该条用户输入全文（提示词回显锚点）；否则返回子代理任务与结果 |

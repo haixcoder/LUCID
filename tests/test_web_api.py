@@ -130,9 +130,12 @@ try:
     d = json.loads(raw)
     ck('runs: 200 + JSON 头 + no-store', code == 200 and hd.get('Content-Type') == 'application/json; charset=utf-8'
        and hd.get('Cache-Control') == 'no-store', str(hd))
-    ck('runs: 顶层键 now/ver/recentDays/runs/projects', set(d) == {'now', 'ver', 'recentDays', 'runs', 'projects'}, str(sorted(d)))
+    ck('runs: 顶层键 now/ver/recentDays/runs/projects/tasks', set(d) == {'now', 'ver', 'recentDays', 'runs', 'projects', 'tasks'}, str(sorted(d)))
     # 项目选择列表数据源:窗口内有活动的全部项目(按转录 cwd 解析)——fixture 两会话同项目 → 去重一条
     ck('runs: projects 含回看窗口内活动项目且去重', d.get('projects') == ['/work/fix'], str(d.get('projects')))
+    # TASKS 仪表数据源:回看窗口内全部会话的真人输入精确总数+按项目小计(S1/S2 各 1 条输入)
+    ck('runs: tasks 覆盖窗口全部会话(含不在视图的已结束会话)',
+       (d.get('tasks') or {}).get('total') == 2 and (d.get('tasks') or {}).get('byCwd') == {'/work/fix': 2}, str(d.get('tasks')))
     runs = {r['runId']: r for r in d['runs']}
     ck('runs: 含 fixture 两个运行', set(runs) == {'wf_done', 'wf_live1'}, str(sorted(runs)))
     rd_ = runs.get('wf_done') or {}
@@ -160,8 +163,8 @@ try:
     ck('sessions: lastTextMid/提示词/步骤契约字段随行回传',
        e.get('lastTextMid') == 'msgW1' and [p['u'] for p in e.get('prompts') or []] == [UU]
        and [st['msgId'] for st in e.get('steps') or []] == ['msgW1'], str(e.get('prompts')))
-    # turns=主 agent 被调用的任务次数(尾窗全量+头扫首条,与 prompts 摘要的 30 条上限无关)
-    ck('sessions: turns 计数随行回传(首条与尾窗同一条不重复计)', e.get('turns') == 1, repr(e.get('turns')))
+    # turns=主 agent 被调用的任务次数(全转录精确计数,1.2.36;与 prompts 摘要的 30 条上限无关)
+    ck('sessions: turns 计数随行回传(全量精确,S1 一条真人输入)', e.get('turns') == 1, repr(e.get('turns')))
 
     # ── 全文端点 + 守卫 ──
     a = json.loads(get('/api/agent?proj=-fixproj&sess=%s&run=wf_live1&agent=b1' % S1)[1])

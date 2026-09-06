@@ -5,9 +5,11 @@
 #   <proj>/<sess>/subagents/agent-*.jsonl   Task/teammate 子代理转录 + .meta.json(agentType/name/description/taskKind)
 # 状态为尽力而为的推断（无权威 journal），用 tail 窗口解析控制成本。
 # 主 agent 状态：running / input_required(等待用户，细分 ask|permission|turn) / waiting / ended，见 main_state()。
+import bisect
 import json
 import os
 import re
+import threading
 import time
 
 from . import config
@@ -536,6 +538,119 @@ def _candidates(now, reg):
             yield mt, alive, proj, sid, tp, sd
 
 
+_INP_LOCK = threading.Lock()
+# (proj, sid) -> (mtime_ns, size, (全量计数, 时间戳升序列表, 无时间戳条数))。转录只追加,size/mtime 未变→缓存复用
+_INP_CACHE = {}
+
+
+def _count_file(path):
+    """全转录真人输入精确计数:逐行,子串预筛 '"type":"user"' 后才 json.loads → _user_prompt 单点判定
+    (与提示词回显同一口径,不另写一份"什么算用户输入")。同 uuid 重传只计一次;无 uuid 逐条计。
+    半行(正在写入)解析失败丢弃,下轮 size/mtime 变化自然补上。实测全库 111MB 仅 0.2s——
+    尾窗 256KB 启发式会整段漏掉早期输入(1.2.36 修,用户报「执行任务总次数显示错误」)。
+    同时收集各条 ISO 时间戳(升序列表):仪表窗口口径按【输入自身时间】落窗,长会话跨窗口边界时
+    窗口外部分不许计入(会话 mtime 判窗会把 30 天前的输入记进"近 4 天"总数——实测 151 vs 127)。"""
+    seen, cnt, tss, nots = set(), 0, [], 0
+    try:
+        with open(path, 'r', errors='replace') as f:
+            for ln in f:
+                if '"type":"user"' not in ln and '"type": "user"' not in ln:  # 真转录为紧凑序列化;容错带空格的写入方
+                    continue
+                try:
+                    d = json.loads(ln)
+                except Exception:
+                    continue
+                if not _user_prompt(d):
+                    continue
+                u = d.get('uuid') or ''
+                if u:
+                    if u in seen:
+                        continue
+                    seen.add(u)
+                cnt += 1
+                ts = d.get('timestamp') or ''
+                if ts:
+                    tss.append(ts)
+                else:
+                    nots += 1
+    except OSError:
+        return 0, [], 0
+    tss.sort()  # ISO8601Z 串可按字典序比较/二分
+    return cnt, tss, nots
+
+
+def _inputs_entry(proj, sid):
+    """缓存读取/重算入口:返回 (全量计数, 时间戳升序列表, 无时间戳条数)。"""
+    path = config.PROJ / proj / (sid + '.jsonl')
+    key = (proj, sid)
+    with _INP_LOCK:
+        try:
+            st = path.stat()
+            sig = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            _INP_CACHE.pop(key, None)
+            return 0, [], 0
+        ent = _INP_CACHE.get(key)
+        if ent and ent[:2] == sig:
+            return ent[2]
+        val = _count_file(path)
+        _INP_CACHE[key] = (sig[0], sig[1], val)
+        return val
+
+
+def count_user_inputs(proj, sid):
+    """会话的真人输入总数(全量精确,带缓存)——卡顶「任务 N」数据源。缓存键含 size+mtime_ns:
+    截断/改写(变小)→ 全量重算。"""
+    return _inputs_entry(proj, sid)[0]
+
+
+def tasks_summary():
+    """TASKS 仪表数据源:真人输入【自身时间戳落在回看窗口内】的次数 + 按项目小计(项目过滤的命中口径)。
+    跨窗口的长会话只计窗口内的输入(会话 mtime 判窗会把 30 天前的任务记进「近 4 天」总数——
+    实测 151 vs 127 的偏差,1.2.36 与精确计数同批修);无时间戳的旧记录按会话活动度兜底判窗。
+    活动度判定与 scan.projects_in_window 同口径(目录∪转录 max mtime)。写入不晚于 mtime ⇒
+    窗外会话必无窗内输入,直接跳过不读盘。旧仪表只 tsum(视图内会话),而视图=「活跃+近2h」,
+    用户把窗口设 180 天仪表仍只显近几小时的数(实测 5 vs 全库真相 346)。"""
+    now = time.time()
+    recent = config.recent_sec()
+    cutoff = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - recent))
+    total, by_cwd = 0, {}
+    try:
+        projects = [p for p in config.PROJ.iterdir() if p.is_dir()]
+    except OSError:
+        return {'total': 0, 'byCwd': {}}
+    for proj in projects:
+        try:
+            entries = list(proj.iterdir())
+        except OSError:
+            continue
+        cands = {}
+        for e in entries:
+            sid = e.name if e.is_dir() else (e.stem if e.suffix == '.jsonl' else None)
+            if not sid or not SESS_RE.fullmatch(sid):
+                continue
+            try:
+                mt = e.stat().st_mtime
+                try:
+                    mt = max(mt, (proj / (sid + '.jsonl')).stat().st_mtime)
+                except OSError:
+                    pass
+                if mt > cands.get(sid, 0):
+                    cands[sid] = mt
+            except OSError:
+                continue
+        for sid, mt in cands.items():
+            if now - mt > recent:
+                continue
+            _, tss, nots = _inputs_entry(proj.name, sid)
+            n = (len(tss) - bisect.bisect_left(tss, cutoff)) + nots  # ISO8601Z 串字典序=时间序
+            if n:
+                total += n
+                lbl = session_cwd(proj.name, sid)
+                by_cwd[lbl] = by_cwd.get(lbl, 0) + n
+    return {'total': total, 'byCwd': by_cwd}
+
+
 def scan_sessions():
     now = time.time()
     reg = _registry()
@@ -562,7 +677,7 @@ def scan_sessions():
         status, why, wtool = main_state(info, alive, age)
         subs = _subagents(sdir, now) if sdir else []
         cwd = ent.get('cwd') or session_cwd(proj.name, sid)
-        fp = _first_prompt(tpath)  # 头扫首条只取一次:prompts 合并与 turns 补计共用(判据同 _merge_prompts 的 f:1)
+        fp = _first_prompt(tpath)  # 头扫首条:prompts 摘要合并用(f:1 判据同 _merge_prompts)
         out.append({'sessionId': sid, 'project': proj.name, 'cwd': cwd,
                     'title': _title(tpath, text), 'status': status, 'alive': alive,
                     'waitReason': why, 'waitTool': wtool,
@@ -574,9 +689,9 @@ def scan_sessions():
                     'pendingTools': info['pendingTools'], 'toolCalls': info['toolCalls'],
                     'lastPrompt': info['lastPrompt'], 'lastText': info['lastText'],
                     'lastTextMid': info['lastTextMid'],
-                    # turns = 主 agent 被调用的任务次数:尾窗全量 + 头扫首条(已在尾窗则不重复计)。
-                    # 不受 prompts 摘要 30 条封顶影响——长会话"调用次数"必须数得着全量。
-                    'turns': info['turnsTotal'] + (1 if fp[0] and all(p['u'] != fp[0] for p in info['prompts']) else 0),
+                    # turns = 主 agent 被调用的任务次数:全转录精确计数(count_user_inputs,带缓存)。
+                    # 旧口径"尾窗全量+头扫首条"对大会话系统性少计(>256KB 的早期输入看不见),1.2.36 修。
+                    'turns': count_user_inputs(proj.name, sid),
                     'prompts': _merge_prompts(info['prompts'], fp),
                     'steps': _main_steps(tpath), 'subagents': subs})
     return out
