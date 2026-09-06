@@ -110,7 +110,7 @@ function sessCard(r: SessionState, i: number): string {
   <div class="hd"><span class="b b-${wait ? (stuck ? 'input_required' : 'turn') : esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
   <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
   <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
-  <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${T('尾窗工具调用')} ${r.toolCalls}</div>
+  <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${r.turns === undefined ? '' : T('尾窗任务 %1', r.turns) + ' · '}${T('尾窗工具调用')} ${r.toolCalls}</div>
   ${wait ? `<details class="term waitline${stuck ? '' : ' turn'}" data-k="${esc(r.sessionId)}:wait"${wsrc}${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${stuck ? T('在等') + ' · ' + (r.waitTool ? esc(r.waitTool) : T('你的回复')) : T('最后输出')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
   <div class="term-body solo"><div class="pane" data-t="OUT · ${wtag}"><div class="rich">${wbody}</div>${whint}</div></div></details>` : ''}
   <div class="strip"><span class="ph ${r.pendingTools.length ? 'on' : ''}">${T('最近工具')} ${esc(r.pendingTools[0] || '—')}${r.pendingTools.length > 1 ? ' ' + T('等%1项', r.pendingTools.length) : ''}</span>

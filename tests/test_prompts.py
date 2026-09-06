@@ -64,6 +64,7 @@ if isinstance(ps, list):
     ck('analyze/ts', ps[1].get('ts') == '2026-09-05T09:41:07.000Z', repr(ps[1]))
     ck('analyze/flag-first-absent', all('f' not in p for p in ps))
     ck('analyze/no-uuid-skipped', all(p['u'] for p in ps) and '无uuid记录不算' not in [p['t'] for p in ps], repr(ps))
+ck('analyze/turnsTotal', info.get('turnsTotal') == 2, repr(info.get('turnsTotal')))
 ck('analyze/regress-lastPrompt', info['lastPrompt'] == '无uuid记录不算', repr(info['lastPrompt']))
 ck('analyze/regress-lastText', info['lastText'] == '好' and info['lastTextMid'] == 'msg_a2')
 
@@ -97,5 +98,7 @@ big = '\n'.join(rec('user', '输入%03d' % i, 'ub%02d' % i) for i in range(45))
 infob = sessions._analyze(big)
 ck('cap/30-newest', len(infob['prompts']) == 30 and infob['prompts'][-1]['t'] == '输入044'
    and infob['prompts'][0]['t'] == '输入015', str(len(infob['prompts'])))
+# 计数不被展示上限截断:prompts 摘要可被裁到 30 条,但 turnsTotal 必须是尾窗全量真实数
+ck('cap/turnsTotal-precap', infob.get('turnsTotal') == 45, repr(infob.get('turnsTotal')))
 
 done()

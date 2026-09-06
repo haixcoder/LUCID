@@ -138,6 +138,8 @@ def _analyze(text):
         tot['cacheWrite'] += u.get('cache_creation_input_tokens') or 0
     return {'model': last_model, 'stopReason': last_stop, 'permissionMode': last_perm, 'lastKind': last_kind,
             'tokens': tot, 'pendingTools': list(pend.values())[:8], 'toolCalls': tool_calls,
+            # 尾窗内真人输入全量数(prompts 摘要展示会裁到 30 条,计数不许跟着被裁——"调用任务次数"的数据源)
+            'turnsTotal': len(prompts),
             'lastText': (last_text or '')[:300], 'lastTextMid': last_text_mid, 'lastPrompt': (last_prompt or '')[:300],
             'prompts': prompts[-PROMPT_MAX:]}
 
@@ -560,6 +562,7 @@ def scan_sessions():
         status, why, wtool = main_state(info, alive, age)
         subs = _subagents(sdir, now) if sdir else []
         cwd = ent.get('cwd') or session_cwd(proj.name, sid)
+        fp = _first_prompt(tpath)  # 头扫首条只取一次:prompts 合并与 turns 补计共用(判据同 _merge_prompts 的 f:1)
         out.append({'sessionId': sid, 'project': proj.name, 'cwd': cwd,
                     'title': _title(tpath, text), 'status': status, 'alive': alive,
                     'waitReason': why, 'waitTool': wtool,
@@ -571,7 +574,10 @@ def scan_sessions():
                     'pendingTools': info['pendingTools'], 'toolCalls': info['toolCalls'],
                     'lastPrompt': info['lastPrompt'], 'lastText': info['lastText'],
                     'lastTextMid': info['lastTextMid'],
-                    'prompts': _merge_prompts(info['prompts'], _first_prompt(tpath)),
+                    # turns = 主 agent 被调用的任务次数:尾窗全量 + 头扫首条(已在尾窗则不重复计)。
+                    # 不受 prompts 摘要 30 条封顶影响——长会话"调用次数"必须数得着全量。
+                    'turns': info['turnsTotal'] + (1 if fp[0] and all(p['u'] != fp[0] for p in info['prompts']) else 0),
+                    'prompts': _merge_prompts(info['prompts'], fp),
                     'steps': _main_steps(tpath), 'subagents': subs})
     return out
 

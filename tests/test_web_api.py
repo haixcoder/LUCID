@@ -158,6 +158,8 @@ try:
     ck('sessions: lastTextMid/提示词/步骤契约字段随行回传',
        e.get('lastTextMid') == 'msgW1' and [p['u'] for p in e.get('prompts') or []] == [UU]
        and [st['msgId'] for st in e.get('steps') or []] == ['msgW1'], str(e.get('prompts')))
+    # turns=主 agent 被调用的任务次数(尾窗全量+头扫首条,与 prompts 摘要的 30 条上限无关)
+    ck('sessions: turns 计数随行回传(首条与尾窗同一条不重复计)', e.get('turns') == 1, repr(e.get('turns')))
 
     # ── 全文端点 + 守卫 ──
     a = json.loads(get('/api/agent?proj=-fixproj&sess=%s&run=wf_live1&agent=b1' % S1)[1])

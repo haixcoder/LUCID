@@ -34,6 +34,10 @@ def main():
     tsc = shutil.which('tsc')
     cmd = ([tsc] if tsc else ['npx', '-y', '-p', 'typescript@5', 'tsc']) + [
         '--strict', '--target', 'es2020', '--lib', 'es2020,dom,dom.iterable', '--module', 'none',
+        # 构建封闭性:app.ts 只用 DOM,禁掉沿目录上溯自动吸入仓库 node_modules/@types
+        # (1.2.32 起 @types/node 的 worker_threads 引 undici-types,--module none 的经典解析下必挂 TS2792;
+        #  Node 侧类型检查归 tsconfig.check.json(typecheck 套件),与浏览器产物互不越界)
+        '--typeRoots', str(dist),
         '--outFile', str(dist / 'app.js'), str(bundle)]
     print('$', ' '.join(cmd))
     rc = subprocess.call(cmd)

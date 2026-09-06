@@ -11,7 +11,7 @@ const { ck, done } = makeCk();
   const s0 = JSON.parse(JSON.stringify(SESSION_FIX));
   Object.assign(s0, {
     sessionId: SID, status: 'running', alive: true, waitReason: null, waitTool: null,
-    pendingTools: ['Bash'], toolCalls: 4, lastTextMid: 'm3',
+    pendingTools: ['Bash'], toolCalls: 4, lastTextMid: 'm3', turns: 4,
     prompts: [{ u: 'uu-1', t: '任务一:修仪表', ts: '2026-09-05T04:00:00.000Z' },
               { u: 'uu-2', t: '任务二:跑测试', ts: '2026-09-05T04:10:00.000Z' },
               { u: 'uu-9', t: '只输入未执行', ts: '2026-09-05T04:30:00.000Z' }],
@@ -61,6 +61,8 @@ const { ck, done } = makeCk();
   const sd = stepOf('m1');
   ck('步骤 data-src 契约不变', (sd.dataset.src || '') === `S|${s0.project}|${SID}|main#m1`, sd.dataset.src);
   ck('眉标写明尾窗口径(铁律7)', sessEl.textContent.includes('尾窗') && sessEl.textContent.includes('任务(回合)'), '');
+  // 主 agent 调用任务次数上卡面(不展开也可见):数据只认后端 turns 字段,前端不再数 prompts(其摘要 30 条封顶会少数)
+  ck('卡顶行展示「尾窗任务 N」', sessEl.textContent.includes('尾窗任务 4'), sessEl.textContent.slice(0, 200));
   ck('全程无渲染异常', env.errs.length === 0, env.errs.join(' | '));
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });
