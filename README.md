@@ -118,7 +118,7 @@ Day to day you never start anything manually: the plugin's `hooks/hooks.json` (S
 
 ## Page tour
 
-**Top bar**: dashboard (RUNS / LIVE / DONE / ALERT counters — they count the current filtered view; with a project/search filter active, RUNS shows `hits/total` with a hover explanation, so filtered-away runs are never mistaken for bad data), project filter, full-text search, auto-refresh toggle, version badge; top-right "⚙ Settings": 01 webhook (incl. the "input-required notification" tier and ⏸ per-kind test buttons) / 02 port / 03 theme / 04 language / 05 auto-scan / 06 lookback window — theme, language and auto-scan take effect at once, everything else is saved by the footer bar.
+**Top bar**: dashboard (RUNS / TASKS / LIVE / DONE / ALERT counters — they count the current filtered view; TASKS = total times the main agent was invoked with a task, i.e. the sum of the per-session "tail-window tasks" shown on each card; with a project/search filter active, RUNS and TASKS show `hits/total` with a hover explanation, so filtered-away runs are never mistaken for bad data), project filter, full-text search, auto-refresh toggle, version badge; top-right "⚙ Settings": 01 webhook (incl. the "input-required notification" tier and ⏸ per-kind test buttons) / 02 port / 03 theme / 04 language / 05 auto-scan / 06 lookback window — theme, language and auto-scan take effect at once, everything else is saved by the footer bar.
 
 **Run list** (in-progress pinned first): status badge (running / completed / failed / killed / stale / aborted), phase bar, agent table (status / latest tool / tokens / elapsed), task details, system log tail, run artifacts.
 
