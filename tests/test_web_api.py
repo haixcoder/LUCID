@@ -254,6 +254,49 @@ try:
     ck('test: 无 URL 时明确失败原因(不假装送达)', r.get('ok') is False and 'webhook URL' in r.get('msg', ''), str(r))
     code, r, _ = post('/api/config/test', {'kind': 'input_required'})
     ck('test: input_required 分型走同一条通路', r.get('ok') is False and 'webhook URL' in r.get('msg', ''), str(r))
+
+    # ── 编排器物料(1.2.43):白名单静态件 + 草稿 save/list 全链路 ──
+    code, raw, hd = get('/static/xyflow.system.umd.js')
+    ck('static: vendored UMD 200 + JS 头 + 首字节非 HTML + no-store',
+       code == 200 and hd.get('Content-Type') == 'text/javascript; charset=utf-8'
+       and hd.get('Cache-Control') == 'no-store' and raw[:1] != b'<' and len(raw) > 50000,
+       str((code, hd.get('Content-Type'), raw[:24])))
+    for badp in ['/static/../server.py', '/static/%2e%2e/server.py', '/static/index.html', '/static/config.json', '/static/nope.js']:
+        ck('static: 穿越/未列名 → 404 (%s)' % badp, get(badp)[0] == 404, str(get(badp)[0]))
+    code, r, _ = post('/api/draft/save', {'name': 'e2e', 'draft': {'v': 1, 'cwd': '/work/fix'}, 'script': 'x'},
+                      {'Origin': 'http://evil.example'})
+    ck('draft: Origin 守卫同样覆盖新 POST 端点(异源 403)', code == 403 and not isinstance(r, dict), str(code))
+    DSCRIPT = 'export const meta = { name: "e2e-flow", description: "", phases: [{ title: "Scope" }] }\nreturn { ok: 1 }\n'
+    DDRAFT = {'v': 1, 'name': 'e2e-flow', 'desc': '端到端草稿', 'cwd': '/work/fix',
+              'nodes': [{'id': 'n1', 'type': 'start', 'position': {'x': 0, 'y': 0}, 'data': {'note': 'q'}}],
+              'edges': [], 'next': 2, 'view': {'x': 0, 'y': 0, 'zoom': 1}}
+    code, r, _ = post('/api/draft/save', {'name': 'e2e-flow', 'draft': DDRAFT, 'script': DSCRIPT})
+    jsp = Path(r.get('path', ''))
+    ck('draft: HTTP 保存 → 200/ok + 落盘在临时 HOME 的 cc-viewer/drafts 内',
+       code == 200 and r.get('ok') is True and str(jsp).startswith(str(CLD / 'cc-viewer' / 'drafts')) and jsp.is_file(), str(r)[:200])
+    ck('draft: 执行件与草稿成对落盘(内容逐字节 = 请求)',
+       jsp.read_text(encoding='utf-8') == DSCRIPT and jsp.with_suffix('.json').read_text(encoding='utf-8')
+       == json.dumps(DDRAFT, ensure_ascii=False))
+    ck('draft: 绝不含 ~/.claude/projects 写盘(铁律 2)', not list(PROJ.rglob('e2e-flow*')), str(PROJ))
+    lcode, lraw, _ = get('/api/drafts?proj=/work/fix')
+    code, lst = lcode, json.loads(lraw)
+    items = {it['name']: it for it in lst.get('drafts', [])}
+    ck('draft: save→list 往返一致(回载再编辑的数据面)',
+       code == 200 and 'e2e-flow' in items and (items['e2e-flow'].get('draft') or {}).get('desc') == '端到端草稿'
+       and Path(items['e2e-flow']['js']).is_file(), str(lst)[:200])
+    ck('draft: 列表口径==磁盘枚举(无第二判定)',
+       sorted(items) == sorted(p.stem for p in jsp.parent.glob('*.json')), str((sorted(items), sorted(p.stem for p in jsp.parent.glob('*.json')))))
+    # proj 缺省 → 与保存端同一 slug 判定(_draft_dir('')),该目录下确实没有草稿
+    ck('draft: proj 缺省时列表为空(判定与保存端同源,不 500)',
+       json.loads(get('/api/drafts')[1]).get('drafts') == [], str(get('/api/drafts')[1])[:160])
+    ck('draft: 中文/带空格项目路径可存可取(URL 编码往返)',
+       post('/api/draft/save', {'name': 'cn', 'draft': dict(DDRAFT, cwd='/work/测 试 目录', name='cn'), 'script': '// cn\n'})[1].get('ok') is True
+       and 'cn' in [x['name'] for x in json.loads(get('/api/drafts?proj=' + urllib.parse.quote('/work/测 试 目录'))[1])['drafts']],
+       '中文 cwd 往返')
+    ck('draft: 恶意 name 经 HTTP 同样被拒',
+       post('/api/draft/save', {'name': '../escape', 'draft': DDRAFT, 'script': 'x'})[1].get('ok') is False)
+    ck('draft: draft.v!=1 经 HTTP 被拒',
+       post('/api/draft/save', {'name': 'vv', 'draft': {'v': 2, 'cwd': '/work/fix'}, 'script': 'x'})[1].get('ok') is False)
 finally:
     proc.terminate()
     try:
