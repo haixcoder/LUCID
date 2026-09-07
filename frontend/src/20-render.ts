@@ -59,6 +59,11 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
   const wait = r.status === 'input_required';
   const stuck = sessStuck(r);
   const wlab = r.waitReason === 'ask' ? T('等待回答') : r.waitReason === 'permission' ? T('等待授权') : stuck ? T('等待输入') : T('回合已完');
+  // 交接工作流(1.2.42,真实反馈「提示等待授权,实际主 agent 已交给工作流执行」):status=running +
+  // waitReason=workflow —— 徽标改口"等待 workflow 执行"(用 running 的活动样式,非 ⏸ 告警),
+  // 绝不再走 permission;⏸ 计数/等待推送只认 ask|permission(sessStuck),故不会被误当"该你动手"。
+  const wflow = r.status === 'running' && r.waitReason === 'workflow';
+  const badge = wflow ? T('等待 workflow 执行') : wait ? wlab : esc(r.status.toUpperCase());
   const wtxt = (r.lastText || '').replace(/\s+/g, ' ').trim();   // 摘要不再定长裁切：省略号只是折叠，展开即拉全文(见"日志可看全"铁律)
   // 等待行全文抽屉:后端回传 lastTextMid → data-src=main#<id> 懒拉整步全文(FULL 缓存跨轮询存活),
   // 与步骤行/子代理行同一契约;无 mid 的老转录回落到 300 字摘要+指引文案。
@@ -121,7 +126,7 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
   <div class="thead"><span></span><span>${T('步骤 · 输出')}</span><span>${T('工具')}</span><span class="num">TOK in/out</span><span class="num">${T('时间')}</span><span class="num"></span><span></span></div>
   ${units.map(unitHtml).join('')}` : '';
   return `<div class="card${r.alive ? ' live' : ''}${stuck ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
-  <div class="hd"><span class="b b-${wait ? (stuck ? 'input_required' : 'turn') : esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
+  <div class="hd"><span class="b b-${wait ? (stuck ? 'input_required' : 'turn') : esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${badge}</span>
   <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
   <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
   <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${r.turns === undefined ? '' : T('任务 %1', r.turns) + ' · '}${T('尾窗工具调用')} ${r.toolCalls}</div>

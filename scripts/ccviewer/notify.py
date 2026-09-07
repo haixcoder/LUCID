@@ -17,7 +17,9 @@ from .sessions import scan_sessions_cached
 STATUS_ZH = {'completed': '✓ 执行完成', 'failed': '✗ 失败', 'killed': '⛔ 被终止',
              'aborted': '⊘ 未正常收尾', 'error': '✗ 错误', 'stopped': '⏹ 已停止'}
 # 等待成因 → 人话（与 sessions.main_state 的 waitReason 一一对应）
-WAIT_ZH = {'ask': '等待回答', 'permission': '等待授权(疑似)', 'turn': '等待输入'}  # ⏸ 由正文首行统一加，避免双图标
+# 'workflow'(1.2.42)是 running 态的交接标注、非"等人"，notify_inputs 只发 status=input_required，
+# 故此键当前不经推送触达；仍列出是为守住"一一对应"不变量(缺项=页面与推送口径分叉的复发温床)。
+WAIT_ZH = {'ask': '等待回答', 'permission': '等待授权(疑似)', 'turn': '等待输入', 'workflow': '工作流执行中'}  # ⏸ 由正文首行统一加，避免双图标
 LAST_HOOK = {'at': 0, 'ok': None, 'status': '', 'reply': ''}
 
 

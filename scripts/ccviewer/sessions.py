@@ -4,7 +4,7 @@
 #   <proj>/<sess>.jsonl                     主 agent 转录(message.usage/model/stop_reason/工具块/ai-title/permissionMode)
 #   <proj>/<sess>/subagents/agent-*.jsonl   Task/teammate 子代理转录 + .meta.json(agentType/name/description/taskKind)
 # 状态为尽力而为的推断（无权威 journal），用 tail 窗口解析控制成本。
-# 主 agent 状态：running / input_required(等待用户，细分 ask|permission|turn) / waiting / ended，见 main_state()。
+# 主 agent 状态：running(waitReason=workflow＝已交给工作流后台执行,非卡在授权) / input_required(等待用户，细分 ask|permission|turn) / waiting / ended，见 main_state()。
 import bisect
 import json
 import os
@@ -148,12 +148,16 @@ def _analyze(text):
             'prompts': prompts[-PROMPT_MAX:]}
 
 
-def main_state(info, alive, age):
+def main_state(info, alive, age, wf_running=False):
     """主 agent 状态(3.2)：running / input_required(等待用户) / waiting / ended。
     input_required 按成因细分 waitReason ——
       ask        : 挂起 AskUserQuestion / ExitPlanMode，模型在等用户回答或确认计划;
       permission : 挂起普通工具且转录已静默 >= STALL_SEC，最合理解释是卡在授权确认(无法与"长命令仍在跑"区分,故文档里写"疑似");
       turn       : 无挂起工具、末条为 assistant 且 stop_reason 为交回话轮 —— 模型说完了,等你下一句。
+    running 亦可带成因 waitReason=workflow(1.2.42,真实反馈:「提示等待授权,实际上主 agent 已将任务交给
+    工作流在执行」)—— 挂起 Workflow 工具且该会话已有运行目录 subagents/workflows/wf_*/(＝工作流已启动、
+    在后台跑,其单条长步骤会让主转录静默 >STALL_SEC,若按普通工具判会被误报成"等待授权"⏸ 告警 + 推送)。
+    判据只住这一处:ask 优先(真需要人回答) → 交接工作流 → permission 启发式。
     纯推断(无权威 journal),与既有 running/waiting 同级;误报代价只是一条可关的通知。"""
     if not alive:
         return 'ended', None, None
@@ -162,6 +166,8 @@ def main_state(info, alive, age):
         ask = next((t for t in pend if t in ASK_TOOLS), None)
         if ask:
             return 'input_required', 'ask', ask
+        if wf_running and 'Workflow' in pend:
+            return 'running', 'workflow', 'Workflow'
         if age >= STALL_SEC:
             return 'input_required', 'permission', pend[0]
         return 'running', None, None
@@ -692,7 +698,13 @@ def scan_sessions():
         except Exception:
             submt = 0
         age = min(age, now - submt if submt else age)
-        status, why, wtool = main_state(info, alive, age)
+        # 工作流运行目录存在 = 有 Workflow 已被调起(其 agent 文件在 subagents/workflows/wf_*/ 深处,
+        # 不在上面的 agent-*.jsonl 平铺 glob 内,故单列一个存在性信号交给 main_state 判交接)。
+        try:
+            wf_running = bool(sdir) and any((sdir / 'subagents' / 'workflows').glob('wf_*'))
+        except Exception:
+            wf_running = False
+        status, why, wtool = main_state(info, alive, age, wf_running)
         subs = _subagents(sdir, now) if sdir else []
         cwd = ent.get('cwd') or session_cwd(proj.name, sid)
         fp = _first_prompt(tpath)  # 头扫首条:prompts 摘要合并用(f:1 判据同 _merge_prompts)

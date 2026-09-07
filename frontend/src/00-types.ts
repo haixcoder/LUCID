@@ -25,7 +25,7 @@ interface SessionState {
   sessionId: string; project: string; cwd: string; title: string; status: string; alive: boolean;
   pid?: number | null; kind?: string | null; version?: string | null; startedAt: number; lastActivityAt: number;
   ageSec: number; model?: string | null; stopReason?: string | null; permissionMode?: string | null;
-  waitReason?: string | null; waitTool?: string | null;  // status=input_required 时的成因:ask|permission|turn
+  waitReason?: string | null; waitTool?: string | null;  // 阻塞成因(input_required:ask|permission|turn;running:workflow=已交接工作流后台执行,1.2.42)
   tokens: Tok; pendingTools: string[]; toolCalls: number; lastPrompt: string; lastText: string;
   lastTextMid?: string;  // lastText 所在消息 id;等待行全文抽屉 data-src=main#<id> 的回取锚点
   prompts?: PromptEcho[];  // 卡顶「你输入 ❯」:尾窗用户输入(摘要+uuid 锚点懒拉全文)+ 头扫首条(f:1)
