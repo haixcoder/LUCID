@@ -69,8 +69,9 @@ function nodeHTML(n: FlowNode): string {
     `<label>${T('prompt(可引用 {{nX}})')}</label><textarea class="nodrag f-prompt" rows="3">${esc(d.prompt || '')}</textarea>` +
     `<label>${T('model / schema(可空)')}</label><div class="frow"><select class="nodrag f-model"><option value="">inherit</option>${FLOW_MODELS.map(m => `<option${d.model === m ? ' selected' : ''}>${m}</option>`).join('')}</select><textarea class="nodrag f-schema" rows="1" placeholder="{JSON Schema}">${esc(d.schemaText || '')}</textarea></div>`;
   if (t === 'return') fields = `<label>${T('return 表达式')}</label><textarea class="nodrag f-ret" rows="2">${esc(d.ret || '')}</textarea>`;
+  // 徽章 = 脚本里的变量名:下游 prompt 要敲的 {{nX}} 就是它(结构即信息,不是装饰)
   return `<div class="wfnode t-${t} ${FLOW_LIB}-flow__node nopan${FS.sel.has(n.id) ? ' sel' : ''}" data-nodeid="${n.id}" style="left:${n.position.x}px;top:${n.position.y}px">` +
-    `<div class="hd"><b>${label}</b>${t === 'agent' && d.label ? `<span>${esc(d.label)}</span>` : ''}<span class="tag nodrag" title="${T('删除节点')}">✕</span></div>${fields}` +
+    `<div class="hd"><b>${label}</b><i>${n.id}</i>${t === 'agent' && d.label ? `<span>${esc(d.label)}</span>` : ''}<span class="tag nodrag" title="${T('删除节点')}">✕</span></div>${fields}` +
     (t !== 'start' ? handleHTML(n, 'target') : '') + (t !== 'return' ? handleHTML(n, 'source') : '') + `</div>`;
 }
 function fNodeEl(id: string): HTMLElement | null {
@@ -106,6 +107,8 @@ function flowRender(): void {
   fdrag.clear();
   fVp().querySelectorAll('.wfnode').forEach(el => el.remove());
   fVp().insertAdjacentHTML('beforeend', FS.nodes.map(nodeHTML).join(''));
+  const empty = $<HTMLElement>('fEmpty');
+  if (empty) empty.hidden = FS.nodes.length > 0;      // 空画布给一条"从哪儿开始",不留白
   measureFlow(); syncLookup(); wireNodes(); renderEdges(); refreshFlowScript(); autosaveFlow();
 }
 
@@ -241,16 +244,34 @@ function flowCenter(): FlowPos {
   return { x: (p.clientWidth / 2 - FS.view.x) / FS.view.zoom - 125, y: (p.clientHeight / 2 - FS.view.y) / FS.view.zoom - 40 };
 }
 
-// ── 脚本预览 + 校验(铁律 7:错误清单不裁,定高滚动)──
+// ── 脚本预览 + 校验(铁律 7:错误清单不裁,定高滚动)+ 两块读数 ──
+// 阶段条数据只读 flowMetaPhases 单点(与生成脚本用的是同一个函数:编排时看到的 == 跑起来看到的);
+// 读数全用数字与符号(行数/字节/段数),不新增文案。
 function refreshFlowScript(): void {
   const out = $<HTMLElement>('fScript'), d = flowDraft(), errs = flowValidate(d);
+  const ph = $<HTMLElement>('fPhases');
+  if (ph) {
+    const titles = flowMetaPhases(d).map(x => x.title);
+    ph.innerHTML = `<span class="fh-k">PHASES</span>` + (titles.length
+      ? titles.map(t => `<span class="ph">${esc(t)}</span>`).join('') : '<i>—</i>');
+  }
+  const stat = $<HTMLElement>('fStat'), label = $<HTMLElement>('fOut');
+  if (label) label.setAttribute('data-t', 'OUT · ' + T('运行产物'));
+  let js = '';
   if (errs.length) {
     out.textContent = '// ' + T('存在错误,无法生成');
     flowErr(T('存在错误,无法生成') + '\n· ' + errs.join('\n· '));
+    if (stat) stat.textContent = '·';
     return;
   }
-  try { out.textContent = flowGenerate(d); flowErr(''); }
-  catch (e) { out.textContent = '// ' + T('存在错误,无法生成'); flowErr(String((e as Error)?.message ?? e)); }
+  try { js = flowGenerate(d); flowErr(''); }
+  catch (e) { out.textContent = '// ' + T('存在错误,无法生成'); flowErr(String((e as Error)?.message ?? e)); if (stat) stat.textContent = '·'; return; }
+  out.textContent = js;
+  if (stat) {
+    const n = js.length, bytes = n < 1024 ? n + ' B' : (n / 1024).toFixed(1) + ' KB';
+    // 读数只用 L(行数)/字节数/◆段数三个技术符号(与页面上 SYSTEM CONFIG、OUT 同一口径,不进翻译层)
+    stat.textContent = `L${js.split('\n').length} · ${bytes} · ◆${flowMetaPhases(d).length}`;
+  }
 }
 function flowDraft(): FlowDraft {
   return { v: 1, name: FS.name.trim() || 'untitled', desc: FS.desc, cwd: FS.cwd, nodes: FS.nodes, edges: FS.edges, next: FS.next, view: FS.view };
@@ -420,7 +441,9 @@ function wireShell(): void {
   $<HTMLInputElement>('fName').oninput = e => { FS.name = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLInputElement>('fDesc').oninput = e => { FS.desc = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   document.querySelectorAll<HTMLElement>('#fPalette .pal').forEach(p => {
-    p.addEventListener('click', () => flowAddNode((p.dataset.t || 'agent') as FlowKind, flowCenter()));
+    const add = (): void => { flowAddNode((p.dataset.t || 'agent') as FlowKind, flowCenter()); };
+    p.addEventListener('click', add);
+    p.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); add(); } });   // tabindex 给了焦点,回车/空格必须真的能加节点
     p.addEventListener('dragstart', e => (e as DragEvent).dataTransfer?.setData('text/plain', String(p.dataset.t || '')));
   });
   const pane = fPane();

@@ -165,6 +165,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     '复制脚本': 'Copy script',
     '清空画布': 'Clear canvas',
     '复制执行命令': 'Copy run command',
+'画布为空 · 点左侧组件开始': 'Empty canvas — add a component on the left',
+'多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持': 'Many in-edges = join barrier (it waits for all of them); loops and branches are not supported yet',
   },
   es: {
     '◆ 全部项目': '◆ Todos los proyectos',
@@ -317,6 +319,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     '复制脚本': 'Copiar script',
     '清空画布': 'Vaciar lienzo',
     '复制执行命令': 'Copiar comando',
+'画布为空 · 点左侧组件开始': 'Lienzo vacío: añade un componente a la izquierda',
+'多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持': 'Varias entradas = barrera de convergencia (espera a todas); bucles y ramificaciones aún no se admiten',
   },
   fr: {
     '◆ 全部项目': '◆ Tous les projets',
@@ -469,6 +473,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     '复制脚本': 'Copier le script',
     '清空画布': 'Vider le canevas',
     '复制执行命令': 'Copier la commande',
+'画布为空 · 点左侧组件开始': 'Canevas vide — ajoutez un composant à gauche',
+'多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持': 'Plusieurs entrées = barre de jointure (elle attend tout) ; boucles et embranchements non pris en charge',
   },
   de: {
     '◆ 全部项目': '◆ Alle Projekte',
@@ -621,6 +627,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     '复制脚本': 'Skript kopieren',
     '清空画布': 'Leinwand leeren',
     '复制执行命令': 'Befehl kopieren',
+'画布为空 · 点左侧组件开始': 'Leere Leinwand — links ein Bauteil hinzufügen',
+'多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持': 'Mehrere Eingänge = Join-Barriere (wartet auf alle) ; Schleifen und Verzweigungen noch nicht unterstützt',
   },
 };
 function detectLang(): Lang {
