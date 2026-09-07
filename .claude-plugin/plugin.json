@@ -1,7 +1,7 @@
 {
   "name": "lucid",
-  "version": "1.2.42",
-  "description": "Claude Code 插件 Lucid:实时透视 Workflow 与 Agent 执行的网页查看器。/lucid 一键启动零依赖本地服务(Python3 stdlib,仅绑定 127.0.0.1),实时展示 phase/agent 状态、最近工具、tokens、耗时与完整 prompt/result,支持飞书/通用 JSON webhook 终态与等待通知、项目筛选、全文搜索、自动刷新、五主题与五语种界面(中/英/西/法/德)。",
+  "version": "1.2.43",
+  "description": "Claude Code 插件 Lucid:实时透视 Workflow 与 Agent 执行的网页查看器。/lucid 一键启动零依赖本地服务(Python3 stdlib,仅绑定 127.0.0.1),实时展示 phase/agent 状态、最近工具、tokens、耗时与完整 prompt/result,支持飞书/通用 JSON webhook 终态与等待通知、项目筛选、全文搜索、自动刷新、五主题与五语种界面(中/英/西/法/德),并可在页面里可视化编排 Workflow(拖节点连线→实时生成脚本→保存草稿→终端 scriptPath 执行)。",
   "author": {
     "name": "yanghai"
   },

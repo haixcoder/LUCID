@@ -27,6 +27,7 @@ Lucid 是一个 **Claude Code 本地插件**：在工作流运行时打开一个
 - **会话监控**：主 agent（running / **input_required 等待用户** / waiting / ended）+ 全部非 workflow 子代理（task / teammate），pending 工具、权限模式、尾窗步骤表（**按 turn 回合分组：一次用户输入 + 它引发的全部步骤 = 一个独立展示单元**，输入行作组头、左色条成簇，不再把整段会话的步骤平铺一锅端）。等待原因再细分三档：**等待回答**（挂起 AskUserQuestion / ExitPlanMode）、**等待授权**（工具挂起且已静默 ≥2min，疑似卡在授权确认）——这两类是"真卡住、该你动手"，用反白 ⏸ 高亮徽标 + 左侧色条 +「在等 …」一行显示它在等什么；而**回合已完**（模型说完、正常交回话轮 = 执行完成，无挂起工具）只是"空闲等你下一句",不占用告警视觉：青色静态徽标、无色条、区标题 ⏸ 计数也不计（`notifyInput` 通知档位管的是推送，与页面显示各管各的）。**交给工作流执行**（1.2.42）：主 agent 调起 `Workflow` 工具、任务已交给工作流后台跑时是 **running / `waitReason`=workflow**,徽标显示「等待 workflow 执行」而非「等待授权」——工作流在跑、不用你动手,故不占 ⏸ 告警、不计等待数、也不发等待推送（只有 ask/permission 才"该你动手";其单条长步骤会让主转录静默 >2min,旧版据此误判成"疑似卡在授权"）。运行进度照常嵌在同一会话卡的回合时间线里
 - **提示词回显（回合组头）**：会话卡的每个任务单元以「❯ 你输入」行开头——把"用户真正打进来的话"从转录里提出来（自动剔除工具回执 / 系统注入 / 无参命令，`/goal …` 取 `<command-args>`），组头带时间戳与该回合步数徽章，展开即懒拉整条输入全文（记录 uuid 锚定，与步骤行同契约）；掉出尾窗的首条以「最初」标出；某步骤的开场输入超出尾窗时组头显式标注并仍可展开回取全文，绝不静默吞掉归属
 - **Workflow 内嵌时间线**：主 agent 调起的 workflow 不再孤悬在下方很远的运行区——完整运行卡按 `startedAt` 嵌回发起会话卡的回合时间线，与「❯ 输入行」组同池按时间排序（你输入 → 步骤 → 它调起的 workflow 块 → 下一次输入）。嵌入即从运行区摘除、绝不重复展示；发起会话不在列表（出窗/被滤）时运行卡照常留在运行区。RUNS/LIVE/DONE/ALERT 仪表始终计「嵌入+独立」全集——页面摆出几张运行卡，仪表就数几张
+- **可视化编排 Workflow(1.2.43)**:页面顶部「✦ 编排」打开画布 —— 用 Start / Agent / Return 三种积木拖节点、连线成一张 DAG,右侧**实时生成**可执行的 Workflow 脚本(拓扑分层→顺序 `await`,同层多节点→`parallel` 栅栏并各带 `opts.phase`,`{{nX}}` 占位符→模板插值,phase 首现去重→`meta.phases`);「保存草稿」写进 `~/.claude/cc-viewer/drafts/<项目>/<名>.js`(+ 同名 `.json` 图草稿,供回载再编辑),执行仍在目标项目终端跑 `Workflow({scriptPath, args})` —— **服务不代执行**,跑起来的进度由既有扫描自动成卡并嵌回发起会话。顶部 PHASES 条就是这张图将生成的阶段(与运行卡同一套芯片语言),节点卡上的 `n2` 徽章即下游 prompt 要引用的变量名;Del 删选中、点连线删边、⌘/Ctrl+S 保存、关掉页面前的编辑自动存盘并询问恢复
 - **纯交互会话也在列**：会话候选 = 转录 `<sess>.jsonl` ∪ 会话目录，没有子代理的会话同样出现在监控里（此前只遍历目录，恰恰漏掉最该提醒"在等你"的那个会话）
 - **全文抽屉**：点击任意 agent / 步骤行展开详情——自动拉取完整 prompt / result（转录 + journal 深扫全文，替换截断预览），滚动位置跨轮询保持。全文在途约 1 秒，抽屉会先做一段渐变转场：拉取中 pane 有扫描光预告，到达时新内容淡入 + 一次性高光扫过，不再是"突然一闪换内容"。会话步骤的右侧输出面板按「回合」累计：一次回答常拆成多条消息（过渡文本+工具+收尾文本），抽屉会按时间序拼出该步所在回合（自上一条真人输入起）的全部输出，而不是只给最新一条。工具活动同样计入全文——`▸ 工具: 入参` 与 `◂ 工具: 回执` 逐条内联（单条回执超长会标注「截断」，命令发出但尚无回执标「未回执」）；此前只拼文本块时，模型"过渡句：→ 调工具"的回合在抽屉里只剩一串以冒号收尾的句子、冒号后永远没内容，1.2.18 修复
 - **分型通知**：后台线程推两类**飞书**或**通用 JSON** webhook（不依赖浏览器开着）——① workflow 进入终态（completed / failed / killed）；② 会话进入 `input_required`「在等你」，独立一档可关可放宽（关闭 / 仅卡住时 / 全部含回合结束，默认**仅卡住时**），通用 JSON 里带 `kind` 字段供消费方分流。真痛点是「卡住了在等我」，不是「跑完了让我看」
@@ -133,6 +134,8 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 
 **详情抽屉**：点击任意 agent / 步骤行全宽展开——自动从 `/api/agent` / `/api/subagent` 拉取**完整** prompt / result（转录 + journal 深扫，替换截断预览），pane 内可滚动且滚动位置跨轮询保持；由实体转义还原（`unent`）后经迷你 markdown 渲染器呈现（分段 / 列表 / 标题 / 围栏 / 表格）。
 
+**编排器(✦ 编排,1.2.43)**:全屏模态。左栏三种积木(点或拖入画布,键盘 Tab+Enter 也可),中间画布(滚轮缩放、拖空白平移、拖卡片移动、右圆点拖到左圆点连线),右侧产物区实时出脚本 —— 顶栏 `PHASES` 芯片列出这张图会生成的阶段,读数条给 `L 行数 · 字节 · ◆ 段数`。校验不过就**不出脚本**:缺 Start/Return、有环、孤立节点、`{{nX}}` 引用了非上游、schema 非法 JSON、model 不在白名单,逐条列在红色错误块里(定高可滚动,不裁)。保存后可一键复制 `Workflow({ scriptPath: '<绝对路径>', args: '<输入>' })` 命令到终端执行;同项目下的历史草稿在「载入草稿…」下拉里可回载再编辑;同名草稿内容不同时**默认并存**不覆盖(需要覆盖时才会亮出「覆盖原稿」)。
+
 **输出一律可看全**：任何日志 / 转录 / 错误回执都不会"看一眼就到头"——长文走定高展示框 + 上下滚动（agent 全文、系统日志尾、运行产物、JS 渲染异常整条堆栈、设置面板的通知回执），摘要行（会话卡 ⏸ 等待行）可点开并自动拉取该步所在回合的累计全文成滚动框；后端只给 30 行日志就显示 30 行（不再前端砍半），单行 500 字、转录字段等**数据源上限会写在标题上**，取不到全文时显式提示「⚠ 该步已超出转录留存范围」，不会静默留白。
 
 ## 通知钩子
@@ -158,6 +161,9 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 | `GET /api/subagent?proj=&sess=&agent=[&msg=]` | 会话层全文抽屉：`agent=main` 返回主会话最近输入/输出；加 `msg=<messageId>` 返回该步全文（IN=该步工具入参，OUT=所在回合累计输出），`msg=<uuid>` 返回该条用户输入全文（提示词回显锚点）；否则返回子代理任务与结果 |
 | `GET /api/config` | 当前 webhook 配置 + 最近推送结果 |
 | `POST /api/config/save` | 保存配置（URL 须 http(s)、端口 1-65535 且空闲、`recentDays` 1-3650 默认 14、`notifyInput` ∈ off/blocked/all（缺省不改）；改端口触发自重启） |
+| `GET /api/drafts?proj=<cwd>` | 该项目的草稿列表(编排器"载入草稿"数据源):`{drafts:[{name, meta, mtime, js, draft}]}`;`draft` 为图草稿全文(回载再编辑)。**目录枚举本身即口径**,坏件静默跳过不炸列表,上限 200 |
+| `POST /api/draft/save` | 保存草稿:`{name, draft(v==1 的图 JSON), script, overwrite?}` → 执行件 `<name>.js` 与图草稿 `<name>.json` 成对原子落盘到 `~/.claude/cc-viewer/drafts/<sanitize>-<hash6>/`;`name` 白名单校验、`cwd` 只进目录名的哈希(永不作为写路径成分)、脚本上限 1MB、同名异内容默认**并存** `<name>-<sha8>.*`;返回 `{ok, msg, path(绝对路径), sha}` |
+| `GET /static/xyflow.system.umd.js` | 白名单静态件(编排画布用的 vendored `@xyflow/system` UMD,100KB,d3 内联,提交入库的构建产物 —— 运行时仍零依赖);**只认枚举文件名**,不放开放任意外部路径,穿越/未列名一律 404 |
 | `POST /api/config/test` | 发送测试通知验证连通；body `{"kind":"input_required"}` 则按等待型发一条 |
 
 ```bash
@@ -169,6 +175,7 @@ curl -s "http://127.0.0.1:8787/api/subagent?proj=<proj>&sess=<sess>&agent=main&m
 
 - 仅绑定 `127.0.0.1`，不对外网开放；
 - 所有 POST 带同源 Origin 守卫（防任意网页 DNS rebinding 后改配置 / 重定向 webhook 做外泄通道），无 Origin 的脚本调用放行；
+- 编排草稿只写 `~/.claude/cc-viewer/drafts/`(`name` 白名单 + 取末段 + realpath 前缀三重消毒),**绝不写** `~/.claude/projects/` 或你的项目目录;`/static/` 只放开枚举的 vendored 文件;
 - webhook 的 HTTPS 在公司 TLS 代理下自动导出 macOS 钥匙串根证书完成校验，「跳过证书校验」仅作兜底。
 
 ## 项目结构
@@ -182,7 +189,7 @@ Lucid/
 │   ├── lucid-logo.svg     # 图标(Lucid 眼 + 焦点十字 + 心跳线)
 │   └── screenshot.png     # 界面截图
 ├── frontend/              # 前端源码(TS,仅开发用;运行时零依赖不变)
-│   ├── src/*.ts           # 00-types/05-i18n/10-util/20-render/30-app,按名序拼接为全局脚本
+│   ├── src/*.ts           # 00-types/05-i18n/10-util/20-render/30-app/39-flow-shim/40-flow/45-flowgen,按名序拼接为全局脚本
 │   ├── template.html      # HTML/CSS 壳(手写;含 3 行主题 boot 内联脚本)
 │   ├── build.py           # 构建:拼接→tsc --strict→注入产物到 scripts/ccviewer/static/index.html
 │   └── dist/              # 中间产物(不进安装副本,git 忽略)
@@ -203,7 +210,8 @@ Lucid/
         ├── sessions.py    # 主 agent + 非 workflow 子代理状态推断
         ├── notify.py      # webhook 终态通知线程(飞书/通用 JSON)
         ├── web.py         # HTTP handler(页面 + JSON API)
-        └── static/index.html  # 前端运行时文件(由 frontend/ 构建产生;插件分发/运行时仍无构建)
+        ├── static/index.html  # 前端运行时文件(由 frontend/ 构建产生;插件分发/运行时仍无构建)
+        └── static/xyflow.system.umd.js  # vendored @xyflow/system UMD(编排画布;构建产物入库,零运行时依赖)
 ```
 
 ## 架构速览
@@ -214,7 +222,7 @@ Lucid/
 | 扫描/状态重建 | `scan.scan()` | run JSON 只在正常收尾时写；进行中状态由 journal.jsonl + agent-*.jsonl 实时重建 |
 | 存活判定 | `scan.live_session_ids()` + `parse_live()` | 权威信号 = `~/.claude/sessions/<pid>.json` 注册表且进程存活；60s 宽限防竞态 |
 | Webhook 通知 | `notify.notify_loop()` | 守护线程 5s 一轮；启动首轮静默播种防刷屏；去重靠 `sent.json`（保留 800 条） |
-| HTTP 端点 | `web.class H` | 页面 + 上述 7 个 JSON API |
+| HTTP 端点 | `web.class H` | 页面 + 上述 JSON API(含编排器 /api/drafts、/api/draft/save 与 /static/ 白名单) |
 
 前端（`frontend/src/*.ts`，全局脚本模式按名序拼接）按**卡 diff** 渲染：完成卡数据冻结 → HTML 串稳定 → DOM 永不重建；仅数据真变的运行卡局部重建，重建时恢复展开态与滚动位置——所以多轮刷新不打断阅读。
 
@@ -237,3 +245,4 @@ python3 scripts/server.py     # 前台启动(默认 8787,config 优先)
 - 会话转录默认只读**尾窗 256KB** 控制成本；步骤全文走**按 msg 反向深扫（1MB 块，至 16MB）**——截图附件是 MB 级 base64 时会把旧步骤挤出尾窗，深扫也定位不到则前端显式提示「该步已超出转录留存范围」；
 - 会话扫描覆盖「活跃 + 近 2h + 回看窗口内有输入的会话」（上限 200；窗口部分与 TASKS 仪表逐一对账）；run 扫描覆盖最近 N 天（近期「回看窗口」设置，默认 14）；
 - 状态推断是尾窗启发式（无权威 journal），极端时序下可能有 ±60s 的判定延迟。
+- 编排器生成的图只表达**有向无环 + 阶段栅栏**:一个节点多入边 = 汇聚等待(等全部上游),循环 / 条件分支 / pipeline 容器型暂未支持(校验器会明确报错而不是猜);服务端不代执行 workflow —— 执行入口始终是终端的 `Workflow({scriptPath})`(控制面不归本查看器);草稿目录是"存了就能回载"的枚举口径,没有改名/删除 UI(留待后续批次)。
