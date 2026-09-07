@@ -76,4 +76,26 @@ if tsc.exists() and bs.is_file():
            p.returncode == 0 and gen.is_file() and gen.read_text(encoding='utf-8') == bs.read_text(encoding='utf-8'),
            (p.stderr or p.stdout)[:200] or '产物与 tools/install.ts 编译输出不一致:跑 npm run build')
 
+# ── ⑦ 编排器 vendored UMD(1.2.43):运行时物料必须随包到位 ──────────────────────────
+# vendor 是"提交入库的构建产物"(铁律 1 的合规形态,同 bin/install.js):运行时零新增依赖,
+# 但页面靠 /static/<白名单> 取它 —— 装出来的副本缺这个文件 = 编辑器打不开(404),只有真装一次才会发现。
+VENDOR = 'scripts/ccviewer/static/xyflow.system.umd.js'
+ck('flow-vendor-exists', (REPO / VENDOR).is_file(), str(REPO / VENDOR))
+ck('flow-vendor-served', 'src="/static/xyflow.system.umd.js"' in (REPO / 'scripts' / 'ccviewer' / 'static' / 'index.html').read_text(encoding='utf-8'),
+   '产物未引用 vendor(模板与产物不同步?)')
+# 拷贝路径对账:tarball 与安装器都是"递归拷 scripts/",此处断言的是这条覆盖关系不许被改窄
+ck('flow-vendor-in-files-glob', 'scripts' in files, repr(sorted(files)))
+inst = (REPO / 'tools' / 'install.ts').read_text(encoding='utf-8')
+ck('flow-vendor-in-installer', "'scripts'" in inst and 'recursive: true' in inst,
+   'install.ts 的 COMPONENTS 或递归拷贝口径变了(vendor 会装不到)')
+npm = shutil.which('npm')
+if npm:
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        p = subprocess.run([npm, 'pack', '--dry-run', '--json'], cwd=REPO, capture_output=True, text=True, timeout=180)
+        listed = VENDOR in (p.stdout or '') or any(VENDOR in str(x.get('path', '')) for x in (json.loads(p.stdout) if p.stdout.strip().startswith('[') else []))
+        ck('flow-vendor-in-tarball', p.returncode == 0 and listed, (p.stdout or p.stderr)[-300:])
+else:
+    print('  ! npm 不在 PATH:跳过 tarball 清单核对(开发机 npm 一次性装好即可)')
+
 done()

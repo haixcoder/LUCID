@@ -24,6 +24,8 @@ const fbounds = new Map<string, FlowHandleBounds>();  // 手写测量的 handle 
 const fdrag = new Map<string, FlowDragInst>();
 let ffrom: FlowFromHandle | null = null;              // 坑⑤:vendor 每帧 move 的守卫,不许回吐 null
 let fDrafts: DraftItem[] = [];
+// 冒烟诊断(?flowsmoke 下才非空):连线失败时把"vendor 到底调没调我们"带进 title,不靠猜
+let fDbg: Record<string, number> | null = null;
 
 const xy = (): typeof XYFlowSystem => XYFlowSystem;
 const fPane = (): HTMLElement => $<HTMLElement>('fPane');
@@ -171,10 +173,10 @@ function startConnect(ev: PointerEvent, handleDomNode: Element, nodeId: string, 
     nodeLookup: flookup, lib: FLOW_LIB, flowId: FLOW_ID,
     updateConnection: safely('updateConnection', drawConn),
     panBy: async () => false,
-    cancelConnection: safely('cancelConnection', () => { fConnEl().setAttribute('d', ''); ffrom = null; }),
+    cancelConnection: safely('cancelConnection', () => { if (fDbg) fDbg.cancel++; fConnEl().setAttribute('d', ''); ffrom = null; }),
     // 坑⑤:onConnectStart 前 getFromHandle() 若为 null,vendor 每帧立即取消连接 → 这里记下并回吐
-    onConnectStart: safely('onConnectStart', (_e: Event, p: FlowStartParam) => { ffrom = { nodeId: p.nodeId, id: p.handleId, type: p.handleType }; }),
-    onConnect: safely('onConnect', (c: FlowConn) => flowConnect(c)),
+    onConnectStart: safely('onConnectStart', (_e: Event, p: FlowStartParam) => { if (fDbg) fDbg.start++; ffrom = { nodeId: p.nodeId, id: p.handleId, type: p.handleType }; }),
+    onConnect: safely('onConnect', (c: FlowConn) => { if (fDbg) fDbg.connect++; flowConnect(c); }),
     onConnectEnd: safely('onConnectEnd', () => { fConnEl().setAttribute('d', ''); ffrom = null; }),
     isValidConnection: (c: FlowConn) => !!c && c.source !== c.target,
     getTransform: () => [FS.view.x, FS.view.y, FS.view.zoom],
@@ -463,3 +465,95 @@ function flowRelang(): void {
   flowRender();                                             // 内部会重跑 refreshFlowScript(错误清单同语言)
 }
 $<HTMLElement>('btnFlow').onclick = () => { void openFlow(fproj || (sess.length ? sess[0].cwd : '') || ''); };
+
+// ── ?flowsmoke=1 真机自检(§8.5):合成事件跑通 连线 / 拖节点 / 滚轮缩放 三类真实交互,结论写进 document.title ──
+// 为什么留在生产代码里:C3/C4/C5(吸附、connectable 类、data-id 反查)与拖拽阈值、缩放依赖**真实布局**——
+// 无头桩给不出 getBoundingClientRect/elementFromPoint,只有浏览器能实证;坏了由冒烟命令拦下(不进日常路径)。
+function flowSmoke(): void {
+  const res: string[] = [];
+  const check = (name: string, cond: boolean): boolean => { res.push((cond ? '✓' : '✗') + name); return cond; };
+  // 虚拟时间下 rAF 可能不驱动(PoC 实录)→ 一律用 setTimeout 驱动
+  const frames = (n = 1): Promise<void> => n <= 0 ? Promise.resolve() : new Promise<void>(r => setTimeout(() => { void r(frames(n - 1)); }, 8));
+  // C9:d3 从 event.view 取 window,合成事件默认 view=null → 监听器根本不启动
+  const fire = (el: EventTarget, type: string, x: number, y: number, extra?: Record<string, unknown>): void => {
+    const Ctor = type === 'wheel' ? WheelEvent : type.indexOf('pointer') === 0 ? PointerEvent : MouseEvent;
+    el.dispatchEvent(new Ctor(type, Object.assign({
+      view: window, bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0,
+      buttons: type === 'mouseup' ? 0 : 1, deltaY: 0,
+    }, extra || {})));
+  };
+  void (async () => {
+    try {
+      document.title = 'SMOKE running';
+      await openFlow('/smoke-proj');
+      // 固定四节点链(不受既有草稿/自动存影响;横向 ~1030px,保证 1600×1000 视口内 elementFromPoint 拿得到 ——
+      // 用 7 卡起手图 + 自适应缩放会把 handle 推到窗口外,正是 PoC 800×600 那个假失败)
+      flowBlank(); FS.name = 'flow-smoke'; FS.cwd = '/smoke-proj';
+      const sm = (type: FlowKind, x: number, y: number, data: FlowNodeData): string => {
+        const id = 'n' + (FS.next++); FS.nodes.push({ id, type, position: { x, y }, data }); return id;
+      };
+      const sN = sm('start', 60, 150, { note: 'q' }), aN = sm('agent', 300, 150, { label: 'A', phase: 'P', prompt: 'a {{n1}}' });
+      const bN = sm('agent', 540, 150, { label: 'B', phase: 'P', prompt: 'b {{n2}}' }), rN = sm('return', 780, 150, { ret: '' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: sN, sourceHandle: 'out', target: aN, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: aN, sourceHandle: 'out', target: bN, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: bN, sourceHandle: 'out', target: rN, targetHandle: 'in' });
+      flowRender();
+      await frames(40);
+      const n2 = fNodeEl(aN), n4 = fNodeEl(rN);
+      check('nodes', FS.nodes.length === 4 && !!n2 && !!n4);
+      const src = n2 && n2.querySelector('.lucid-flow__handle.source');
+      const dst = n4 && n4.querySelector('.lucid-flow__handle.target');
+      check('contract-C3C4C5', !!src && !!dst
+        && /connectable connectableend/.test(String(src.getAttribute('class')))
+        && src.getAttribute('data-id') === 'lwf-n2-out-source' && dst.getAttribute('data-id') === 'lwf-n4-in-target');
+      const e0 = FS.edges.length;
+      fDbg = { connect: 0, cancel: 0, start: 0 };
+      if (src && dst) {
+        const sp = src.getBoundingClientRect(), dp = dst.getBoundingClientRect();
+        fire(src, 'pointerdown', sp.x + 5, sp.y + 5);
+        await frames(2); fire(document, 'mousemove', (sp.x + dp.x) / 2, (sp.y + dp.y) / 2 + 20);
+        await frames(2); const dmid = fConnEl().getAttribute('d');
+        await frames(2); fire(document, 'mousemove', dp.x + 5, dp.y + 5);
+        await frames(2); fire(document, 'mouseup', dp.x + 5, dp.y + 5);
+        await frames(6);
+        const okc = FS.edges.length === e0 + 1 && FS.edges.some(e => e.source === 'n2' && e.target === 'n4');
+        if (!okc) {   // 失败时把 vendor 侧证据带进 title(onConnect 是否被调 / isValid 判成什么 / 命中元素是谁)
+          const evP = new MouseEvent('mousemove', { view: window, clientX: dp.x + 5, clientY: dp.y + 5 });
+          let probe = 'ERR';
+          try {
+            const r = xy().XYHandle.isValid(evP, { handle: null, connectionMode: 'loose', fromNodeId: 'n2',
+              fromHandleId: 'out', fromType: 'source', doc: document, lib: FLOW_LIB, flowId: FLOW_ID, nodeLookup: flookup });
+            probe = JSON.stringify({ v: r.isValid, c: r.connection, hh: !!r.handleDomNode });
+          } catch (e) { probe = 'EX:' + String((e as Error).message).slice(0, 24); }
+          const hit = document.elementFromPoint(dp.x + 5, dp.y + 5);
+          res.push('[dbg c=' + fDbg.connect + ' x=' + fDbg.cancel + ' s=' + fDbg.start
+            + ' z=' + FS.view.zoom.toFixed(2) + ' hit=' + String((hit && (hit.getAttribute('class') || hit.tagName)) || 'NULL').slice(0, 22)
+            + ' dp=' + Math.round(dp.x) + ',' + Math.round(dp.y) + ' ' + probe + ']');
+        }
+        check('connect+1', okc);
+        check('connPath-drawn', !!dmid);
+        check('connPath-cleared', !fConnEl().getAttribute('d'));
+      } else { res.push('✗connect(no-handle)'); }
+      fDbg = null;
+      const n3 = fNodeEl(bN);                              // 拖 n3(不与刚连的 n2→n4 端点混在一起)
+      if (n3) {
+        const p0 = { ...FS.nodes.find(n => n.id === bN)!.position }, r0 = n3.getBoundingClientRect();
+        fire(n3, 'mousedown', r0.x + 20, r0.y + 8);
+        for (const k of [4, 10, 16, 22]) { fire(window, 'mousemove', r0.x + 20 + k, r0.y + 8 + k / 2); await frames(3); }
+        fire(window, 'mouseup', r0.x + 42, r0.y + 19); await frames(6);
+        const p1 = FS.nodes.find(n => n.id === bN)!.position;
+        check('drag-move', Math.abs(p1.x - p0.x - 22) < 6 && Math.abs(p1.y - p0.y - 11) < 6);
+      } else { res.push('✗drag(no-node)'); }
+      const z0 = FS.view.zoom;
+      fire(fPane(), 'wheel', 300, 300, { deltaY: -240 });
+      await frames(10);
+      check('zoom', FS.view.zoom !== z0 && /scale\(/.test(String(fVp().style.transform)));
+      refreshFlowScript();
+      check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
+      document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');
+    } catch (e) {
+      document.title = 'SMOKE CRASH ' + String((e as Error)?.message ?? e) + ' ' + res.join(' ');
+    }
+  })();
+}
+if (typeof location !== 'undefined' && String(location.href || '').indexOf('flowsmoke') >= 0) flowSmoke();

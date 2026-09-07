@@ -397,6 +397,54 @@ const FAN = {
   ck('空项目也能编排:自动存键用 __no_cwd__ 落点(与后端 _draft_dir 同一口径)',
      env7.localStorage.getItem('wfo-flow-autosave-__no_cwd__') !== null, String(Object.keys(env7.localStorage._map)));
 
+  // ── 执行件可跑性:拿沙箱替身(agent/parallel/phase/args)真跑一遍生成脚本 ──
+  // 为什么值得跑:前面全是"文本求值"级别的断言,而 .js 是要被 Workflow 工具执行的产物——
+  // 转义漏一个字符、phase 顺序错、parallel 少个 opts.phase,只有**跑起来**才暴露(比人工终端闭环便宜且不烧 token)。
+  async function runJs(js: string, args: unknown): Promise<{ phases: string[]; calls: { prompt: string; opts: any }[]; ret: any }> {
+    const stripped = js.replace('export const meta', 'const meta');
+    const phases: string[] = [], calls: { prompt: string; opts: any }[] = [];
+    const agent = async (prompt: string, opts: any): Promise<string> => { calls.push({ prompt, opts }); return 'R(' + String((opts && opts.label) || '?') + ')'; };
+    const parallel = async (thunks: any[]): Promise<any[]> => Promise.all(thunks.map(t => t()));
+    const phase = (t: string): void => { phases.push(t); };
+    const fn = new Function('args', 'phase', 'agent', 'parallel', 'log', 'return (async () => {' + stripped + '})()');
+    return { phases, calls, ret: await fn(args, phase, agent, parallel, () => {}) };
+  }
+  const metaBlock = (js: string): string => (/export const meta = \{[\s\S]*?\n\}/.exec(js) || [''])[0];
+  ck('run/meta 纯字面量(无插值/无调用/无 await——沙箱硬要求)',
+     !/`|args|\bawait\b|=>|\bMath\b/.test(metaBlock(chain)) && metaBlock(chain).startsWith('export const meta = {'), metaBlock(chain));
+  const r1 = await runJs(chain, '我的题');
+  ck('run/链式按序跑两个 agent,phase 序列 = P1,P2',
+     r1.calls.length === 2 && r1.phases.join(',') === 'P1,P2' && r1.calls[0].opts.label === 'A' && r1.calls[1].opts.label === 'B',
+     JSON.stringify({ p: r1.phases, c: r1.calls.map(c => c.opts.label) }));
+  ck('run/args 注入 start 入口(占位符真的插进了运行时)', r1.calls[0].prompt === '第一步 我的题', r1.calls[0].prompt);
+  ck('run/链式产物 = return 表达式所写', JSON.stringify(r1.ret) === '{"r":"R(B)"}', JSON.stringify(r1.ret));
+  const r1b = await runJs(chain, '   ');
+  ck('run/args 空串 → 回落 Start 说明作默认输入', r1b.calls[0].prompt === '第一步 输入', r1b.calls[0].prompt);
+  const r2 = await runJs(fan, 'Q');
+  ck('run/扇出:4 个 agent,parallel 的两个各带自己的 phase(防全局 phase 竞争)',
+     r2.calls.length === 4 && r2.calls[1].opts.phase === 'P2' && r2.calls[2].opts.phase === 'P2'
+     && r2.calls[0].opts.phase === undefined && r2.calls[3].opts.phase === undefined,
+     JSON.stringify(r2.calls.map(c => [c.opts.label, c.opts.phase])));
+  ck('run/汇聚步拿到的是两个并行分支的返回值', /R\(B1\)[\s\S]*R\(B2\)/.test(r2.calls[3].prompt), r2.calls[3].prompt);
+  ck('run/schema 传入对象(非字符串),model 生效', typeof r2.calls[2].opts.schema === 'object' && r2.calls[2].opts.model === 'sonnet',
+     JSON.stringify(r2.calls[2].opts));
+  ck('run/兜底 return 给出末层结果数组(agent 可能返回 null → filter(Boolean))',
+     JSON.stringify(r2.ret) === '{"results":["R(C)"]}', JSON.stringify(r2.ret));
+  ck('run/顺序阶段不被 parallel 污染:n5 无 opts.phase(单节点层直接 await)', !('phase' in r2.calls[3].opts));
+  // 末层两条并行分支 + 空 return → 兜底必须 filter(Boolean)(技能明训:被跳过/挂掉的 agent 返回 null)
+  const PAIR = {
+    nodes: [N('n1', 'start', 0, 0, { note: 'q' }), N('n2', 'agent', 200, -60, { label: 'A', phase: 'P', prompt: 'a' }),
+      N('n3', 'agent', 200, 60, { label: 'B', phase: 'P', prompt: 'b' }), N('n4', 'return', 400, 0, { ret: '' })],
+    edges: [E('e1', 'n1', 'n2'), E('e2', 'n1', 'n3'), E('e3', 'n2', 'n4'), E('e4', 'n3', 'n4')],
+  };
+  ck('run/末层分支返回 null 不炸图,兜底 results 只留有值的(null 被 filter 掉)', (async () => {
+    const js3 = G(PAIR.nodes, PAIR.edges);
+    const stripped = js3.replace('export const meta', 'const meta');
+    const fn = new Function('args', 'phase', 'agent', 'parallel', 'log', 'return (async () => {' + stripped + '})()');
+    const ret = await fn('q', () => {}, async (p: string, o: any) => (o && o.label === 'B' ? null : 'OK-A'), async (ts: any[]) => Promise.all(ts.map(x => x())), () => {});
+    return JSON.stringify(ret) === '{"results":["OK-A"]}';
+  })());
+
   // ── 与轮询 / 语言共存(item 12/13)──
   const envL = mkEnv();
   await envL.flush();
