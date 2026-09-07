@@ -179,10 +179,15 @@ function walk(root: El, fn: (n: El) => void) {
 function matchSel(el: El, sel: string, scope: El): boolean { return sel.split(',').some((p) => matchChain(el, p.trim(), scope)); }
 function matchChain(el: El, chain: string, scope: El): boolean {
   if (chain.startsWith(':scope>')) return el.parent === scope && matchCompound(el, chain.slice(7));
+  // 后代组合符按 CSS 规范 = "任意深度祖先中依次找到匹配"(真实浏览器如此)。
+  // 旧桩要求逐级相邻(子组合符语义)——平铺 DOM 下侥幸等价,1.2.41 嵌套卡
+  // (会话卡 > .wfembed > 运行卡 > details)让 "div[data-rid=x] details" 查空,才暴露此偏差。
   const parts = chain.split(/\s+/);
-  let node: El | null = el;
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (!(node instanceof El) || !matchCompound(node, parts[i])) return false;
+  if (!(el instanceof El) || !matchCompound(el, parts[parts.length - 1])) return false;
+  let idx = parts.length - 2, node: El | null = el.parent;
+  while (idx >= 0) {
+    if (!(node instanceof El)) return false;
+    if (matchCompound(node, parts[idx])) idx--;  // 该祖先命中→继续向上找更左的 part
     node = node.parent;
   }
   return true;

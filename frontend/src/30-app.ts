@@ -131,6 +131,16 @@ const sessHit = (s: SessionState): boolean => {
   const q = fstr.toLowerCase();
   return (!fproj || (s.cwd || s.project) === fproj) && (!q || (s.title + ' ' + s.sessionId + ' ' + (s.cwd || s.project) + ' ' + s.status + ' ' + (s.waitReason || '') + ' ' + (s.waitTool || '') + ' ' + (s.lastPrompt || '') + ' ' + (s.prompts || []).map(p => p.t).join(' ') + ' ' + (s.subagents || []).map(a => a.label + ' ' + (a.description || '')).join(' ')).toLowerCase().includes(q));
 };
+// 运行过滤判定单点(1.2.41 起三消费者共用:仪表 / #list 独立卡 / 嵌入判定——与 sessHit 同一口径规矩,不许写第二份)
+const runHit = (r: Run): boolean => {
+  const q = fstr.toLowerCase();
+  return (!fproj || (r.cwd || r.project) === fproj) && (!q || (r.name + ' ' + r.runId + ' ' + (r.cwd || r.project) + ' ' + r.status + ' ' + (r.task || '')).toLowerCase().includes(q));
+};
+// Workflow 卡嵌入判定(1.2.41):「主 agent 的展示信息和 workflow 信息块没有在一起」的结构性终结——
+// 发起会话卡本轮可见(sessHit 口径)且运行自身通过过滤 → 完整运行卡嵌进该会话卡时间线(sessCard 按时间混排),
+// 并从此不再落 #list(避免重复);发起会话不可见(出窗/被滤)时运行卡保持 #list 独立,绝不因"无处嵌入"而消失。
+// 仪表计数必须用「嵌入+独立」全集(见 render() 的 rv)——只数 #list 就是 1.2.38 那类对账事故的复发。
+const wfEmbedded = (r: Run): boolean => runHit(r) && sess.some(s => s.sessionId === r.session && sessHit(s));
 function renderSessions(): void {
   const el = $('sess'), tt = $('secttl');
   if (!sess.length) { tt.hidden = true; el.innerHTML = ''; return; }
@@ -139,15 +149,23 @@ function renderSessions(): void {
   tt.innerHTML = `${T('AGENT 状态 · 会话(主+子)')} ${vis.length}${live ? ' · ' + T('活跃') + ' ' + live : ''}${waiting ? ' · <b class="wtag">⏸ ' + T('等待输入') + ' ' + waiting + '</b>' : ''}`;
   if (!vis.length) { el.innerHTML = `<p class="idle">${T('NO MATCH · 无匹配会话')}</p>`; spainted = true; return; }
   if (el.querySelector('.idle')) el.innerHTML = '';
+  // 嵌入运行按发起会话归堆(每轮一次算好传给各 sessCard,不在卡内重复扫全 runs);wfEmbedded 已含"发起会话可见"判定,
+  // vis 内会话必可见,故对某个 vis 会话 r,其嵌入清单 = embeds.get(r.sessionId)。sessCard 只负责按时间渲染。
+  const embeds = new Map<string, Run[]>();
+  for (const w of runs) {
+    if (!wfEmbedded(w)) continue;
+    const g = embeds.get(w.session); if (g) g.push(w); else embeds.set(w.session, [w]);
+  }
   // 活跃会话卡每轮 HTML 都会变→outerHTML 重建;快照/恢复等契约全在 diffPaint(与运行卡区同一实现)
-  diffPaint(el, SCARDS, vis.map((r, i) => ({ id: r.sessionId, html: sessCard(r, i) })), spainted);
+  diffPaint(el, SCARDS, vis.map((r, i) => ({ id: r.sessionId, html: sessCard(r, i, embeds.get(r.sessionId) || []) })), spainted);
   spainted = true;
 }
 function render(): void {
   const list = $('list');
   const q = fstr.toLowerCase();
-  const vis = runs.filter(r => (!fproj || (r.cwd || r.project) === fproj) && (!q || (r.name + ' ' + r.runId + ' ' + (r.cwd || r.project) + ' ' + r.status + ' ' + (r.task || '')).toLowerCase().includes(q)));
-  const n = (f: (r: Run) => boolean) => vis.filter(f).length;
+  const rv = runs.filter(runHit);                 // 过滤全集(嵌入+独立)——仪表计数用它,少计即对账事故
+  const vis = rv.filter(r => !wfEmbedded(r));     // #list 只渲染独立卡;嵌入进会话时间线的运行不在这里再画一遍
+  const n = (f: (r: Run) => boolean) => rv.filter(f).length;
   // 过滤/搜索是持久化视图状态(1.2.9)——仪表计数随之变化,若不自证口径就会被当成"数据不准"(用户真实报过:
   // 只见 "3 RUNS" 不知还有第 4 个被筛掉)。有过滤时 RUNS 显示「命中/总数」+ tooltip 交代原因。
   const flt = !!(fproj || q);
@@ -157,7 +175,7 @@ function render(): void {
   const tsum = (ls: SessionState[]): number => ls.reduce((a, s) => a + (s.turns || 0), 0);
   const tAll = tasksData ? tasksData.total : tsum(sess);
   const tHit = !flt ? tAll : tasksData && fproj && !fstr ? (tasksData.byCwd[fproj] || 0) : tsum(sess.filter(sessHit));
-  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行 · 任务 %3/%4', vis.length, runs.length, tHit, tAll))}"` : ''}><b>${vis.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
+  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行 · 任务 %3/%4', rv.length, runs.length, tHit, tAll))}"` : ''}><b>${rv.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
     <div class="g"><b>${tHit}${flt ? '/' + tAll : ''}</b><span>TASKS</span></div>
     <div class="g lv"><b>${n(r => r.status === 'running')}</b><span>LIVE</span></div>
     <div class="g ok"><b>${n(r => r.status === 'completed')}</b><span>DONE</span></div>
@@ -165,10 +183,11 @@ function render(): void {
   if (gh !== GSTR[0]) { $('gauges').innerHTML = gh; GSTR[0] = gh; }
   // 空态→非空态:先摘 NO MATCH 段。<p.idle> 无 data-rid,下面的按卡清理会跳过它——不显式摘除就永久
   // 残留在结果尾部(与 renderSessions 的 .idle 清理对称;历史缺失,无头桩 t-diff 复现,1.2.18 修)
-  if (vis.length && list.querySelector('.idle')) list.innerHTML = '';
+  // 空态判定用 rv(过滤全集)而非 vis:#list 为空但运行全嵌进了会话卡时,不该再谎报"无匹配运行"(它们就在上方)。
+  if (rv.length && list.querySelector('.idle')) list.innerHTML = '';
   // 按卡 diff 全在 diffPaint(与会话区同一实现):串稳定的卡绝不重建,滚动/选中/hover 不跳
   diffPaint(list, CARDS, vis.map((r, ii) => ({ id: r.runId, html: card(r, ii) })), painted);
-  if (!vis.length && !list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? T('NO MATCH · 无匹配运行，调整搜索或筛选') : T('TELEMETRY SILENT · 近 %1 天无 workflow 运行记录', rdays)}</p>`;
+  if (!rv.length && !list.querySelector('.idle')) list.innerHTML = `<p class="idle">${(q || fstr || fproj) ? T('NO MATCH · 无匹配运行，调整搜索或筛选') : T('TELEMETRY SILENT · 近 %1 天无 workflow 运行记录', rdays)}</p>`;
   painted = true;
 }
 // ── 页面级视口锚定(tick 与全部重绘入口的统一包装)──

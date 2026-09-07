@@ -156,6 +156,10 @@ main.sesstop{padding-bottom:2px}
 .turnhd.orphan .pk{color:var(--cy);letter-spacing:.08em;white-space:nowrap}
 .turnhd.orphan .pt{color:var(--tx);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tg .tstep{margin-left:10px}
+/* Workflow 内嵌块(1.2.41):主 agent 调起的运行卡按时间嵌进发起会话时间线,与回合组同池。
+   左缩进挂在发起会话下,细左边线标识归属;内部 .card 去阴影/收边避免"卡中卡"过重。 */
+.wfembed{margin:12px 0 0 10px;padding-left:12px;border-left:2px solid color-mix(in srgb,var(--cy) 34%,var(--ln))}
+.wfembed .card{box-shadow:none;border-color:var(--ln);background:color-mix(in srgb,var(--pnl) 72%,transparent)}
 .pane .hint{margin-top:8px;font:500 10px/1.65 var(--mono);color:var(--dim2);letter-spacing:.02em;border-top:1px dashed var(--ln);padding-top:6px}
 .wtag{color:var(--am);font-weight:700}
 @keyframes blink{50%{opacity:.45}}

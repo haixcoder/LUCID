@@ -51,7 +51,8 @@ const ALERT_ST = new Set(['failed', 'error', 'stale', 'aborted', 'killed', 'time
 // 从不管页面显示 —— "关了通知仍被提示等待输入"的根因即 turn 曾被一律渲染成 ⏸ 等待输入(1.2.13 修)。
 const sessStuck = (s: SessionState): boolean => s.status === 'input_required' && (s.waitReason === 'ask' || s.waitReason === 'permission');
 
-function sessCard(r: SessionState, i: number): string {
+// wfs = 已由 30-app `wfEmbedded` 单点判定要嵌入本会话时间线的运行卡(1.2.41);默认空数组=旧调用口径
+function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
   const tk = r.tokens || ({} as Tok), sa = r.subagents || [], st = r.steps || [], done = sa.filter(a => a.state === 'done').length;
   // 等待用户输入(3.2)：徽标换成中文短标签 + 反白高亮，另起一行交代"在等什么"。串内不放逐秒变化字段(ageSec)，
   // 否则每轮 diff 必失配 → 展开的步骤抽屉"点开即关"(见 CLAUDE.md 前端不变量)。
@@ -105,9 +106,20 @@ function sessCard(r: SessionState, i: number): string {
   <span class="num">${fmtN(s.tokIn)}/${fmtN(s.tokOut)}</span><span class="num">${s.ts ? fmtC(Date.parse(s.ts)) : '—'}</span><span class="tw"></span></summary>
   <div class="term-body${R && P ? '' : ' solo'}"><div class="pane" data-t="IN · ${T(P ? '工具入参全文' : '工具')}"><div class="rich">${P ? mdLite(wrapLong(unent(P))) : esc((s.tools || []).map(t => '● ' + t).join(' ')) || T('(本步无工具调用)')}</div></div>${R ? paneOut(T(fu.r !== undefined ? '全文' : '截断预览'), R) : ''}</div></details>`;
   };
-  const taskRegion = (st.length || ps.length) ? `<div class="phead"><span>${T('任务(回合)· 尾窗 %1 输入 · %2 步骤', ps.length, st.length)}</span></div>
+  // ── Workflow 内嵌块(1.2.41,真实反馈:「主 agent 的展示信息和 workflow 信息块没有在一起,根据时间进行排序」)──
+  // 完整运行卡与回合组同池、同为"一个独立展示单元",按时间升序混排(组=输入/首步时间,运行卡=startedAt);
+  // "嵌不嵌"的判定不住这里(住 30-app wfEmbedded 单点:发起会话卡可见 ∧ 运行自身过滤),本函数只渲染已判定清单。
+  type TUnit = { kind: 'g'; u: string; ts: number } | { kind: 'w'; r: Run; ts: number };
+  const units: TUnit[] = grps.map((o): TUnit => ({ kind: 'g', u: o.u, ts: o.ts }))
+    .concat(wfs.map((x): TUnit => ({ kind: 'w', r: x, ts: x.startedAt || 0 })));
+  units.sort((a, b) => a.ts - b.ts);
+  // 嵌入卡左缩进挂在发起会话下(与 .tg .tstep 同侧),用 .wfembed 包一层供 CSS 定位;
+  // 内层 .card 关掉入场动画(painted 恒真时 card() 本就不加 .en,这里再兜一层防首帧重排闪动)。
+  const unitHtml = (o: TUnit): string => o.kind === 'w' ? `<div class="wfembed">${card(o.r, 0)}</div>`
+    : `<div class="tg">${o.u ? turnHead(o.u, (byTurn[o.u] || []).length) : orphanHead((byTurn[''] || []).length)}${(byTurn[o.u] || []).map(stepRow).join('')}</div>`;
+  const taskRegion = (st.length || ps.length || wfs.length) ? `<div class="phead"><span>${T('任务(回合)· 尾窗 %1 输入 · %2 步骤', ps.length, st.length)}${wfs.length ? ' · Workflow ' + wfs.length : ''}</span></div>
   <div class="thead"><span></span><span>${T('步骤 · 输出')}</span><span>${T('工具')}</span><span class="num">TOK in/out</span><span class="num">${T('时间')}</span><span class="num"></span><span></span></div>
-  ${grps.map(o => `<div class="tg">${o.u ? turnHead(o.u, (byTurn[o.u] || []).length) : orphanHead((byTurn[''] || []).length)}${(byTurn[o.u] || []).map(stepRow).join('')}</div>`).join('')}` : '';
+  ${units.map(unitHtml).join('')}` : '';
   return `<div class="card${r.alive ? ' live' : ''}${stuck ? ' wait' : ''}${spainted ? '' : ' en'}" data-rid="${esc(r.sessionId)}" style="${spainted ? '' : `animation-delay:${Math.min(i, 8) * 80}ms`}">
   <div class="hd"><span class="b b-${wait ? (stuck ? 'input_required' : 'turn') : esc(r.status)}" ${r.status === 'running' ? `style="${AD(1.8)}"` : ''}>${wait ? wlab : esc(r.status.toUpperCase())}</span>
   <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
