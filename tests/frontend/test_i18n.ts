@@ -41,7 +41,9 @@ const usedKeys = new Set<string>();
 for (const f of fs.readdirSync(SRC)) {
   if (!f.endsWith('.ts') || f === '05-i18n.ts') continue;
   const src = fs.readFileSync(path.join(SRC, f), 'utf8');
-  const re = /T\('((?:[^'\\]|\\.)+)'/g;
+  // `\s*[,)]` 是关键:旧式只认 T('…') 单参形式,带插值实参的 T('… %1', x) 会整批漏检
+  // ——而"含 %1 的文案"恰恰最容易漏译(编排器的状态行几乎全是),故把带参调用一并纳入静态检查。
+  const re = /T\('((?:[^'\\]|\\.)*)'\s*[,)]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) usedKeys.add(m[1].replace(/\\'/g, "'"));
 }

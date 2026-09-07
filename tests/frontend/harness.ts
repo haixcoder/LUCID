@@ -20,7 +20,7 @@ export const REPO = path.resolve(HERE, '..', '..');
 export const ARTIFACT = path.join(REPO, 'scripts', 'ccviewer', 'static', 'index.html');
 
 type Handler = (ev: any) => void;
-interface Rect { top: number; bottom: number; left: number; right: number; height: number; }
+interface Rect { top: number; bottom: number; left: number; right: number; height: number; width?: number }
 
 const VOID = new Set(['meta', 'link', 'input', 'br', 'img', 'hr', 'base', 'col', 'embed', 'source', 'track', 'wbr']);
 const RAWTEXT = new Set(['style', 'script', 'title', 'textarea']);
@@ -143,7 +143,18 @@ export class El {
   set value(v: unknown) { this.attrs.value = String(v); }
   get options(): El[] { return this.querySelectorAll('option'); }
   get offsetWidth(): number { return 42; }
-  getBoundingClientRect(): Rect { return this._rect || { top: 0, bottom: 0, left: 0, right: 0, height: 0 }; }
+  // width/height 由 left/right·top/bottom 推导(与浏览器一致),便于测试只给四边
+  getBoundingClientRect(): Rect {
+    const r = this._rect;
+    if (!r) return { top: 0, bottom: 0, left: 0, right: 0, height: 0, width: 0 };
+    return { ...r, width: r.width ?? r.right - r.left, height: r.height ?? r.bottom - r.top };
+  }
+  insertAdjacentHTML(pos: string, html: string): void {
+    const nodes = parseNodes(String(html));
+    if (pos === 'beforeend') nodes.forEach((n) => this.appendChild(n));
+    else if (pos === 'afterbegin') nodes.forEach((n) => this.insertBefore(n, this.kids[0] || null));
+    else throw new Error('insertAdjacentHTML 桩未实现位置: ' + pos);
+  }
   addEventListener(t: string, fn: Handler) { (this._l[t] = this._l[t] || []).push(fn); }
   removeEventListener(t: string, fn: Handler) { this._l[t] = (this._l[t] || []).filter((f) => f !== fn); }
   fire(type: string, extra?: Record<string, unknown>): Record<string, any> {
@@ -275,7 +286,10 @@ export interface LoadOpts {
   port?: string;
   language?: string;
   localStorage?: Record<string, string>;
-  fetchFor?: (url: string) => any;
+  fetchFor?: (url: string, init?: any) => any;
+  // 额外全局(如 vendored UMD 的替身):在跑产物之前挂进沙箱上下文。
+  // 编辑器(40-flow)顶层不碰 XYFlowSystem,所以不传也能加载——传了才能驱动"vendor 会怎么调我们"这一类断言。
+  globals?: Record<string, unknown>;
 }
 interface DocLike {
   _topL: Record<string, Handler[]>;
@@ -284,6 +298,7 @@ interface DocLike {
   hidden: boolean;
   getElementById(id: string): El | null;
   createElement(tag: string): El;
+  createElementNS(ns: string, tag: string): El;
   querySelectorAll(s: string): El[];
   querySelector(s: string): El | null;
   addEventListener(t: string, fn: Handler): void;
@@ -302,7 +317,7 @@ interface LsLike { getItem(k: string): string | null; setItem(k: string, v: unkn
 interface Timers { intervals: Handler[]; timeouts: Array<{ fn: Handler; ms: number }>; }
 
 export interface Env {
-  fetchFor(url: string): any;
+  fetchFor(url: string, init?: any): any;
   ctx: Record<string, any>;
   run(code: string): any;
   get(expr: string): any;
@@ -344,6 +359,7 @@ export function load(opts?: LoadOpts): Env {
     hidden: false,
     getElementById(id) { let hit: El | null = null; walk(rootEl, (n) => { if (!hit && n.id === id) hit = n; }); return hit; },
     createElement(tag) { return new El(tag); },
+    createElementNS(_ns: string, tag: string) { return new El(tag); },   // 编排器的连线走 SVG:桩按元素语义建节点
     querySelectorAll: (s) => rootEl.querySelectorAll(s),
     querySelector: (s) => rootEl.querySelector(s),
     addEventListener(t, fn) { (documentProxy._topL[t] = documentProxy._topL[t] || []).push(fn); },
@@ -374,9 +390,9 @@ export function load(opts?: LoadOpts): Env {
   const errs: string[] = [];
   const env = {} as Env;
   env.fetchFor = opts.fetchFor || (() => undefined);
-  async function fetchStub(url: string) {
+  async function fetchStub(url: string, init?: any) {
     fetchCalls.push(url);
-    const r = env.fetchFor(url);
+    const r = env.fetchFor(url, init);   // init 也要传给测试桩:POST 的 body 是断言对象(如草稿保存载荷)
     if (r === undefined) throw new Error('fetch 无桩数据: ' + url);
     if (r instanceof Error) throw r;
     return { json: async () => JSON.parse(JSON.stringify(r)), text: async () => JSON.stringify(r) };
@@ -392,9 +408,12 @@ export function load(opts?: LoadOpts): Env {
     clearTimeout: () => {},
     CSS: { escape: (s: unknown) => String(s).replace(/[^\w-]/g, (c) => '\\' + c) }, // 本项目 id 全是 [0-9a-f-]/wf_*,不触转义
     HTMLDetailsElement: HTMLDetailsElementStub,
+    // 模态对话框:浏览器恒在。桩默认"答否"(测试不许靠弹窗推进状态),要恢复草稿等分支用 globals 覆盖。
+    confirm: () => false, alert: () => {},
     Intl, Date, Math, JSON, RegExp, String, Number, Boolean, Array, Object, Map, Set, Promise, Error, TypeError,
     encodeURIComponent, decodeURIComponent, parseInt, parseFloat, isNaN, isFinite,
   };
+  if (opts.globals) Object.assign(ctx, opts.globals);   // 替身全局(如 XYFlowSystem)必须在跑产物之前就位
   env.ctx = ctx;
   vm.createContext(ctx);
   env.run = (code) => vm.runInContext(code, ctx);

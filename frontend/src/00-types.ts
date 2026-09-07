@@ -43,4 +43,21 @@ interface TestResp { ok?: boolean; msg?: string; last?: LastHook }
 interface FullResp { prompt: string; result: string; miss?: boolean }
 // 全文抽屉缓存值(p=输入/工具入参, r=输出/结果; r 是否 in 决定 截断预览/全文 标签; m=超出留存不可回取)
 type Fu = Partial<{ p: string; r: string; m: boolean }>;
+
+// ── 编排器图契约(1.2.43;与落盘的 <name>.json 草稿 1:1 = 前后端唯一契约,见 dev-guide §3.1)──
+type FlowPos = { x: number; y: number };
+type FlowKind = 'start' | 'agent' | 'return';
+interface FlowNodeData { label?: string; phase?: string; prompt?: string; model?: string; schemaText?: string; note?: string; ret?: string }
+interface FlowNode { id: string; type: FlowKind; position: FlowPos; data: FlowNodeData; measured?: { width: number; height: number } }
+interface FlowConn { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }
+type FlowEdge = FlowConn & { id: string };
+type FlowView = { x: number; y: number; zoom: number };
+interface FlowDraft { v: 1; name: string; desc: string; cwd: string; nodes: FlowNode[]; edges: FlowEdge[]; next: number; view: FlowView }
+// handleBounds:编辑器手写测量的注入件(C10;字段口径镜像 @xyflow/system 的 getHandleBounds)
+interface FlowHandleBound { id: string | null; type: 'source' | 'target'; position: string; x: number; y: number; width: number; height: number }
+type FlowHandleBounds = { source: FlowHandleBound[]; target: FlowHandleBound[] };
+// 草稿 API(后端 web.list_drafts / save_draft 的响应契约)
+interface DraftItem { name: string; meta: { name?: string; desc?: string }; mtime: number; js: string; draft: unknown }
+interface DraftsResp { drafts: DraftItem[] }
+interface DraftSaveResp { ok?: boolean; msg?: string; path?: string; sha?: string }
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
