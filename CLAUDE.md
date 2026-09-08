@@ -123,9 +123,10 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 - **与主视图物理隔离**：编辑器 DOM 只住 `#flow`，绝不进 `#list`/`#sess` 的 diffPaint 池（`test_render_golden.ts` 采样区之外，黄金必须零漂移）；`tick()/render()/catchUp()` 不碰它，编辑器打开时轮询照常；`flowRender()` 未 `flowWired` 时直接返回。**节点/handle HTML 只有一份实现：`nodeHTML`/`handleHTML`**——C2–C6 的类名与 `data-id` 拼法全在这里，别处再拼一份即铁律 8 违规（`test_flow_editor.ts` 按选择器钉死）。
 - **`XYFlowSystem` 只许在函数体内取**（顶层解构会在无 vendor 的环境——无头桩——直接 ReferenceError 打断整块产物；一律走 `xy()`）。喂给 vendor 的**每个回调**必须经 `safely()`：vendor 对包装层回调不做 try/catch，抛出即静默打断它自己的监听注册（症状"拖出虚线后松手什么都没发生"）；`XYPanZoom` 的六个回调（含 `onTransformChange`）一个不许省（内部无空值防护直调）。`handleBounds` 由 `measureFlow()` 手写测量并**除以 zoom** 后注入 `internals`（不引 ResizeObserver；漏除=非 1 倍缩放下吸附与边端点全错）。
 - **生成器三口径各一个函数**：`flowValidate`（错误清单，空=可生成）/ `flowMetaPhases`（phase 首现去重——顶部 PHASES 条与脚本 `meta.phases` 共用它）/ `flowGenerate`（出码，只有内部 bug 才抛）。UI 与测试只调这三个，禁止另数 phase 或自己判分层；产物不许含 `Date.now()/Math.random()`（沙箱禁用且破 resume）。
+- **入口只在选中具体项目时存在**(1.2.44,真实反馈「选择全部项目时不应该有编排入口,只有选择具体项目时才支持通过拖拽的方式创建 workflow」)——判定只住 `flowCanCompose(cwd)` 一个函数,三个消费者共用:`syncFlowEntry()`(按钮显隐 + tooltip;由 `render()` 每轮与启动时各调一次,故 localStorage 恢复值失效回落、切项目都自动跟上)、`btnFlow.onclick`(不满足就不打开)、`openFlow()` 首行守卫(绕开入口也写不出无项目的草稿)。理由不是 UI 偏好而是数据口径:草稿目录 slug、提示词上下文、终端 `cd` 执行目录都要一个确定 cwd。**新增按项目的功能入口请照抄这个形状**(判定单点 + 展示面只调用 + 按钮默认 `hidden` 由 JS 决定显隐),别在按钮上写第二份 if。
 - **草稿的落盘与枚举住后端单点**（`web.save_draft / list_drafts / _draft_dir`），前端只发请求、服务端不重编译（执行件由 `45-flowgen` 产出并随请求带上，单一真相）；铁律 2：草稿只写 `CONF_DIR/drafts/`，**执行永远在用户终端**（`Workflow({scriptPath})`），服务不碰控制面。
 - **语言**：静态壳走 `data-i18n`，但节点卡、草稿下拉 `<option>`、状态行是**动态拼的** → `setLang()` 必须调 `flowRelang()`（重刷下拉 + 清一次性状态行 + 重绘），漏了就是"切语言后编辑器留着旧文案"；空画布提示故意**不用** `.idle` 类（`setLang` 会把它 `.remove()` 掉）。
-- **真机冒烟**：`?flowsmoke=1` 把八条断言写进 `document.title`（无头桩给不出真实布局，连线吸附/拖拽阈值/滚轮缩放只能浏览器实证）。两个已踩的**假失败**：① 用自适应缩放的 7 卡起手图会把 handle 推到窗口外（`elementFromPoint` 拿不到）；② 拿图里已存在的节点对测"加边"，会被自己的去重单点静默吃掉。
+- **真机冒烟**：`?flowsmoke=1` 把九条断言写进 `document.title`(新增 `drag-add`:真实 HTML5 `DataTransfer` 拖拽建节点,桩里给不了)（无头桩给不出真实布局，连线吸附/拖拽阈值/滚轮缩放只能浏览器实证）。两个已踩的**假失败**：① 用自适应缩放的 7 卡起手图会把 handle 推到窗口外（`elementFromPoint` 拿不到）；② 拿图里已存在的节点对测"加边"，会被自己的去重单点静默吃掉。
 
 ## 开发/验证速查
 
@@ -144,7 +145,7 @@ HOME=$T nohup python3 scripts/server.py --port 8923 >/dev/null 2>&1 &      # 临
 '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --disable-gpu \
   --window-size=1600,1000 --user-data-dir=/tmp/ch-flow --proxy-server=http://127.0.0.1:1 \
   --virtual-time-budget=15000 --timeout=20000 --dump-dom 'http://127.0.0.1:8923/?flowsmoke=1' | grep -oE '<title>[^<]*'
-#   期望 SMOKE OK ✓nodes ✓contract-C3C4C5 ✓connect+1 ✓connPath-drawn ✓connPath-cleared ✓drag-move ✓zoom ✓gen
+#   期望 SMOKE OK ✓nodes ✓contract-C3C4C5 ✓connect+1 ✓connPath-drawn ✓connPath-cleared ✓drag-move ✓zoom ✓drag-add ✓gen
 #   （--proxy-server 让外网字体请求快速失败，否则 load 事件挂住 --dump-dom；localhost 默认不走代理）
 python3 scripts/guard.py --once          # 看护:确保服务在跑(不跑则 setsid 拉起)并退出,调试用
 python3 scripts/guard.py --detach        # 会话开始入口(函数自身):确保常驻循环在跑(无则 setsid 拉起)并退出

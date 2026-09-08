@@ -167,6 +167,9 @@ const I18N: Record<Lang, Record<string, string>> = {
     '复制执行命令': 'Copy run command',
 '画布为空 · 点左侧组件开始': 'Empty canvas — add a component on the left',
 '多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持': 'Many in-edges = join barrier (it waits for all of them); loops and branches are not supported yet',
+    // 编排入口按项目(1.2.44)
+    '对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)': 'Compose a Workflow for the selected project "%1" (drag nodes and wires; run it in that project terminal after saving)',
+    '先在上方选一个具体项目,才能编排 Workflow': 'Pick a specific project above to compose a Workflow',
   },
   es: {
     '◆ 全部项目': '◆ Todos los proyectos',
@@ -321,6 +324,9 @@ const I18N: Record<Lang, Record<string, string>> = {
     '复制执行命令': 'Copiar comando',
 '画布为空 · 点左侧组件开始': 'Lienzo vacío: añade un componente a la izquierda',
 '多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持': 'Varias entradas = barrera de convergencia (espera a todas); bucles y ramificaciones aún no se admiten',
+    // 编排入口按项目(1.2.44)
+    '对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)': 'Compón un Workflow para el proyecto seleccionado «%1» (arrastra nodos y conexiones; ejecútalo en la terminal de ese proyecto al guardar)',
+    '先在上方选一个具体项目,才能编排 Workflow': 'Elige arriba un proyecto concreto para componer un Workflow',
   },
   fr: {
     '◆ 全部项目': '◆ Tous les projets',
@@ -475,6 +481,9 @@ const I18N: Record<Lang, Record<string, string>> = {
     '复制执行命令': 'Copier la commande',
 '画布为空 · 点左侧组件开始': 'Canevas vide — ajoutez un composant à gauche',
 '多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持': 'Plusieurs entrées = barre de jointure (elle attend tout) ; boucles et embranchements non pris en charge',
+    // 编排入口按项目(1.2.44)
+    '对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)': 'Composez un Workflow pour le projet choisi « %1 » (glissez nœuds et liens ; lancez-le dans le terminal du projet après enregistrement)',
+    '先在上方选一个具体项目,才能编排 Workflow': 'Choisissez un projet précis ci-dessus pour composer un Workflow',
   },
   de: {
     '◆ 全部项目': '◆ Alle Projekte',
@@ -629,6 +638,9 @@ const I18N: Record<Lang, Record<string, string>> = {
     '复制执行命令': 'Befehl kopieren',
 '画布为空 · 点左侧组件开始': 'Leere Leinwand — links ein Bauteil hinzufügen',
 '多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持': 'Mehrere Eingänge = Join-Barriere (wartet auf alle) ; Schleifen und Verzweigungen noch nicht unterstützt',
+    // 编排入口按项目(1.2.44)
+    '对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)': 'Workflow für das gewählte Projekt „%1“ erstellen (Knoten und Kanten ziehen; nach dem Speichern im Terminal dieses Projekts ausführen)',
+    '先在上方选一个具体项目,才能编排 Workflow': 'Oben ein konkretes Projekt wählen, um einen Workflow zu erstellen',
   },
 };
 function detectLang(): Lang {

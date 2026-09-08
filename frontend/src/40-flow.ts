@@ -375,6 +375,7 @@ function fitFlowView(): void {
 
 // ── 入口 / 出口 ──
 async function openFlow(cwd: string): Promise<void> {
+  if (!flowCanCompose(cwd)) return;          // 第二道守卫:入口已隐藏,这里防任何绕过入口的调用把草稿写进"无项目"目录
   const root = $<HTMLElement>('flow');
   root.hidden = false; flowVisible = true;
   document.body.classList.add('flow-open');
@@ -487,7 +488,19 @@ function flowRelang(): void {
   flowNote('', true);
   flowRender();                                             // 内部会重跑 refreshFlowScript(错误清单同语言)
 }
-$<HTMLElement>('btnFlow').onclick = () => { void openFlow(fproj || (sess.length ? sess[0].cwd : '') || ''); };
+// ── 入口可见性单点:编排是**按项目**的事,没有"全部项目"的 workflow ──
+// 草稿落点(drafts/<项目 slug>)、提示词上下文、终端执行目录都要求一个确定的 cwd;
+// 选了「◆ 全部项目」时根本没有目标项目 → 入口不该存在(不是灰着让人猜)。
+// 判定只住这里,展示面(按钮显隐 / openFlow 守卫 / tooltip)一律调它——铁律 8。
+const flowCanCompose = (cwd: string): boolean => !!String(cwd || '').trim();
+function syncFlowEntry(): void {
+  const b = $<HTMLElement>('btnFlow'); if (!b) return;
+  const on = flowCanCompose(fproj);
+  b.hidden = !on;
+  b.title = on ? T('对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)', fproj) : T('先在上方选一个具体项目,才能编排 Workflow');
+}
+$<HTMLElement>('btnFlow').onclick = () => { if (flowCanCompose(fproj)) void openFlow(fproj); };
+syncFlowEntry();   // 启动即定态:fproj 在 30-app 顶层已从 localStorage 恢复(本文件在其后拼接)
 
 // ── ?flowsmoke=1 真机自检(§8.5):合成事件跑通 连线 / 拖节点 / 滚轮缩放 三类真实交互,结论写进 document.title ──
 // 为什么留在生产代码里:C3/C4/C5(吸附、connectable 类、data-id 反查)与拖拽阈值、缩放依赖**真实布局**——
@@ -571,6 +584,20 @@ function flowSmoke(): void {
       fire(fPane(), 'wheel', 300, 300, { deltaY: -240 });
       await frames(10);
       check('zoom', FS.view.zoom !== z0 && /scale\(/.test(String(fVp().style.transform)));
+      // 拖拽创建:真实 HTML5 DataTransfer —— 用户要的"通过拖拽建 workflow"这条只有浏览器能实证
+      const pal = document.querySelector('#fPalette .pal[data-t="agent"]');
+      if (pal) {
+        const dt = new DataTransfer();
+        pal.dispatchEvent(new DragEvent('dragstart', { view: window, bubbles: true, dataTransfer: dt }));
+        const n0 = FS.nodes.length, r = fPane().getBoundingClientRect(), x = r.left + 140, y = r.bottom - 90;
+        fPane().dispatchEvent(new DragEvent('dragover', { view: window, bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y }));
+        fPane().dispatchEvent(new DragEvent('drop', { view: window, bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y }));
+        await frames(6);
+        const addId = FS.nodes.length > n0 ? FS.nodes[FS.nodes.length - 1].id : '__none__';
+        check('drag-add', FS.nodes.length === n0 + 1 && dt.getData('text/plain') === 'agent' && !!fNodeEl(addId));
+        flowRemoveNode(addId);                               // 孤立卡会挡校验:复原后再验生成器
+        await frames(4);
+      } else { res.push('✗drag-add(no-palette)'); }
       refreshFlowScript();
       check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');

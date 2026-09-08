@@ -362,7 +362,7 @@ body.flow-open{overflow:hidden}
 <div class="tools">
 <select id="fproj"><option value="" data-i18n="◆ 全部项目">◆ 全部项目</option></select>
 <input id="fq" placeholder="⌕ 搜索 名称/run/任务/状态" data-i18n-ph="⌕ 搜索 名称/run/任务/状态" autocomplete="off" spellcheck="false">
-<button class="tgl" id="btnFlow" data-i18n="✦ 编排" title="对当前选中项目可视化编排 Workflow(未选项目则作用于留空)">✦ 编排</button>
+<button class="tgl" id="btnFlow" data-i18n="✦ 编排" hidden>✦ 编排</button><!-- 显隐与 tooltip 由 syncFlowEntry() 按"是否选中具体项目"单点决定 -->
 <button class="tgl" id="hookbtn" data-i18n="⚙ 设置">⚙ 设置</button>
 <span class="rid" id="verB" style="align-self:center"></span>
 </div></div></header>

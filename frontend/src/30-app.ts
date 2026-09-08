@@ -161,6 +161,7 @@ function renderSessions(): void {
   spainted = true;
 }
 function render(): void {
+  syncFlowEntry();                            // 编排入口只随"选中具体项目"存在(fproj 变化/回落都经过这里;判定住 40-flow 单点)
   const list = $('list');
   const q = fstr.toLowerCase();
   const rv = runs.filter(runHit);                 // 过滤全集(嵌入+独立)——仪表计数用它,少计即对账事故

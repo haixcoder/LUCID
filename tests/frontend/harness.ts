@@ -62,6 +62,7 @@ export class El {
   declare placeholder: string;
   // 产物动态挂上的属性(桩不实现语义,仅声明可读写):
   declare className?: string;
+  declare title: string;   // 反射属性:始终返回字符串(浏览器同语义)
   declare onchange?: ((ev: any) => void) | null;
   declare oninput?: ((ev: any) => void) | null;
   constructor(tag: string) {
@@ -168,6 +169,12 @@ export class El {
 }
 export type ANode = El | Txt;
 // 浏览器反射属性:open/hidden/checked 与内容属性双向联动(赋 .open=true 即得上 [open] 选择器命中)
+// title 同为反射属性(全局属性):b.title = x 等价于 setAttribute('title', x)
+Object.defineProperty(El.prototype, 'title', {
+  configurable: true,
+  get(this: El) { return this.attrs.title === undefined ? '' : this.attrs.title; },
+  set(this: El, v: unknown) { this.attrs.title = String(v); },
+});
 for (const prop of REFLECT) {
   Object.defineProperty(El.prototype, prop, {
     configurable: true,

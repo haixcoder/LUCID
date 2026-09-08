@@ -91,6 +91,28 @@ const FAN = {
   ck('boot:加载真实产物无异常(顶层不碰 XYFlowSystem)', env.errs.length === 0, env.errs.join('|'));
   ck('boot:编辑器未打开(画布未初始化)', env.$('flow').hidden === true && rec.pz === null);
 
+  // ── 入口按项目(1.2.44 需求):选「◆ 全部项目」时**不该有**编排入口,只有选中具体项目才出现 ──
+  const envE = mkEnv();
+  await envE.flush();
+  ck('未选项目:入口隐藏 + tooltip 直接交代下一步(不是灰着让人猜)',
+     envE.$('btnFlow').hidden === true && /先在上方选一个具体项目/.test(envE.$('btnFlow').title), envE.$('btnFlow').title);
+  envE.run('void openFlow("")');
+  await envE.flush(10);
+  ck('openFlow("") 被拒(第二道守卫:绕开入口也写不出"无项目"草稿)',
+     envE.$('flow').hidden === true && envE.get('flowVisible') === false && rec.pz === null);
+  envE.run('fproj = "/work/fix"; renderAnchored()');
+  await envE.flush();
+  ck('选中具体项目:入口出现,tooltip 指名该项目',
+     envE.$('btnFlow').hidden === false && envE.$('btnFlow').title.includes('/work/fix'), envE.$('btnFlow').title);
+  envE.run('fproj = ""; renderAnchored()');
+  await envE.flush();
+  ck('切回「全部项目」:入口立即消失(判定只有一个函数,按钮/守卫/tooltip 三处同源)', envE.$('btnFlow').hidden === true);
+  envE.run('fproj = "/work/fix"; renderAnchored()');
+  await envE.flush();
+  envE.run("document.getElementById('langsel').value='en'; document.getElementById('langsel').onchange({target:{value:'en'}});");
+  await envE.flush();
+  ck('切语言后 tooltip 同步换语(动态文案也在 T() 层内)', /Pick a specific project|Compose a Workflow/.test(envE.$('btnFlow').title), envE.$('btnFlow').title);
+
   // ── 打开编辑器(后端无草稿 → seed 起手图)──
   env.run('void openFlow("/work/fix")');
   await env.flush(30);
@@ -233,6 +255,23 @@ const FAN = {
   env.run('void openFlow("/work/fix")');
   await env.flush(20);
   ck('重开编辑器不重复建画布(XYPanZoom 单实例,接线只一次)', rec.pzCount === 1 && env.get('flowVisible') === true);
+  // 拖拽创建(用户要的"通过拖拽的方式创建 workflow"):dragstart 带类型 → drop 落点建节点,坐标要过视口变换
+  ck('拖拽创建:组件拖到画布落点即建节点(按平移+缩放反算坐标)', (function () {
+    const pal = querySelectorEl(env.rootEl, '#fPalette .pal[data-t="agent"]'), pane = env.$('fPane');
+    pane._rect = { top: 100, bottom: 700, left: 200, right: 1200, height: 600 };
+    const store: Record<string, string> = {};
+    const dt = { setData: (k: string, v: string) => { store[k] = v; }, getData: (k: string) => store[k] || '' };
+    pal.fire('dragstart', { dataTransfer: dt });
+    env.run('FS.view = { x: 30, y: 20, zoom: 2 }');
+    const before = Number(env.get('FS.nodes.length'));
+    pane.fire('dragover', { preventDefault: () => {} });
+    pane.fire('drop', { preventDefault: () => {}, dataTransfer: dt, clientX: 430, clientY: 220 });
+    const last = JSON.parse(env.get('JSON.stringify(FS.nodes[FS.nodes.length - 1].position)'));
+    const okDrop = Number(env.get('FS.nodes.length')) === before + 1 && last.x === (430 - 200 - 30) / 2 && last.y === (220 - 100 - 20) / 2;
+    const stillThere = !!env.$q(`.wfnode[data-nodeid="${String(env.get('FS.nodes[FS.nodes.length-1].id'))}"]`);
+    env.run('flowRemoveNode(FS.nodes[FS.nodes.length - 1].id); FS.view = { x: 20, y: 10, zoom: 1 }');   // 复原,别污染后续断言
+    return store['text/plain'] === 'agent' && okDrop && stillThere;
+  })());
 
   // ── 生成器:§6 语义映射表逐行对案(在编辑器已打开的 env 里直接调纯函数,零 DOM)──
   const G = (ns: any[], es: any[], extra: any = {}) => env.get('flowGenerate(' + JSON.stringify(dft(ns, es, extra)) + ')') as string;
@@ -393,9 +432,16 @@ const FAN = {
   await env7.flush();
   env7.run('void openFlow("")');
   await env7.flush(20);
-  ck('未选项目时给可见提示(不冒充已选中)', /未选项目/.test(env7.$('fCwd').textContent), env7.$('fCwd').textContent);
-  ck('空项目也能编排:自动存键用 __no_cwd__ 落点(与后端 _draft_dir 同一口径)',
-     env7.localStorage.getItem('wfo-flow-autosave-__no_cwd__') !== null, String(Object.keys(env7.localStorage._map)));
+  // 1.2.44 口径变更:编排按项目,空 cwd **不开编辑器**(旧行为"空项目也开、键落 __no_cwd__"是错的,已废)
+  ck('空 cwd 不开编辑器,也不留 __no_cwd__ 自动存盘键',
+     env7.$('flow').hidden === true && env7.localStorage.getItem('wfo-flow-autosave-__no_cwd__') === null,
+     String(env7.$('flow').hidden));
+  env7.run('void openFlow("/work/fix")');
+  await env7.flush(20);
+  ck('开编辑器时顶栏显示的就是那个项目(不再有「未选项目」占位口径)',
+     env7.$('fCwd').textContent === '/work/fix' && !/未选项目/.test(env7.$('fCwd').textContent), env7.$('fCwd').textContent);
+  ck('自动存盘键按项目落点(与后端 drafts/<slug> 同一"项目"概念)',
+     env7.localStorage.getItem('wfo-flow-autosave-/work/fix') !== null);
 
   // ── 执行件可跑性:拿沙箱替身(agent/parallel/phase/args)真跑一遍生成脚本 ──
   // 为什么值得跑:前面全是"文本求值"级别的断言,而 .js 是要被 Workflow 工具执行的产物——
