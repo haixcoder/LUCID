@@ -19,6 +19,7 @@ const FULL_TEXT = { prompt: 'FULL-IN 全文注入段落', result: 'FULL-OUT 回�
       if (url.indexOf('/api/subagent') === 0) {
         if (url.indexOf('msg=uu-miss') >= 0) return { prompt: '', result: '', miss: true };
         if (url.indexOf('msg=msg-miss-step') >= 0) return { prompt: '', result: '', miss: true };   // 步骤行 miss(1.2.61)
+        if (url.indexOf('agent=cafe1234') >= 0) return { prompt: '', result: '' };                  // 子代理行:详情回空(非 miss)
         return FULL_TEXT;
       }
       return undefined;
@@ -117,6 +118,21 @@ const FULL_TEXT = { prompt: 'FULL-IN 全文注入段落', result: 'FULL-OUT 回�
   ck('步骤行 miss:轮询重建后 ⚠ 与 OUT 面板都还在(不被截断预览顶掉)',
      !!sd2 && /超出转录留存范围/.test(sd2.textContent) && [...sd2.querySelectorAll('.pane')].some((p) => (p.dataset.t || '').startsWith('OUT')),
      sd2 && sd2.textContent.slice(0, 240));
+
+  // ── 子代理行:同一根因的另一条触发路径(详情接口回空、非 miss)──
+  // R = fu.r !== undefined ? fu.r : a.lastText —— 拉取"成功但空"时 R 变 '' → OUT 面板消失,与步骤行同一症状。
+  const ak = SESSION_FIX.sessionId + ':cafe1234';
+  const ad = env.$('sess').querySelector(`details[data-k="${ak}"]`)!;
+  ck('子代理行前提:展开前有 OUT 预览', !!ad && ad.textContent.includes('sub result'), ad && ad.textContent.slice(0, 160));
+  ad.open = true;
+  ad.fire('toggle');
+  await env.flush();
+  env.run('void tick()');
+  await env.flush();
+  const ad2 = env.$('sess').querySelector(`details[data-k="${ak}"]`)!;
+  ck('子代理行:详情回空后 OUT 面板仍显示预览(不静默消失)',
+     !!ad2 && [...ad2.querySelectorAll('.pane')].some((p) => (p.dataset.t || '').startsWith('OUT') && /sub result/.test(p.textContent)),
+     ad2 && ad2.textContent.slice(0, 200));
 
   ck('全程无渲染异常', env.errs.length === 0, env.errs.join('|'));
   done();

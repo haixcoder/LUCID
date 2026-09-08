@@ -164,7 +164,9 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
   ${taskRegion}
   ${sa.length ? `<div class="thead"><span></span><span>AGENT</span><span>${T('类型 · 模型')}</span><span>${T('最近工具')}</span><span class="num">TOK in/out</span><span class="num">${T('最后活动')}</span><span></span></div>
   ${sa.map(a => {
-    const k = r.sessionId + ':' + a.agentId, fu: Fu = FULL[k] || {}, P = fu.p || a.prompt, R = fu.r !== undefined ? fu.r : a.lastText;
+    // 拉取"成功但空"(接口回 {prompt:'',result:''} 且非 miss)时**回落到已有预览**,不许把 OUT 面板整个删掉——
+    // 与步骤行同一根因(1.2.61);形状对齐运行卡 agent 行(fu.r || a.result 的回落语义 + 'null' 串守卫)。
+    const k = r.sessionId + ':' + a.agentId, fu: Fu = FULL[k] || {}, P = fu.p || a.prompt, R = (fu.r || a.lastText || '') === 'null' ? '' : (fu.r || a.lastText);
     return `<details class="term" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|${esc(a.agentId)}"${P || R ? '' : ' open'}><summary class="arow" title="${esc(a.description || '')}${a.teamName ? ' · team ' + esc(a.teamName) : ''}">
   <span class="glyph s-${esc(a.state)}" ${a.state === 'running' ? `style="${AD(1.5)}"` : ''} title="${esc(a.state)}${a.pendingTools.length ? ' → ' + esc(a.pendingTools.join(',')) : ''}">${GLY(a.state)}</span>
   <span class="lbl">${esc(a.label)}</span><span class="phc">${esc((a.kind === 'teammate' ? 'T·' : '') + (a.agentType || 'agent'))} · ${esc(a.model || '')}</span><span class="tool">${esc(a.lastTool || '')}</span>
