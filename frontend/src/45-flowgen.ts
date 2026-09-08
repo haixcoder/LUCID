@@ -18,46 +18,65 @@ function flowAdj(fs: FlowDraft): { out: Map<string, string[]>; inn: Map<string, 
   for (const e of fs.edges) { push(out, e.source, e.target); push(inn, e.target, e.source); }
   return { out, inn };
 }
-// map 链分析单点(Phase 4):从 map 出发沿"单入口后继"贪心推进,每级 = 单个 agent,或"扇出 → 同一 merge"。
-// 终止:无后继 / 后继有多入边(汇合消费者)/ 后继是 return / 扇出级汇于 merge(链止于该 merge,其后是消费者)。
-// 为什么必须贪心到汇合点:map 的语义就是"下游每一级是 pipeline 的一级"(PRD §5.2 规则 4);
-// 要让"汇合后聚合"成为可能,汇合点必须把链切断——否则聚合节点会被当成又一级、逐条目执行。
-interface MapChain { mapId: string; stages: string[][]; inner: Set<string>; errs: string[] }
-function flowMapChain(fs: FlowDraft, mapId: string): MapChain {
+// ── 结构化走链单点(map 链 / 分支区域共用;Phase 4 起,Phase 5 抽出复用)──────────────
+// 从 start 出发沿后继走:每级 = 单个 agent,或"扇出 → 同一 merge"。终止:
+//   ① 无后继 → 区域尾(exit = 当前节点,意味着没接 merge/return);
+//   ② 后继多入边 / 是 return → 消费者(exit = 它,区域到此为止);
+//   ③ 后继非 agent → 报错(嵌套组合请走 code 节点)。
+interface FlowWalk { stages: string[][]; inner: Set<string>; exits: string[]; errs: string[] }
+// firstIsStage:start 本身算不算一级。map 链传 false(map 是出码者,不是级);分支区域传 true(区域首节点就是一级)。
+function flowWalkStages(fs: FlowDraft, start: string, where: string, firstIsStage = false): FlowWalk {
   const { out, inn } = flowAdj(fs);
   const byId = new Map(fs.nodes.map(n => [n.id, n]));
-  const stages: string[][] = [], inner = new Set<string>(), errs: string[] = [];   // inner = 被 pipeline 表达式消化的节点(不含 map 自己:它负责出码)
-  // 级 1 = map 节点**自身**的 prompt/label 模板(PRD §5.1 的草稿形状:items + prompt 同住 map 节点)
-  if (String(byId.get(mapId)?.data.prompt || '').trim()) stages.push([mapId]);
-  let cur = mapId;
+  const stages: string[][] = [], inner = new Set<string>(), exits: string[] = [], errs: string[] = [];
+  const seen = new Set<string>([start]);
+  const first = byId.get(start);
+  if (!first) return { stages, inner, exits, errs: [`${where} 的起点不存在`] };
+  // start 本身就是汇合点(如 branch 直接连 merge):空区域,exit = 它
+  if (first.type === 'merge' && (inn.get(start) || []).length > 1) return { stages, inner, exits: [start], errs };
+  if (firstIsStage) {
+    if (first.type === 'return') return { stages, inner, exits: [start], errs };
+    if (first.type !== 'agent') { errs.push(`${where} 内只允许 agent 级(遇到 ${first.type});嵌套组合请改用 code 节点`); return { stages, inner, exits, errs }; }
+    stages.push([start]); inner.add(start);
+  }
+  let cur = start;
   for (let guard = 0; guard <= fs.nodes.length + 1; guard++) {
     const succ = (out.get(cur) || []).filter(id => byId.has(id));
-    if (!succ.length) break;
+    if (!succ.length) { exits.push(cur); break; }
     if (succ.length === 1) {
       const s = succ[0], node = byId.get(s)!;
-      if (node.type === 'return' || (inn.get(s) || []).length > 1) break;   // 消费者:链到此为止
-      if (node.type !== 'agent') {
-        errs.push(`节点 ${mapId} 的 map 链内只允许 agent 级(遇到 ${node.type});嵌套组合请改用 code 节点`);
-        break;
-      }
-      stages.push([s]); inner.add(s); cur = s; continue;
+      if (seen.has(s)) { errs.push(`${where} 出现环`); break; }
+      if (node.type === 'return' || (inn.get(s) || []).length > 1) { exits.push(s); break; }
+      if (node.type !== 'agent') { errs.push(`${where} 内只允许 agent 级(遇到 ${node.type});嵌套组合请改用 code 节点`); break; }
+      stages.push([s]); inner.add(s); seen.add(s); cur = s; continue;
     }
     // 扇出级:所有后继必须各只有一条出边、且汇于同一个 merge(该 merge 的入边恰好就是这些后继)
     const merges = new Set<string>();
     let bad = false;
     for (const s of succ) {
       const so = (out.get(s) || []).filter(id => byId.has(id));
-      if (byId.get(s)?.type !== 'agent' || so.length !== 1) { bad = true; break; }
+      if (byId.get(s)?.type !== 'agent' || so.length !== 1 || seen.has(s)) { bad = true; break; }
       merges.add(so[0]);
     }
     const m = [...merges][0], mn = m ? byId.get(m) : null;
     if (bad || merges.size !== 1 || !mn || mn.type !== 'merge' || (inn.get(m) || []).length !== succ.length) {
-      errs.push(`节点 ${mapId} 的 map 链扇出级必须汇于同一个 merge 节点`);
+      errs.push(`${where} 的扇出级必须汇于同一个 merge 节点`);
       break;
     }
-    for (const s of succ) inner.add(s);
-    stages.push(succ); inner.add(m); break;                                 // 链止于汇合点
+    for (const s of succ) { inner.add(s); seen.add(s); }
+    stages.push(succ); inner.add(m); seen.add(m); exits.push(m); break;
   }
+  return { stages, inner, exits, errs };
+}
+// map 链分析单点(Phase 4):级 1 = map 节点**自身**的 prompt/label 模板(PRD §5.1 的草稿形状),
+// 下游每级由 flowWalkStages 走。贪心到汇合点为止——map 的语义就是"下游每一级是 pipeline 的一级"(PRD §5.2 规则 4)。
+interface MapChain { mapId: string; stages: string[][]; inner: Set<string>; errs: string[] }
+function flowMapChain(fs: FlowDraft, mapId: string): MapChain {
+  const byId = new Map(fs.nodes.map(n => [n.id, n]));
+  const stages: string[][] = [], inner = new Set<string>(), errs: string[] = [];   // inner 不含 map 自己(它负责出码)
+  if (String(byId.get(mapId)?.data.prompt || '').trim()) stages.push([mapId]);
+  const w = flowWalkStages(fs, mapId, `节点 ${mapId} 的 map 链`);
+  stages.push(...w.stages); w.inner.forEach(id => inner.add(id)); errs.push(...w.errs);
   return { mapId, stages, inner, errs };
 }
 // 全图 map 链(生成与校验共用;生成时据此跳过链内节点)
@@ -66,10 +85,43 @@ function flowMapChains(fs: FlowDraft): Map<string, MapChain> {
   for (const n of fs.nodes) if (n.type === 'map') m.set(n.id, flowMapChain(fs, n.id));
   return m;
 }
-// 节点是否落在某个 map 链的"级"里(链首 map 自己不算——它持有整条 pipeline 的结果)
-function flowChainStageOf(chains: Map<string, MapChain>, id: string): MapChain | null {
-  for (const c of chains.values()) for (const lv of c.stages) if (lv.indexOf(id) >= 0) return c;
-  return null;
+// 分支区域单点(Phase 5,PRD §5.2 规则 2):true/false 各自走一条链,要求
+// ① 两条都连且各只有一个后继;② 可达集不相交;③ 终止于同一个 merge(或同一个 return)。
+interface BranchRegion { branchId: string; cond: string; tStages: string[][]; fStages: string[][]; inner: Set<string>; merge: string | null; errs: string[] }
+function flowBranchRegion(fs: FlowDraft, branchId: string): BranchRegion {
+  const byId = new Map(fs.nodes.map(n => [n.id, n]));
+  const errs: string[] = [];
+  const outs = (hid: string): string[] => fs.edges.filter(e => e.source === branchId && e.sourceHandle === hid).map(e => e.target);
+  const t0 = outs('true'), f0 = outs('false');
+  const cond = String(byId.get(branchId)?.data.cond || '').trim();
+  if (!cond) errs.push(`节点 ${branchId} 的 branch 缺少 cond 条件表达式`);
+  if (t0.length !== 1) errs.push(`节点 ${branchId} 的 true 分支必须连且只连一个后继`);
+  if (f0.length !== 1) errs.push(`节点 ${branchId} 的 false 分支必须连且只连一个后继`);
+  if (errs.length) return { branchId, cond, tStages: [], fStages: [], inner: new Set(), merge: null, errs };
+  const wt = flowWalkStages(fs, t0[0], `节点 ${branchId} 的 true 分支`, true);
+  const wf = flowWalkStages(fs, f0[0], `节点 ${branchId} 的 false 分支`, true);
+  errs.push(...wt.errs, ...wf.errs);
+  const tAll = new Set<string>([t0[0], ...wt.inner]), fAll = new Set<string>([f0[0], ...wf.inner]);
+  for (const id of tAll) if (fAll.has(id)) errs.push(`节点 ${branchId} 的两条分支在汇合前相遇(区域必须不相交):${id}`);
+  const te = wt.exits, fe = wf.exits;
+  const same = te.length === 1 && fe.length === 1 && te[0] === fe[0];
+  const ex = same ? byId.get(te[0]) : null;
+  let merge: string | null = null;
+  if (same && ex?.type === 'merge') merge = te[0];
+  else if (!(same && ex?.type === 'return')) errs.push(`节点 ${branchId} 的两条分支必须终止于同一个 merge(或同一个 return)`);
+  return { branchId, cond, tStages: wt.stages, fStages: wf.stages, inner: new Set([...tAll, ...fAll]), merge, errs };
+}
+function flowBranchRegions(fs: FlowDraft): Map<string, BranchRegion> {
+  const m = new Map<string, BranchRegion>();
+  for (const n of fs.nodes) if (n.type === 'branch') m.set(n.id, flowBranchRegion(fs, n.id));
+  return m;
+}
+// 区域归属单点(引用校验用):节点 → 它所属的区域(map 链 / 分支区域)。map 自己不入表(它持有整条 pipeline 的结果)。
+function flowRegionOf(chains: Map<string, MapChain>, branches: Map<string, BranchRegion>): Map<string, { kind: 'map' | 'branch'; id: string }> {
+  const m = new Map<string, { kind: 'map' | 'branch'; id: string }>();
+  for (const c of chains.values()) for (const id of c.inner) m.set(id, { kind: 'map', id: c.mapId });
+  for (const b of branches.values()) for (const id of b.inner) m.set(id, { kind: 'branch', id: b.branchId });
+  return m;
 }
 
 // 上游可达集(单点:占位符引用与"汇聚等待"判定都靠它)
@@ -130,16 +182,16 @@ function flowLevels(fs: FlowDraft): { groups: string[][]; orphan: string[]; cycl
   return { groups, orphan, cycle, dangling, selfEdge };
 }
 
-function flowRefErrs(fs: FlowDraft, chains: Map<string, MapChain>): string[] {
+function flowRefErrs(fs: FlowDraft, chains: Map<string, MapChain>, branches: Map<string, BranchRegion>): string[] {
   const byId = new Map(fs.nodes.map(n => [n.id, n]));
   const up = flowUpstream(fs);
   const startId = fs.nodes.find(n => n.type === 'start')?.id;
-  const stageIds = new Set<string>();
-  for (const c of chains.values()) for (const lv of c.stages) for (const id of lv) stageIds.add(id);
+  const regionOf = flowRegionOf(chains, branches);
   const errs: string[] = [];
   for (const n of fs.nodes) {
     if (n.type !== 'agent' && n.type !== 'map') continue;
-    const chain = flowChainStageOf(chains, n.id);
+    const own = regionOf.get(n.id);
+    const chain = n.type === 'map' ? (chains.get(n.id) || null) : (own?.kind === 'map' ? chains.get(own.id)! : null);
     const seen = new Set<string>();
     for (const m of String(n.data.prompt || '').matchAll(FLOW_REF_RE)) seen.add(m[1]);
     for (const ref of seen) {
@@ -150,18 +202,23 @@ function flowRefErrs(fs: FlowDraft, chains: Map<string, MapChain>): string[] {
       const target = ref === 'start' ? startId : ref;
       if (!target || !byId.has(target)) { errs.push(`节点 ${n.id} 引用了不存在的节点 {{${ref}}}`); continue; }
       if (target === n.id) { errs.push(`节点 ${n.id} 引用了自身 {{${ref}}}`); continue; }
-      if (chain) {                                                   // 链内:只有"上一级"的结果拿得到(回调的 prev)
+      if (chain && chain.mapId !== n.id) {                           // map 链内:只有"上一级"的结果拿得到(回调的 prev)
         const si = chain.stages.findIndex(lv => lv.indexOf(n.id) >= 0);
         const prevLv = si > 0 ? chain.stages[si - 1] : [];
-        if (stageIds.has(target) || target === chain.mapId) {        // 链内节点(含 map 自身)只许当"上一级"用
+        const tgtRegion = regionOf.get(target);
+        if (tgtRegion || target === chain.mapId) {                   // 链内节点(含 map 自身)只许当"上一级"用
           if (prevLv.indexOf(target) < 0) errs.push(`节点 ${n.id} 在 ${chain.mapId} 的 map 链内,只能引用上一级的结果 {{${ref}}}`);
           continue;
         }
         if (!(up.get(n.id)?.has(target))) errs.push(`节点 ${n.id} 的 {{${ref}}} 不是它的上游(连不到 = 拿不到结果)`);
         continue;
       }
-      if (stageIds.has(target)) {                                    // 链内变量只活在回调闭包里
-        errs.push(`节点 ${n.id} 引用了 map 链内的节点 {{${ref}}}(链内变量只在 pipeline 回调里存在)`);
+      const tgtRegion = regionOf.get(target);
+      if (tgtRegion && (!own || own.kind !== tgtRegion.kind || own.id !== tgtRegion.id)) {
+        // 区域外引用:map 链内变量只活在回调闭包,pipeline 自身的结果也要等它算完
+        errs.push(tgtRegion.kind === 'map'
+          ? `节点 ${n.id} 引用了 map 链内的节点 {{${ref}}}(链内变量只在 pipeline 回调里存在)`
+          : `节点 ${n.id} 引用了分支区域内的节点 {{${ref}}}(块作用域变量在分支外不可见,请用 merge 汇合)`);
         continue;
       }
       if (!(up.get(n.id)?.has(target))) errs.push(`节点 ${n.id} 的 {{${ref}}} 不是它的上游(连不到 = 拿不到结果)`);
@@ -216,13 +273,16 @@ function flowValidate(fs: FlowDraft): string[] {
     if (!String(byId.get(c.mapId)?.data.items || '').trim()) errs.push(`节点 ${c.mapId} 的 map 缺少 items 表达式`);
     if (!c.stages.length) errs.push(`节点 ${c.mapId} 的 map 至少要接一级 agent(它自身是 pipeline 入口,不是级)`);
   }
-  // map 会独占一个 await 点:与别的步骤同层没法表达(同层 = parallel,而 pipeline 不能塞进 thunk)
+  // ── 区域:分支(Phase 5)──
+  const branches = flowBranchRegions(fs);
+  for (const b of branches.values()) errs.push(...b.errs);
+  // map / branch 会独占一个 await 点(if/else 或 pipeline 不能塞进 parallel thunk):与别的步骤同层没法表达
   for (const g of groups) {
     if (!g) continue;
-    const maps = g.filter(id => byId.get(id)?.type === 'map');
-    if (maps.length && g.length > 1) errs.push(`map 节点 ${maps.join(', ')} 不能与其他步骤同层(它会独占一个 await 点)`);
+    const solo = g.filter(id => { const t = byId.get(id)?.type; return t === 'map' || t === 'branch'; });
+    if (solo.length && g.length > 1) errs.push(`节点 ${solo.join(', ')}(map/branch)不能与其他步骤同层(它会独占一个 await 点)`);
   }
-  errs.push(...flowRefErrs(fs, chains));
+  errs.push(...flowRefErrs(fs, chains, branches));
   for (const n of fs.nodes) if (n.type === 'agent') errs.push(...flowSchemaErrs(`节点 ${n.id} 的 schema`, String(n.data.schemaText || '')));
   const aspec = flowArgsSpec(fs);
   errs.push(...flowSchemaErrs('args 的 schema', aspec.schemaText));
@@ -312,10 +372,12 @@ function flowGenerate(fs: FlowDraft): string {
   const byId = (id: string): FlowNode | undefined => fs.nodes.find(n => n.id === id);
   const starts = fs.nodes.filter(n => n.type === 'start'), terms = fs.nodes.filter(n => n.type === 'return');
   const metaPhases = flowMetaPhases(fs);
-  // map 链:链内节点由 pipeline 回调内部消化,不再作为顶层语句出现
+  // map 链 / 分支区域:区域内节点由 pipeline 回调或 if/else 块内部消化,不再作为顶层语句出现
   const chains = flowMapChains(fs);
+  const branches = flowBranchRegions(fs);
   const innerAll = new Set<string>();
   for (const c of chains.values()) c.inner.forEach(id => innerAll.add(id));
+  for (const b of branches.values()) b.inner.forEach(id => innerAll.add(id));
   const lines: string[] = [];
   lines.push(`// 由 Lucid 编排器生成 —— 目标项目: ${fs.cwd || '(未填)'}`);
   lines.push(`// 用法: cd 目标项目 && Workflow({ scriptPath: '<本文件路径>', args: '<输入>' })`);
@@ -373,11 +435,36 @@ function flowGenerate(fs: FlowDraft): string {
     });
     return `pipeline(${String(byId(c.mapId)!.data.items || '').trim()}, ${parts.join(', ')})`;
   };
+  // 分支区域出码:区域内的级在块里跑,末级结果赋给 merge 变量(无 merge 则留给块外 return)
+  const emitRegion = (levels: string[][], target: string | null, indent: string): void => {
+    if (!levels.length) { if (target) lines.push(`${indent}${target} = null;`); return; }   // 空区域(分支直接汇合)
+    levels.forEach((lv, i) => {
+      const last = i === levels.length - 1;
+      // 分支区域是**块作用域**:引用同区域内更早的节点用真实变量名(不是 pipeline 回调的 prev)
+      const decl = last && target ? `${target} = ` : (lv.length === 1 ? `const ${lv[0]} = ` : `const [${lv.join(', ')}] = `);
+      if (lv.length === 1) lines.push(`${indent}${decl}await ${call(byId(lv[0])!, true)}`);
+      else {
+        lines.push(`${indent}${decl}await parallel([`);
+        lines.push(...lv.map(id => `${indent}  () => ${call(byId(id)!, true)},`));
+        lines.push(`${indent}])`);
+      }
+    });
+  };
   for (const g of groups) {
     if (!g) continue;
     const live = g.filter(id => !innerAll.has(id));
     if (!live.length) continue;
     for (const id of live) if (byId(id)?.type === 'map') lines.push(`const ${id} = await ${pipeExpr(chains.get(id)!)}`);
+    for (const id of live) {
+      const b = branches.get(id);
+      if (!b) continue;
+      if (b.merge) lines.push(`let ${b.merge};`);
+      lines.push(`if (${b.cond}) {`);
+      emitRegion(b.tStages, b.merge, '  ');
+      lines.push('} else {');
+      emitRegion(b.fStages, b.merge, '  ');
+      lines.push('}');
+    }
     const ags = live.map(byId).filter((n): n is FlowNode => !!n && n.type === 'agent');
     if (!ags.length) continue;                                        // start / return / map 层不再出 agent 代码
     const ph = ags[0].data.phase || ags[0].data.label || '';

@@ -80,3 +80,21 @@
 - `flowAdj`(邻接表单点)已抽出,Phase 5/6 的区域分析复用它,别再各建一份。
 - 扇出级用 `merge` 作汇合标记;Phase 5 的 branch 也要 `merge`——**merge 的语义统一为"汇合点,自身不执行"**,分支版只是入度 2。
 - `{{item}}`/`{{index}}` 已被 FLOW_REF_RE 收录:任何新增的"占位符解析"入口都必须显式处理这两个 token(否则会被当成节点 id)。
+
+## Phase 5 · branch + merge — 完成（1.2.53 → 1.2.54）
+
+**结果：** run_all GREEN 36/36（新增 `test_flowgen_branch.ts` 17 断言、`tests/browser/test_branch_real.ts` 4 断言真实输入）；`?flowsmoke=1` = SMOKE OK 十四项（新增 `branch-gen`）。
+
+**实现：**
+- 走链器抽成 `flowWalkStages`（map 链与分支区域共用，`firstIsStage` 区分"起点是出码者"还是"起点是一级"）；`flowBranchRegion` 单点做区域规则 2（都连 / 不相交 / 同终止点）。
+- 生成 `let <merge>; if (cond) { … } else { … }`；区域末级结果直接赋给 merge；块内引用同区域更早节点用真实变量名。
+- 引用校验改用 `flowRegionOf` 单点（map/branch 区域统一）：区域外引用 = 报错（块作用域/pipeline 闭包都不可能在外部可见）。
+- UI：branch 卡片（label + cond + 提示）、`handleHTML` 支持 hid/pos 覆盖（true/false 双出把、merge 的 in/in2 双入把，CSS 上下错位）；palette 加 Branch。
+
+**偏离计划：**
+- AD-4 的 branch 示例写 `let n6; if (…) { n6 = await agent(…) }`（无中间变量），照此实现——比"先 const 再赋值"少一层噪音。
+- 新增"区域外引用 = 报错"与"branch 独占一层"两条校验（计划未列，但不写就会生成 ReferenceError 或语义错的脚本）。
+
+**影响后续相位的发现：**
+- `flowWalkStages` 现在有三个调用点（map 链 ×1、branch ×2）；Phase 6 的 loop 区域（单入口单出口）应复用同一走链器，别再写第四份。
+- `merge` 的语义已统一：**汇合点，自身不执行**；map 扇出级、branch 汇合、Phase 6 loop 出口都可用它（入把 in/in2，允许 1 入 = 显式"区域结束"标记）。

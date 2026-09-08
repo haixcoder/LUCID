@@ -334,6 +334,11 @@ body.flow-open{overflow:hidden}
 .lucid-flow__handle.source{right:-7px;border-color:color-mix(in srgb,var(--am) 62%,var(--ln2))}
 .lucid-flow__handle.target{left:-7px;border-color:color-mix(in srgb,var(--cy) 55%,var(--ln2))}
 .lucid-flow__handle:hover,.lucid-flow__handle.hot{border-color:var(--am);background:var(--am);box-shadow:0 0 10px var(--amr)}
+/* 双把手的错位(1.2.54):branch 的 true/false 出把上下分开、merge 的双入把上下分开——否则两个圆点重叠,点不准 */
+.lucid-flow__handle.h-true{top:26%;border-color:var(--gr)}
+.lucid-flow__handle.h-false{top:72%;border-color:var(--rd)}
+.lucid-flow__handle.h-in{top:26%}
+.lucid-flow__handle.h-in2{top:72%}
 /* —— 右侧:产物区(OUT 面板沿用查看器的浮标标签件)—— */
 .flow-side{width:min(44ch,38%);flex:0 0 auto;border-left:1px solid var(--ln);background:var(--pnl);display:flex;flex-direction:column;min-width:0}
 .flow-bar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--ln);flex-wrap:wrap}
@@ -449,6 +454,7 @@ body.flow-open{overflow:hidden}
       <h3 data-i18n="组件 · 点或拖入">组件 · 点或拖入</h3>
       <div class="pal" data-t="agent" tabindex="0"><span data-i18n="◆ Agent 步骤">◆ Agent 步骤</span><small data-i18n="子代理执行一段指令">子代理执行一段指令</small></div>
       <div class="pal" data-t="map" tabindex="0"><span data-i18n="⤾ Map 逐条目">⤾ Map 逐条目</span><small data-i18n="pipeline:对每个条目跑下游各级">pipeline:对每个条目跑下游各级</small></div>
+      <div class="pal" data-t="branch" tabindex="0"><span data-i18n="⋔ Branch 分支">⋔ Branch 分支</span><small data-i18n="if/else:true/false 各走一条">if/else:true/false 各走一条</small></div>
       <div class="pal" data-t="merge" tabindex="0"><span data-i18n="◇ Merge 汇合">◇ Merge 汇合</span><small data-i18n="扇出/分支在此收束">扇出/分支在此收束</small></div>
       <div class="pal" data-t="start" tabindex="0"><span data-i18n="▷ Start 输入">▷ Start 输入</span><small data-i18n="args 入口(每图一个)">args 入口(每图一个)</small></div>
       <div class="pal" data-t="return" tabindex="0"><span data-i18n="◁ Return 产出">◁ Return 产出</span><small data-i18n="return 表达式(每图一个)">return 表达式(每图一个)</small></div>

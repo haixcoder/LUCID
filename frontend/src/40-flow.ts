@@ -53,15 +53,17 @@ function flowNote(msg: string, ok: boolean): void {
 }
 
 // ── 渲染:节点 DOM 的唯一实现(C2–C6 属性只在这里拼;别处禁止再拼一份 handle HTML)──
-function handleHTML(n: FlowNode, type: 'source' | 'target'): string {
-  const hid = type === 'source' ? 'out' : 'in', pos = type === 'source' ? 'right' : 'left';
+// hid/pos 可覆盖(1.2.54:branch 的 true/false 双出把、merge 的双入把);默认仍是 out/right 与 in/left。
+// data-id 拼法**不变**(`${flowId}-${nodeId}-${handleId}-${type}`)——新增 handle 只增加 handleId 取值(AD-2)。
+function handleHTML(n: FlowNode, type: 'source' | 'target', hid?: string, pos?: string): string {
+  const id = hid || (type === 'source' ? 'out' : 'in'), position = pos || (type === 'source' ? 'right' : 'left');
   // connectable + connectableend = isConnectable 的隐藏契约:缺任一 → isValid 恒 false → 连线静默失效(C4)
-  return `<div class="${FLOW_LIB}-flow__handle ${type} nodrag connectable connectableend" data-handleid="${hid}"` +
-    ` data-handlepos="${pos}" data-nodeid="${n.id}" data-id="${FLOW_ID}-${n.id}-${hid}-${type}" title="${type}"></div>`;
+  return `<div class="${FLOW_LIB}-flow__handle ${type}${hid ? ' h-' + hid : ''} nodrag connectable connectableend" data-handleid="${id}"` +
+    ` data-handlepos="${position}" data-nodeid="${n.id}" data-id="${FLOW_ID}-${n.id}-${id}-${type}" title="${type}"></div>`;
 }
 function nodeHTML(n: FlowNode): string {
   const d = n.data, t = n.type;
-  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
+  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
   let fields = '';
   if (t === 'start') fields = `<label>${T('说明(生成 args 入口)')}</label><input class="nodrag f-note" value="${esc(d.note || '')}" placeholder="${esc(T('如:调研选题'))}">`;
   if (t === 'agent') fields =
@@ -73,13 +75,19 @@ function nodeHTML(n: FlowNode): string {
     `<label>${T('items 表达式(如 ARGS.paths)')}</label><input class="nodrag f-items" value="${esc(d.items || '')}" placeholder="ARGS.paths">` +
     `<label>${T('回调模板({{item}} / {{index}})')}</label><textarea class="nodrag f-prompt" rows="2">${esc(d.prompt || '')}</textarea>` +
     `<div class="fnote">${T('下游每级 = pipeline 的一级(逐条目、无栅栏);要汇总请用汇合点之后的节点')}</div>`;
+  if (t === 'branch') fields =
+    `<label>${T('label')}</label><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label">` +
+    `<label>${T('条件表达式')}</label><input class="nodrag f-cond" value="${esc(d.cond || '')}" placeholder="n2.length === 0">` +
+    `<div class="fnote">${T('true / false 各接一条分支,必须汇于同一个 merge(或同一个 return)')}</div>`;
   if (t === 'merge') fields = `<div class="fnote">${T('汇合点:扇出/分支在此收束,自身不执行')}</div>`;
   if (t === 'return') fields = `<label>${T('return 表达式')}</label><textarea class="nodrag f-ret" rows="2">${esc(d.ret || '')}</textarea>`;
   // 徽章 = 脚本里的变量名:下游 prompt 要敲的 {{nX}} 就是它(结构即信息,不是装饰)
-  const sub = (t === 'agent' || t === 'map') && d.label ? `<span>${esc(d.label)}</span>` : '';
+  const sub = (t === 'agent' || t === 'map' || t === 'branch') && d.label ? `<span>${esc(d.label)}</span>` : '';
+  const hs = t === 'branch' ? handleHTML(n, 'target') + handleHTML(n, 'source', 'true', 'right') + handleHTML(n, 'source', 'false', 'right')
+    : t === 'merge' ? handleHTML(n, 'target', 'in', 'left') + handleHTML(n, 'target', 'in2', 'left') + handleHTML(n, 'source')
+    : (t !== 'start' ? handleHTML(n, 'target') : '') + (t !== 'return' ? handleHTML(n, 'source') : '');
   return `<div class="wfnode t-${t} ${FLOW_LIB}-flow__node nopan${FS.sel.has(n.id) ? ' sel' : ''}" data-nodeid="${n.id}" style="left:${n.position.x}px;top:${n.position.y}px">` +
-    `<div class="hd"><b>${label}</b><i>${n.id}</i>${sub}<span class="tag nodrag" title="${T('删除节点')}">✕</span></div>${fields}` +
-    (t !== 'start' ? handleHTML(n, 'target') : '') + (t !== 'return' ? handleHTML(n, 'source') : '') + `</div>`;
+    `<div class="hd"><b>${label}</b><i>${n.id}</i>${sub}<span class="tag nodrag" title="${T('删除节点')}">✕</span></div>${fields}` + hs + `</div>`;
 }
 function fNodeEl(id: string): HTMLElement | null {
   return fVp().querySelector<HTMLElement>(`.wfnode[data-nodeid="${id}"]`);
@@ -150,7 +158,7 @@ function wireNodes(): void {
     };
     bind('.f-label', 'label'); bind('.f-phase', 'phase'); bind('.f-prompt', 'prompt');
     bind('.f-model', 'model'); bind('.f-schema', 'schemaText'); bind('.f-ret', 'ret'); bind('.f-note', 'note');
-    bind('.f-items', 'items');
+    bind('.f-items', 'items'); bind('.f-cond', 'cond');
     el.querySelector('.tag')?.addEventListener('mousedown', e => { e.stopPropagation(); flowRemoveNode(n.id); });
     el.addEventListener('mousedown', () => { if (!FS.sel.has(n.id)) { FS.sel.clear(); FS.sel.add(n.id); refreshSel(); } });
     el.querySelectorAll('.lucid-flow__handle').forEach(h => {
@@ -254,11 +262,12 @@ function renderEdges(): void {
 
 // ── 增删 ──
 function flowAddNode(type: FlowKind, pos: FlowPos): string {
-  // 只有 Start / Return 是"每图一个";agent / map / merge 可任意多个(1.2.53)
+  // 只有 Start / Return 是"每图一个";agent / map / branch / merge 可任意多个(1.2.53)
   if ((type === 'start' || type === 'return') && FS.nodes.some(n => n.type === type)) { flowErr(T('每类起止节点各一个(%1 已存在)', type)); return ''; }
   const id = 'n' + (FS.next++);
   const data: FlowNodeData = type === 'agent' ? { label: T('步骤') + id, phase: '', prompt: '', model: '', schemaText: '' }
     : type === 'map' ? { label: T('逐条目') + id, phase: '', prompt: '', items: '' }
+    : type === 'branch' ? { label: T('分支') + id, cond: '' }
     : type === 'start' ? { note: '' } : type === 'merge' ? {} : { ret: '' };
   FS.nodes.push({ id, type, position: { x: pos.x, y: pos.y }, data });
   flowRender();
@@ -718,6 +727,20 @@ function flowSmoke(): void {
       refreshFlowScript();
       check('map-gen', new RegExp('const ' + mp + ' = await pipeline\\(ARGS\\.paths, \\(prev, item, i\\) => agent\\(`审计 \\$\\{item\\}`')
         .test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
+      // 1.2.54 branch(Phase 5):建图 → 出码含 if/else(真机里再走一遍节点/连线/生成链路)
+      flowBlank();
+      const bSt = sm('start', 60, 150, { note: 'q' }), bBr = sm('branch', 300, 150, { cond: 'args === 1' });
+      const bA = sm('agent', 540, 60, { label: 'A', phase: 'P', prompt: 'a' }), bB = sm('agent', 540, 240, { label: 'B', phase: 'P', prompt: 'b' });
+      const bM = sm('merge', 780, 150, {}), bR = sm('return', 1020, 150, { ret: '' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: bSt, sourceHandle: 'out', target: bBr, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: bBr, sourceHandle: 'true', target: bA, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: bBr, sourceHandle: 'false', target: bB, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: bA, sourceHandle: 'out', target: bM, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: bB, sourceHandle: 'out', target: bM, targetHandle: 'in2' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: bM, sourceHandle: 'out', target: bR, targetHandle: 'in' });
+      refreshFlowScript();
+      const bs = $<HTMLElement>('fScript').textContent || '';
+      check('branch-gen', new RegExp('let ' + bM + ';').test(bs) && /if \(args === 1\) \{/.test(bs) && /\} else \{/.test(bs) && $<HTMLElement>('fErr').hidden);
       refreshFlowScript();
       check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');

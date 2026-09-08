@@ -785,6 +785,22 @@ const FAN = {
   const gid = String(envD.get('flowAddNode("merge", { x: 10, y: 200 })'));
   ck('merge 可加多个且无执行字段(汇合点自身不跑代理)',
      !!gid && !!envD.get('flowAddNode("merge", { x: 10, y: 300 })') && !querySelectorEl(envD.rootEl, `.wfnode[data-nodeid="${gid}"]`).querySelector('textarea.f-prompt'));
+  const bid = String(envD.get('flowAddNode("branch", { x: 10, y: 400 })'));
+  const bidEl = querySelectorEl(envD.rootEl, `.wfnode[data-nodeid="${bid}"]`);
+  ck('branch 卡片 = BRANCH 徽章 + 条件输入 + true/false 两个出把',
+     /BRANCH/.test(bidEl.querySelector('.hd b')!.textContent) && !!bidEl.querySelector('input.f-cond')
+     && bidEl.querySelectorAll('.lucid-flow__handle.source').length === 2
+     && bidEl.querySelector('.h-true')!.getAttribute('data-handleid') === 'true'
+     && bidEl.querySelector('.h-false')!.getAttribute('data-handleid') === 'false',
+     bidEl.textContent.slice(0, 60));
+  ck('branch 的 data-id 拼法不变(新增 handle 只增加 handleId 取值,AD-2)',
+     bidEl.querySelector('.h-true')!.getAttribute('data-id') === `lwf-${bid}-true-source`
+     && bidEl.querySelector('.h-false')!.getAttribute('data-id') === `lwf-${bid}-false-source`);
+  const gEl = querySelectorEl(envD.rootEl, `.wfnode[data-nodeid="${gid}"]`);
+  ck('merge 两个入把 in / in2(data-id 不撞,两个圆点才点得准)',
+     gEl.querySelectorAll('.lucid-flow__handle.target').length === 2
+     && gEl.querySelector('.h-in')!.getAttribute('data-id') === `lwf-${gid}-in-target`
+     && gEl.querySelector('.h-in2')!.getAttribute('data-id') === `lwf-${gid}-in2-target`);
   ck('map 卡片写明"下游每级 = pipeline 的一级"这条语义(不撒谎)',
      /pipeline/.test(visibleText(midEl)), visibleText(midEl).slice(0, 120));
   done();
