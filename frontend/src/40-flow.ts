@@ -103,11 +103,18 @@ function measureFlow(): void {
     n.measured = { width: m.offsetWidth, height: m.offsetHeight };
   }
 }
+// 把**派生缓存**刷成真值:lookup 是喂给 vendor 的缓存,FS.nodes 才是唯一真相。
+// ⚠ adoptUserNodes 默认 checkEquality=true —— 节点对象**引用没变**就沿用旧 internals;而 applyDrag 是
+// 原地改 n.position(不做不可变更新),于是 positionAbsolute 会停在上一次拖拽前的值。vendor 的拖拽基线
+// (distance = 指针 − positionAbsolute)与最近 handle 搜索都读它,后果是"拖过一次后再拖,节点跳回上一次的
+// 位移量"(1.2.49 真实反馈「拖拽节点会漂移」;第二次拖拽的净位移被跳变抵消,看起来像拖不动)。
+// nodeOrigin=[0,0] 且无父节点 ⇒ positionAbsolute 恒等于 position。**新增派生字段先想它要不要在这里刷。**
 function syncLookup(): void {
   xy().adoptUserNodes(FS.nodes, flookup, fparents, { nodeOrigin: [0, 0], nodeExtent: FLOW_EXTENT });
   for (const n of FS.nodes) {
-    const it = flookup.get(n.id);
-    if (it && fbounds.has(n.id)) it.internals.handleBounds = fbounds.get(n.id);
+    const it = flookup.get(n.id); if (!it) continue;
+    if (fbounds.has(n.id)) it.internals.handleBounds = fbounds.get(n.id);
+    it.internals.positionAbsolute = { x: n.position.x, y: n.position.y };
   }
 }
 function flowRender(): void {

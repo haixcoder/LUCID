@@ -35,9 +35,17 @@ const XY = {
     return edges.some((x: any) => x.source === e.source && x.target === e.target) ? edges : edges.concat([e]);
   },
   getBezierPath(o: any) { rec.bezier.push(o); return ['M1,2C3,4 5,6 7,8', 7, 8, 4, 5]; },
-  adoptUserNodes(nodes: any[], lookup: Map<string, any>) {
+  // 忠实模拟 vendor 的 adoptUserNodes:**checkEquality 默认 true** —— 节点对象引用没变就沿用旧 internals
+  // (1.2.49 拖拽漂移的根因就藏在这条语义里:原地改 position 的节点会被判"没变")。
+  adoptUserNodes(nodes: any[], lookup: Map<string, any>, _parents: any, opts: any) {
     rec.adopt++;
-    for (const n of nodes) { const it = lookup.get(n.id) || { id: n.id, internals: {} }; it.measured = n.measured; it.position = n.position; lookup.set(n.id, it); }
+    const prev = new Map(lookup);
+    lookup.clear();
+    for (const n of nodes) {
+      const old = prev.get(n.id);
+      if (old && old.internals?.userNode === n) { lookup.set(n.id, old); continue; }
+      lookup.set(n.id, { id: n.id, internals: { positionAbsolute: { x: n.position.x, y: n.position.y }, userNode: n }, measured: n.measured, position: n.position });
+    }
   },
 };
 
@@ -244,6 +252,13 @@ const FAN = {
   ck('updateNodePositions 写回状态 + style + 重画边',
      env.get('FS.nodes.find(n => n.id === "n3").position.x') === bx + 50
      && querySelectorEl(env.rootEl, '.wfnode[data-nodeid="n3"]').style.left === (bx + 50) + 'px' && rec.bezier.length > nb0);
+  // 1.2.49 根因守卫:applyDrag 原地改 position → vendor 的 adoptUserNodes(checkEquality=true)会沿用旧
+  // internals → 下一次拖拽的基线仍是旧坐标(真机症状「拖拽节点会漂移」)。钉住"每次 syncLookup 后派生缓存
+  // 必须等于真值"——桩里已忠实模拟 checkEquality,所以这条断言在漏刷新时会挂。
+  env.run('FS.nodes.find(n => n.id === "n3").position = { x: 999, y: 888 }; flowRender()');
+  const absN3 = JSON.parse(env.get('JSON.stringify(flookup.get("n3").internals.positionAbsolute)'));
+  ck('syncLookup 把 positionAbsolute 刷成真值(原地改 position 后不得陈旧;1.2.49 拖拽漂移根因)',
+     Math.abs(absN3.x - 999) < 0.01 && Math.abs(absN3.y - 888) < 0.01, JSON.stringify(absN3));
   env.run('FS.sel.add("n2"); refreshSel()');
   store.unselectNodesAndEdges();
   ck('unselectNodesAndEdges 清选择集与 .sel 类', env.get('FS.sel.size') === 0 && !/ sel/.test(String(querySelectorEl(env.rootEl, '.wfnode[data-nodeid="n2"]').attrs.class)));

@@ -124,6 +124,7 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 
 - **与主视图物理隔离**：编辑器 DOM 只住 `#flow`，绝不进 `#list`/`#sess` 的 diffPaint 池（`test_render_golden.ts` 采样区之外，黄金必须零漂移）；`tick()/render()/catchUp()` 不碰它，编辑器打开时轮询照常；`flowRender()` 未 `flowWired` 时直接返回。**节点/handle HTML 只有一份实现：`nodeHTML`/`handleHTML`**——C2–C6 的类名与 `data-id` 拼法全在这里，别处再拼一份即铁律 8 违规（`test_flow_editor.ts` 按选择器钉死）。
 - **`XYFlowSystem` 只许在函数体内取**（顶层解构会在无 vendor 的环境——无头桩——直接 ReferenceError 打断整块产物；一律走 `xy()`）。喂给 vendor 的**每个回调**必须经 `safely()`：vendor 对包装层回调不做 try/catch，抛出即静默打断它自己的监听注册（症状"拖出虚线后松手什么都没发生"）；`XYPanZoom` 的六个回调（含 `onTransformChange`）一个不许省（内部无空值防护直调）。`handleBounds` 由 `measureFlow()` 手写测量并**除以 zoom** 后注入 `internals`（不引 ResizeObserver；漏除=非 1 倍缩放下吸附与边端点全错）。
+- **派生缓存每次交给 vendor 前必须刷成真值**(1.2.49,真实反馈「在 agent 编排时拖拽节点会漂移」)——`flookup` 是喂给 vendor 的缓存,`FS.nodes` 才是唯一真相;而 vendor 的 `adoptUserNodes` 默认 **`checkEquality=true`:节点对象引用没变就沿用旧 `internals`**。我们的 `applyDrag` 是原地改 `n.position`(不做不可变更新)→ `positionAbsolute` 停在上一次拖拽前的值 → vendor 的拖拽基线(`distance = 指针 − positionAbsolute`)与最近 handle 搜索全用旧坐标:**拖过一次后再拖,节点跳回上一次的位移量**(跳变正好抵消这次拖动,看着像拖不动)。刷新只住 `syncLookup()` 一处(与 `handleBounds` 注入同点);`nodeOrigin=[0,0]` 且无父节点 ⇒ `positionAbsolute` 恒等于 `position`。**新增派生字段先问它要不要在这里刷**。测:`test_flow_editor` 的桩已忠实模拟 `checkEquality`(不模拟这条语义,该根因在无头桩里根本不可见)+ 真实输入 `tests/browser/test_drag_real.ts`(两次拖拽 + 缓存不变量 + 拖过再连线)。
 - **连线起点绝不许 `ev.preventDefault()`**(1.2.47,真实反馈「连线成功后,连线没有结束」)——取消 `pointerdown` 会让浏览器**不再派发兼容鼠标事件**(mousedown/mousemove/mouseup;Chrome 实测,合成事件绕开这层所以冒烟全绿),而 vendor 的拖拽全靠 document 上的 mousemove/mouseup:拖拽期间零回调 → 松手不收尾 → 松手后一动鼠标手势才"迟到地"开始并跟着光标跑。防选中改由 CSS 承担(`#fPane user-select:none`,表单控件再放行),不碰事件默认行为。**新增任何 vendor 驱动的指针交互,先问"我这一下 preventDefault 会不会掐掉它的兼容鼠标事件"**。测:`test_flow_editor` 钉"pointerdown 不许调 preventDefault" + `tests/browser/test_connect_real.ts` 用真实输入跑全链路。
 - **生成器三口径各一个函数**：`flowValidate`（错误清单，空=可生成）/ `flowMetaPhases`（phase 首现去重——顶部 PHASES 条与脚本 `meta.phases` 共用它）/ `flowGenerate`（出码，只有内部 bug 才抛）。UI 与测试只调这三个，禁止另数 phase 或自己判分层；产物不许含 `Date.now()/Math.random()`（沙箱禁用且破 resume）。
 - **入口只在选中具体项目时存在**(1.2.44,真实反馈「选择全部项目时不应该有编排入口,只有选择具体项目时才支持通过拖拽的方式创建 workflow」)——判定只住 `flowCanCompose(cwd)` 一个函数,三个消费者共用:`syncFlowEntry()`(按钮显隐 + tooltip;由 `render()` 每轮与启动时各调一次,故 localStorage 恢复值失效回落、切项目都自动跟上)、`btnFlow.onclick`(不满足就不打开)、`openFlow()` 首行守卫(绕开入口也写不出无项目的草稿)。理由不是 UI 偏好而是数据口径:草稿目录 slug、提示词上下文、终端 `cd` 执行目录都要一个确定 cwd。**新增按项目的功能入口请照抄这个形状**(判定单点 + 展示面只调用 + 按钮默认 `hidden` 由 JS 决定显隐),别在按钮上写第二份 if。
@@ -144,7 +145,8 @@ python3 scripts/server.py                # 前台启动（默认 8787，config �
 python3 scripts/server.py --stop         # 按 PID 优雅停止
 # ★ 编排器：三套件单跑 + 真机冒烟（改过 static 产物必须重启服务——INDEX_HTML 是 import 期读的）
 python3 tests/run_all.py draft && python3 tests/run_all.py flow
-python3 tests/run_all.py connect_real    # 真实输入冒烟(CDP 驱动真 Chrome,自起临时服务;需本机 Chrome)
+python3 tests/run_all.py connect_real    # 真实输入冒烟·连线(CDP 驱动真 Chrome,自起临时服务;需本机 Chrome)
+python3 tests/run_all.py drag_real       # 真实输入冒烟·拖拽节点(同上;脚手架在 tests/browser/harness.ts 共用)
 T=$(mktemp -d); mkdir -p $T/.claude/projects $T/.claude/sessions $T/.claude/cc-viewer
 HOME=$T nohup python3 scripts/server.py --port 8923 >/dev/null 2>&1 &      # 临时 HOME：不碰真实 pid/config
 '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --disable-gpu \
