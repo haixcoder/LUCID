@@ -162,7 +162,15 @@ const FAN = {
      Math.abs(env.get('handlePoint("n2","out","source").x') - (env.get('FS.nodes.find(n=>n.id==="n2").position.x') + 99.75)) < 0.01, JSON.stringify(bnd));
 
   // ── 连线:真实 DOM 事件 → vendor 参数包 → 回调驱动(坑③⑤ + C7)──
-  querySelectorEl(env.rootEl, '.wfnode[data-nodeid="n2"] .lucid-flow__handle.source').fire('pointerdown', { preventDefault: () => {}, clientX: 300, clientY: 70 });
+  // 1.2.47 根因:在 pointerdown 上调 preventDefault,浏览器**就不再派发兼容鼠标事件**(mousedown/mousemove/
+  // mouseup —— Chrome 实测),而 vendor 的连线拖拽全靠 document 上的 mousemove/mouseup → 拖拽期间零回调、
+  // 松手不收尾(真实反馈「连线没有结束」)。合成事件绕过了浏览器的 pointer→mouse 派生逻辑,测不到这层,
+  // 所以这里直接钉"我们不许取消 pointerdown"。
+  let pdCalls = 0;
+  querySelectorEl(env.rootEl, '.wfnode[data-nodeid="n2"] .lucid-flow__handle.source')
+    .fire('pointerdown', { preventDefault: () => { pdCalls++; }, clientX: 300, clientY: 70 });
+  ck('连线起点不许 preventDefault pointerdown(取消它会掐掉 vendor 依赖的兼容鼠标事件)',
+     pdCalls === 0, 'preventDefault×' + pdCalls);
   ck('pointerdown → XYHandle.onPointerDown 收到完整参数包',
      !!rec.handle && rec.handle.lib === 'lucid' && rec.handle.flowId === 'lwf' && rec.handle.connectionRadius === 40
      && rec.handle.nodeId === 'n2' && rec.handle.handleId === 'out' && rec.handle.isTarget === false && !!rec.handle.nodeLookup,

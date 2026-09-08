@@ -176,8 +176,11 @@ function refreshSel(): void {
 }
 
 // ── 连线:XYHandle.onPointerDown 全权接管(自挂 move/up、吸附、回调)──
+// ⚠ 这里**绝不许** ev.preventDefault():取消 pointerdown 会让浏览器不再派发兼容鼠标事件
+// (mousedown/mousemove/mouseup,Chrome 实测),而 vendor 的拖拽全靠 document 上的 mousemove/mouseup ——
+// 症状是拖拽期间零回调、松手不收尾,松手后一动鼠标手势才"迟到地"开始并跟着光标跑(1.2.47 真实反馈
+// 「连线没有结束」)。防选中改由 CSS 承担(#fPane user-select:none,表单控件再放行),不碰事件默认行为。
 function startConnect(ev: PointerEvent, handleDomNode: Element, nodeId: string, isTarget: boolean): void {
-  ev.preventDefault();
   ffrom = null;
   xy().XYHandle.onPointerDown(ev as unknown as MouseEvent, {
     autoPanOnConnect: false, connectionMode: 'loose', connectionRadius: FLOW_HANDLE_R, domNode: fPane(),

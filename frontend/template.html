@@ -292,7 +292,11 @@ body.flow-open{overflow:hidden}
 #fHelp{margin-top:auto;padding-top:8px;border-top:1px dashed var(--ln);color:var(--dim2);font:400 9.5px/1.75 var(--mono)}
 /* —— 画布:点阵 + 契约类名(C1)—— */
 #fPane{flex:1;position:relative;min-width:0;overflow:hidden;touch-action:none;background-color:var(--bg);
- background-image:radial-gradient(var(--ln2) .5px,transparent .5px);background-size:24px 24px;background-position:12px 12px;opacity:.9999}
+ background-image:radial-gradient(var(--ln2) .5px,transparent .5px);background-size:24px 24px;background-position:12px 12px;opacity:.9999;
+ /* 拖连线不许选中文本:这条 CSS 顶替了原来的 pointerdown preventDefault(1.2.47 —— 取消 pointerdown 会
+    让浏览器不再派发 mousemove/mouseup,vendor 的拖拽当场失效);表单控件再把选中放行回来 */
+ user-select:none;-webkit-user-select:none}
+#fPane input,#fPane textarea,#fPane select{user-select:text;-webkit-user-select:text}
 #fViewport{position:absolute;top:0;left:0;width:100%;height:100%;transform-origin:0 0;will-change:transform}
 #fEdges{position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible;pointer-events:none}
 #fEdges path.e{stroke:var(--ln2);stroke-width:1.6;fill:none;pointer-events:stroke;cursor:pointer;marker-end:url(#fArrow);transition:stroke .15s,stroke-width .15s}

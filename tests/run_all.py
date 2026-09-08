@@ -52,6 +52,8 @@ def main():
         print('  ! 未装 devDependencies:跳过 tsc 类型检查(开发机跑一次 `npm install` 即可;测试本身不受影响)。')
     if node and node_runs_ts(node):
         suites += [([node, str(f)], f.name) for f in sorted((HERE / 'frontend').glob('test_*.ts'))]
+        # 真实输入冒烟(CDP 驱动真 Chrome;缺 Chrome 的套件自己跳过并警示)
+        suites += [([node, str(f)], f.name) for f in sorted((HERE / 'browser').glob('test_*.ts'))]
     elif node:
         print('  ! node 版本过旧(原生跑 .ts 需 ≥22.18):跳过前端无头套件,请升级 node。')
     else:

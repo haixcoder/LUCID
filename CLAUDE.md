@@ -26,6 +26,7 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 5. **回归测试已入库，`python3 tests/run_all.py` 是准入门槛（1.2.18 起）**：
    - `tests/test_*.py`（后端，纯 stdlib）：fixture 驱动真实函数 + `test_web_api.py` 真起 server 子进程打全链路 HTTP；
    - `tests/frontend/test_*.ts`（前端一律 TypeScript，1.2.31 起；开发期依赖 node——运行时仍零依赖）：node 原生 type-stripping 直跑 .ts（**需 node ≥22.18**，无编译步骤；版本过旧 run_all 警示并跳过）；`harness.ts` 无头 DOM 桩加载**真实编译产物**驱动 render/diff/抽屉/轮询；`test_render_golden.ts` 为 card/sessCard 出 HTML 的黄金快照——**任何前端重构前后黄金必须逐字节一致**（故意改文案/结构才 `UPDATE=1` 重录并在提交注明）；类型检查由 `typecheck.ts` 套件代跑（`tsc -p tsconfig.check.json`，需开发机 `npm install` 一次；无 node_modules 则警示跳过）；
+   - `tests/browser/test_*.ts`（真实输入冒烟，1.2.47 起；需 node ≥22 的全局 WebSocket + 本机 Chrome，缺 Chrome 的套件自己跳过并警示）：用 CDP `Input.dispatchMouseEvent` 走浏览器**真实事件管线**驱动真 Chrome（puppeteer 同路径，零第三方依赖）。**存在的理由 = 合成事件会给出假绿灯**：页面内 `dispatchEvent` 绕开浏览器的 pointer→mouse 兼容事件派生，1.2.47 的「连线不收尾」在 `?flowsmoke` 全绿时真机全坏。编辑器**交互类**回归一律进这里，别再只靠合成事件。
    - 历史教训：t1..t8 时代的"无头桩"每次现写现丢在 /tmp，重启即绝迹；入库后新 bug 一律"先补一条会挂的测试，再修"。
    - 部署前仍须真机冒烟：`/api/runs` 返回 200 且 JSON 结构不变、页面 ver==api ver、安装副本==源码。
 6. **前端一律 TypeScript（必须遵守）**：前端唯一合法源码是 `frontend/src/*.ts`（全局脚本模式，按文件名序拼接，不用 import/export）。
@@ -122,12 +123,13 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 
 - **与主视图物理隔离**：编辑器 DOM 只住 `#flow`，绝不进 `#list`/`#sess` 的 diffPaint 池（`test_render_golden.ts` 采样区之外，黄金必须零漂移）；`tick()/render()/catchUp()` 不碰它，编辑器打开时轮询照常；`flowRender()` 未 `flowWired` 时直接返回。**节点/handle HTML 只有一份实现：`nodeHTML`/`handleHTML`**——C2–C6 的类名与 `data-id` 拼法全在这里，别处再拼一份即铁律 8 违规（`test_flow_editor.ts` 按选择器钉死）。
 - **`XYFlowSystem` 只许在函数体内取**（顶层解构会在无 vendor 的环境——无头桩——直接 ReferenceError 打断整块产物；一律走 `xy()`）。喂给 vendor 的**每个回调**必须经 `safely()`：vendor 对包装层回调不做 try/catch，抛出即静默打断它自己的监听注册（症状"拖出虚线后松手什么都没发生"）；`XYPanZoom` 的六个回调（含 `onTransformChange`）一个不许省（内部无空值防护直调）。`handleBounds` 由 `measureFlow()` 手写测量并**除以 zoom** 后注入 `internals`（不引 ResizeObserver；漏除=非 1 倍缩放下吸附与边端点全错）。
+- **连线起点绝不许 `ev.preventDefault()`**(1.2.47,真实反馈「连线成功后,连线没有结束」)——取消 `pointerdown` 会让浏览器**不再派发兼容鼠标事件**(mousedown/mousemove/mouseup;Chrome 实测,合成事件绕开这层所以冒烟全绿),而 vendor 的拖拽全靠 document 上的 mousemove/mouseup:拖拽期间零回调 → 松手不收尾 → 松手后一动鼠标手势才"迟到地"开始并跟着光标跑。防选中改由 CSS 承担(`#fPane user-select:none`,表单控件再放行),不碰事件默认行为。**新增任何 vendor 驱动的指针交互,先问"我这一下 preventDefault 会不会掐掉它的兼容鼠标事件"**。测:`test_flow_editor` 钉"pointerdown 不许调 preventDefault" + `tests/browser/test_connect_real.ts` 用真实输入跑全链路。
 - **生成器三口径各一个函数**：`flowValidate`（错误清单，空=可生成）/ `flowMetaPhases`（phase 首现去重——顶部 PHASES 条与脚本 `meta.phases` 共用它）/ `flowGenerate`（出码，只有内部 bug 才抛）。UI 与测试只调这三个，禁止另数 phase 或自己判分层；产物不许含 `Date.now()/Math.random()`（沙箱禁用且破 resume）。
 - **入口只在选中具体项目时存在**(1.2.44,真实反馈「选择全部项目时不应该有编排入口,只有选择具体项目时才支持通过拖拽的方式创建 workflow」)——判定只住 `flowCanCompose(cwd)` 一个函数,三个消费者共用:`syncFlowEntry()`(按钮显隐 + tooltip;由 `render()` 每轮与启动时各调一次,故 localStorage 恢复值失效回落、切项目都自动跟上)、`btnFlow.onclick`(不满足就不打开)、`openFlow()` 首行守卫(绕开入口也写不出无项目的草稿)。理由不是 UI 偏好而是数据口径:草稿目录 slug、提示词上下文、终端 `cd` 执行目录都要一个确定 cwd。**新增按项目的功能入口请照抄这个形状**(判定单点 + 展示面只调用 + 按钮默认 `hidden` 由 JS 决定显隐),别在按钮上写第二份 if。
 - **坐标系换算单点 `paneToFlow`**(1.2.46,真实反馈「选中节点连线时,链接节点的虚线会漂移」)——屏幕(pane 相对像素)→ 流坐标只住这一个函数,三消费者共用:`drawConn` 的**未悬停**分支、拖放落点、`flowCenter`。为什么必须有:节点/边/临时虚线都住被 `translate+scale` 变换的 `#fViewport`,只有流坐标能在里面直接画;而 vendor 的 `connection.pointer` 是 **pane 相对屏幕像素**(`XYHandle` 内 `q(e,domNode)=clientX-paneRect.left`)——漏换算的偏移量 = `view.x + px·(zoom-1)`(平移多少偏多少)。**悬停到 handle 的分支坐标系数不同,别混**:那里用 `handlePoint()` 的流坐标。测:`test_flow_editor` 三档参数化(恒等/缩放/平移+缩放,判据是"在屏幕上钉住光标")+ `paneToFlow` 直测 + 冒烟 `connPath-anchored`。
 - **草稿的落盘与枚举住后端单点**（`web.save_draft / list_drafts / _draft_dir`），前端只发请求、服务端不重编译（执行件由 `45-flowgen` 产出并随请求带上，单一真相）；铁律 2：草稿只写 `CONF_DIR/drafts/`，**执行永远在用户终端**（`Workflow({scriptPath})`），服务不碰控制面。
 - **语言**：静态壳走 `data-i18n`，但节点卡、草稿下拉 `<option>`、状态行是**动态拼的** → `setLang()` 必须调 `flowRelang()`（重刷下拉 + 清一次性状态行 + 重绘），漏了就是"切语言后编辑器留着旧文案"；空画布提示故意**不用** `.idle` 类（`setLang` 会把它 `.remove()` 掉）。
-- **真机冒烟**：`?flowsmoke=1` 把十条断言写进 `document.title`(1.2.46 新增 `connPath-anchored`:虚线自由端在**屏幕上**钉住光标——桩算得出流坐标、算不出"屏幕上钉不钉";`drag-add`:真实 HTML5 `DataTransfer` 拖拽建节点)（无头桩给不出真实布局，连线吸附/拖拽阈值/滚轮缩放只能浏览器实证）。三个已踩的**假失败/假挂死**：① 用自适应缩放的 7 卡起手图会把 handle 推到窗口外（`elementFromPoint` 拿不到）；② 拿图里已存在的节点对测"加边"，会被自己的去重单点静默吃掉；③ `#fConn` 常驻无限 CSS 动画 → 无头虚拟时钟永不空闲 → `--dump-dom` **挂死**（冒烟入口自带禁用动画的 `<style>`，1.2.46）。
+- **真机冒烟**：`?flowsmoke=1` 把十条断言写进 `document.title`(1.2.46 新增 `connPath-anchored`:虚线自由端在**屏幕上**钉住光标——桩算得出流坐标、算不出"屏幕上钉不钉";`drag-add`:真实 HTML5 `DataTransfer` 拖拽建节点)（无头桩给不出真实布局，连线吸附/拖拽阈值/滚轮缩放只能浏览器实证）。三个已踩的**假失败/假挂死**：① 用自适应缩放的 7 卡起手图会把 handle 推到窗口外（`elementFromPoint` 拿不到）；② 拿图里已存在的节点对测"加边"，会被自己的去重单点静默吃掉；③ `#fConn` 常驻无限 CSS 动画 → 无头虚拟时钟永不空闲 → `--dump-dom` **挂死**（冒烟入口自带禁用动画的 `<style>`，1.2.46）。**它还会给出假绿灯**：冒烟全用合成事件，绕开浏览器的 pointer→mouse 兼容派生——1.2.47「连线不收尾」在它十断言全绿时真机全坏 → 交互类回归进 `tests/browser/test_connect_real.ts`（CDP 真实输入）。
 
 ## 开发/验证速查
 
@@ -141,6 +143,7 @@ python3 scripts/server.py                # 前台启动（默认 8787，config �
 python3 scripts/server.py --stop         # 按 PID 优雅停止
 # ★ 编排器：三套件单跑 + 真机冒烟（改过 static 产物必须重启服务——INDEX_HTML 是 import 期读的）
 python3 tests/run_all.py draft && python3 tests/run_all.py flow
+python3 tests/run_all.py connect_real    # 真实输入冒烟(CDP 驱动真 Chrome,自起临时服务;需本机 Chrome)
 T=$(mktemp -d); mkdir -p $T/.claude/projects $T/.claude/sessions $T/.claude/cc-viewer
 HOME=$T nohup python3 scripts/server.py --port 8923 >/dev/null 2>&1 &      # 临时 HOME：不碰真实 pid/config
 '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --disable-gpu \
