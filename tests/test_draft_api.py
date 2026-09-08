@@ -108,10 +108,14 @@ ck('卫生/落盘不留 .tmp', not list(DRAFTS.rglob('*.tmp')))
 d2 = draft(v=2)
 d2['whenToUse'] = '需要并行审计多个路由时'
 d2['phases'] = [{'title': 'Scan', 'detail': '每文件一个审计代理'}, {'title': 'Verify'}]
+d2['argsSpec'] = {'schemaText': '{"type":"object","properties":{"paths":{}},"required":["paths"]}',
+                  'exampleText': '{"paths":["a.ts"]}', 'required': True}
 r_v2 = web.save_draft({'name': 'v2-draft', 'draft': d2, 'script': SCRIPT})
 ck('v2/保存成功(v=2 不再被拒)', r_v2.get('ok') is True, repr(r_v2)[:160])
-ck('v2/.json 逐字回读(whenToUse + phases[].detail 全保真)',
+ck('v2/.json 逐字回读(whenToUse + phases[].detail + argsSpec 全保真)',
    json.loads(Path(r_v2['path']).with_suffix('.json').read_text(encoding='utf-8')) == d2, str(r_v2.get('path')))
+ck('v2/argsSpec 原样落盘(后端不做 JSON Schema 语义校验——那是前端校验器的单点职责)',
+   json.loads(Path(r_v2['path']).with_suffix('.json').read_text(encoding='utf-8'))['argsSpec']['required'] is True)
 ck('v2/list_drafts 透传 v2 草稿(回载数据面与保存同版本口径)',
    next((x['draft'] for x in web.list_drafts(CWD_OK)['drafts'] if x['name'] == 'v2-draft'), {}).get('v') == 2)
 for vv, label in [(3, 'v=3'), ('2', 'v="2"'), (2.0, 'v=2.0'), (True, 'v=true'), (None, 'v=null')]:

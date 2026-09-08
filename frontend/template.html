@@ -338,6 +338,16 @@ body.flow-open{overflow:hidden}
 .flow-side{width:min(44ch,38%);flex:0 0 auto;border-left:1px solid var(--ln);background:var(--pnl);display:flex;flex-direction:column;min-width:0}
 .flow-bar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--ln);flex-wrap:wrap}
 #fStat{margin-left:auto;font:500 9px var(--mono);letter-spacing:.14em;color:var(--dim2);font-variant-numeric:tabular-nums}
+/* args 契约面板(1.2.51):schema 文本 + 示例 JSON + 必填开关;错误走 #fErr(紧挨其下) */
+.flow-args{padding:6px 10px;border-top:1px dashed var(--ln2);background:var(--pnl2)}
+.flow-args label{display:block;font:600 9px var(--mono);letter-spacing:.16em;color:var(--dim2);margin-bottom:3px}
+.flow-args textarea{width:100%;box-sizing:border-box;background:var(--pnl);border:1px solid var(--ln2);color:var(--tx);
+ font:10px/1.5 var(--mono);padding:3px 5px;resize:vertical}
+.flow-args textarea:focus{outline:none;border-color:var(--am)}
+.flow-args .frow{display:flex;gap:8px;align-items:center;margin-top:4px}
+.flow-args .frow textarea{flex:1 1 auto}
+.flow-args .ck{display:flex;align-items:center;gap:4px;margin:0;white-space:nowrap;color:var(--dim2)}
+.flow-args .ck input{accent-color:var(--am)}
 .flow-out{flex:1;margin:11px 12px;display:flex;flex-direction:column;min-height:0}
 .flow-out::before{background:var(--pnl)}
 .flow-out pre{flex:1;max-height:none;margin:0;padding:0;font:11.5px/1.65 var(--mono);color:var(--tx);white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto}
@@ -455,6 +465,14 @@ body.flow-open{overflow:hidden}
     <div class="flow-side">
       <div class="flow-bar"><button id="fCopy" data-i18n="复制脚本">复制脚本</button><button id="fClear" data-i18n="清空画布">清空画布</button><span id="fStat"></span></div>
       <div class="pane flow-out" id="fOut" data-t="OUT"><pre id="fScript"></pre></div>
+      <div class="flow-args" id="fArgs">
+        <label data-i18n="args 契约(JSON Schema)">args 契约(JSON Schema)</label>
+        <textarea id="fArgS" rows="2" spellcheck="false" placeholder='{"type":"object","properties":{"paths":{"type":"array"}},"required":["paths"]}'></textarea>
+        <div class="frow">
+          <textarea id="fArgE" rows="1" spellcheck="false" placeholder='{"paths":["a.ts"]}'></textarea>
+          <label class="ck"><input type="checkbox" id="fArgR"><span data-i18n="必填:生成前置校验块">必填:生成前置校验块</span></label>
+        </div>
+      </div>
       <div id="fErr" hidden></div>
       <div id="fRun" hidden><pre id="fRunCmd"></pre><button id="fCopyCmd" data-i18n="复制执行命令">复制执行命令</button></div>
       <div id="fNote"></div>

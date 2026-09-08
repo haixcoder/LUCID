@@ -88,15 +88,27 @@ function flowRefErrs(fs: FlowDraft): string[] {
   return errs;
 }
 
-function flowSchemaErrs(fs: FlowDraft): string[] {
-  const errs: string[] = [];
-  for (const n of fs.nodes) {
-    const t = String(n.data.schemaText || '').trim();
-    if (n.type !== 'agent' || !t) continue;
-    try { const j = JSON.parse(t); if (j === null || typeof j !== 'object' || Array.isArray(j)) errs.push(`节点 ${n.id} 的 schema 需为 JSON 对象`); }
-    catch (e) { errs.push(`节点 ${n.id} 的 schema 不是合法 JSON:${String((e as Error).message || '')}`); }
-  }
-  return errs;
+// args 契约读取单点(缺省 = 全空,不猜不塞)——生成器、校验器、UI 都从这里取
+function flowArgsSpec(fs: FlowDraft): FlowArgsSpec {
+  const a = fs.argsSpec || ({} as Partial<FlowArgsSpec>);
+  return { schemaText: String(a.schemaText ?? ''), exampleText: String(a.exampleText ?? ''), required: !!a.required };
+}
+// JSON Schema 根形状校验单点:**agent.schemaText 与 argsSpec.schemaText 共用**(PRD §5.4 规则 3——
+// 运行期 agent() 只接受 {type:'object',properties:{…}} 且 required ⊆ properties,不可满足的 schema 在那里就抛)。
+// where = 报错前缀(「节点 n2 的 schema」/「args 的 schema」),错误形状两处一致。
+function flowSchemaErrs(where: string, text: string): string[] {
+  const t = String(text || '').trim();
+  if (!t) return [];
+  let j: unknown;
+  try { j = JSON.parse(t); }
+  catch (e) { return [`${where} 不是合法 JSON:${String((e as Error).message || '')}`]; }
+  if (j === null || typeof j !== 'object' || Array.isArray(j)) return [`${where} 需为 JSON 对象`];
+  const o = j as { type?: unknown; properties?: unknown; required?: unknown };
+  const props = o.properties && typeof o.properties === 'object' && !Array.isArray(o.properties) ? (o.properties as Record<string, unknown>) : null;
+  if (o.type !== 'object' || !props) return [`${where} 根须为 {type:'object', properties:{…}}(运行期只接受这个形状)`];
+  const req = (Array.isArray(o.required) ? o.required : []).filter((k): k is string => typeof k === 'string');
+  const miss = req.filter(k => !Object.prototype.hasOwnProperty.call(props, k));
+  return miss.length ? [`${where} 的 required 不在 properties 内:${miss.join(', ')}`] : [];
 }
 
 // 校验清单(空 = 可生成)。顺序固定:结构 → 引用 → 载荷,便于 UI 红条稳定不跳。
@@ -115,7 +127,14 @@ function flowValidate(fs: FlowDraft): string[] {
   if (dangling.length) errs.push('Start 节点未连到任何步骤(args 入口没被用到):' + dangling.join(', '));
   if (terms.length > 1 || starts.length > 1) errs.push('一个草稿至多一个 Start 与一个 Return');
   errs.push(...flowRefErrs(fs));
-  errs.push(...flowSchemaErrs(fs));
+  for (const n of fs.nodes) if (n.type === 'agent') errs.push(...flowSchemaErrs(`节点 ${n.id} 的 schema`, String(n.data.schemaText || '')));
+  const aspec = flowArgsSpec(fs);
+  errs.push(...flowSchemaErrs('args 的 schema', aspec.schemaText));
+  const ex = aspec.exampleText.trim();
+  if (ex) {
+    try { JSON.parse(ex); }
+    catch (e) { errs.push(`args 示例不是合法 JSON:${String((e as Error).message || '')}`); }
+  }
   for (const n of agents) {
     const md = String(n.data.model || '');
     if (md && !FLOW_MODEL_OK.includes(md) && !/^claude-[a-z0-9.:-]+$/i.test(md)) errs.push(`节点 ${n.id} 的 model「${md}」不在白名单`);
@@ -186,11 +205,28 @@ function flowGenerate(fs: FlowDraft): string {
     const n = byId(id);
     if (n?.type === 'agent' && String(n.data.schemaText || '').trim()) lines.push(`const SCHEMA_${id} = ${String(n.data.schemaText).trim()}`);
   }
+  // args 契约(PRD §5.3):有声明才出解析块;勾了必填才出前置校验。**解析块必须早于任何 agent 调用**
+  // (参数不合法就别开始烧 token)。Q 从 ARGS 派生 → 对象 args 与字符串化 JSON args 落到同一个入口。
+  const aspec = flowArgsSpec(fs);
+  const hasArgs = !!(aspec.schemaText.trim() || aspec.required);
+  if (hasArgs) {
+    lines.push(`const ARGS = (typeof args === 'string') ? JSON.parse(args) : args`);
+    if (aspec.required) {
+      lines.push(`if (!ARGS || typeof ARGS !== 'object') throw new Error(${JSON.stringify('缺少 args(需要对象)')})`);
+      const sch = aspec.schemaText.trim() ? JSON.parse(aspec.schemaText) as { required?: unknown } : null;
+      const req = (Array.isArray(sch?.required) ? sch!.required as unknown[] : []).filter((k): k is string => typeof k === 'string');
+      // 标识符键写 ARGS.x(生成物给人读),其余走 ARGS["a-b"](不假设键名合法)
+      for (const k of req) {
+        const ref = /^[A-Za-z_$][\w$]*$/.test(k) ? `ARGS.${k}` : `ARGS[${JSON.stringify(k)}]`;
+        lines.push(`if (typeof ${ref} === 'undefined') throw new Error(${JSON.stringify('args 缺少字段:' + k)})`);
+      }
+    }
+  }
   // 前置 phase() 用**推导**首项,不是阶段带首项:它声明的是"其后 agent 归入哪组",必须与 agent.phase 同名;
   // 用阶段带标题会凭空多出一个空进度组(阶段带是 meta.phases 的元数据,不改变执行语义)。
   const prelude = flowDerivedPhases(fs)[0]?.title || '';
   lines.push(`phase(${JSON.stringify(prelude)})`);
-  lines.push(`const Q = (typeof args === 'string' && args.trim()) || ${starts[0]?.data.note ? JSON.stringify(String(starts[0].data.note)) : "''"}`);
+  lines.push(`const Q = ${hasArgs ? "(typeof ARGS === 'string' && ARGS.trim()) || " : "(typeof args === 'string' && args.trim()) || "}${starts[0]?.data.note ? JSON.stringify(String(starts[0].data.note)) : "''"}`);
   let curPhase = prelude;
   for (const g of groups) {
     if (!g) continue;

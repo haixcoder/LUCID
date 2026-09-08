@@ -559,7 +559,68 @@ const FAN = {
      /未知草稿版本/.test(envV3.$('fNote').textContent) && envV3.get('FS.nodes.length') === 0 && envV3.get('FS.name') === '',
      envV3.$('fNote').textContent);
 
+  // ── args 契约面板(1.2.51 · Phase 2):schema 文本 + 示例 JSON + 必填开关 → 生成前置校验块 ──
+  draftsResp = { drafts: [] };                       // 清掉上面 v3 案的夹具,否则开编辑器时走"有草稿→空画布"分支
+  const envA = mkEnv();
+  await envA.flush();
+  envA.run('void openFlow("/work/fix")');
+  await envA.flush(30);
+  ck('args 面板三件套在(根须 schema 文本 / 示例 JSON / 必填开关)',
+     !!envA.$('fArgS') && !!envA.$('fArgE') && !!envA.$('fArgR'),
+     JSON.stringify([!!envA.$('fArgS'), !!envA.$('fArgE'), !!envA.$('fArgR')]));
+  const aS = envA.$('fArgS'), aE = envA.$('fArgE'), aR = envA.$('fArgR');
+  aS.value = '{"type":"object","properties":{"paths":{"type":"array"}},"required":["paths"]}';
+  aS.oninput!({ target: aS });
+  aR.checked = true;
+  aR.onchange!({ target: aR });
+  aE.value = '{"paths":["a.ts"]}';
+  aE.oninput!({ target: aE });
+  await envA.flush(4);
+  ck('args/填 schema + 勾必填 → 脚本出现解析块与前置校验块',
+     /const ARGS = \(typeof args === 'string'\) \? JSON\.parse\(args\) : args/.test(envA.$('fScript').textContent)
+     && /args 缺少字段:paths/.test(envA.$('fScript').textContent), envA.$('fScript').textContent.slice(0, 200));
+  ck('args/flowDraft() 出 argsSpec 三字段(持久化面)',
+     envA.get('JSON.stringify(flowDraft().argsSpec)') === '{"schemaText":"{\\"type\\":\\"object\\",\\"properties\\":{\\"paths\\":{\\"type\\":\\"array\\"}},\\"required\\":[\\"paths\\"]}","exampleText":"{\\"paths\\":[\\"a.ts\\"]}","required":true}',
+     envA.get('JSON.stringify(flowDraft().argsSpec)'));
+  ck('args/编辑即时自动存盘(防误关丢 argsSpec)',
+     JSON.parse(String(envA.localStorage.getItem('wfo-flow-autosave-/work/fix'))).argsSpec.required === true);
+  aE.value = '{bad';
+  aE.oninput!({ target: aE });
+  await envA.flush(4);
+  ck('args/非法示例 JSON → 内联报错且不出码',
+     /args 示例不是合法 JSON/.test(envA.$('fErr').textContent) && /存在错误,无法生成/.test(envA.$('fScript').textContent),
+     envA.$('fErr').textContent.slice(0, 120));
+  const nbA = posts.length;
+  envA.run('saveFlowDraft(false)');
+  await envA.flush(20);
+  ck('args/非法时不发保存请求(不往盘上丢坏草稿)', posts.length === nbA, String(posts.length - nbA));
+  aE.value = '{"paths":["a.ts"]}';
+  aE.oninput!({ target: aE });
+  await envA.flush(4);
+  envA.run('saveFlowDraft(false)');
+  await envA.flush(20);
+  const abody = posts[posts.length - 1] || {};
+  ck('args/保存载荷带 argsSpec(schemaText/exampleText/required 逐字)',
+     abody.draft && abody.draft.argsSpec && abody.draft.argsSpec.required === true
+     && /"paths"/.test(abody.draft.argsSpec.schemaText) && abody.draft.argsSpec.exampleText === '{"paths":["a.ts"]}',
+     JSON.stringify(abody.draft && abody.draft.argsSpec));
+  // 回载:argsSpec 逐字还原到面板
+  draftsResp = { drafts: [{ name: 'args-one', meta: { name: 'args-one' }, mtime: 1, js: '/x/args-one.js',
+    draft: dft(CHAIN.nodes, CHAIN.edges, { name: 'args-one', argsSpec: { schemaText: '{"type":"object","properties":{"x":{}},"required":["x"]}', exampleText: '{"x":1}', required: true } }) }] };
+  const envA2 = mkEnv();
+  await envA2.flush();
+  envA2.run('void openFlow("/work/fix")');
+  await envA2.flush(20);
+  envA2.run('(function(){const s=document.getElementById("fDraft");s.value="args-one";s.onchange({target:s})})()');
+  await envA2.flush(10);
+  ck('args/回载:面板三字段逐字还原',
+     envA2.$('fArgS').value === '{"type":"object","properties":{"x":{}},"required":["x"]}'
+     && envA2.$('fArgE').value === '{"x":1}' && envA2.$('fArgR').checked === true,
+     JSON.stringify([envA2.$('fArgS').value, envA2.$('fArgE').value, envA2.$('fArgR').checked]));
+  ck('args/回载后脚本与面板一致(生成器读的是同一份 argsSpec)',
+     /args 缺少字段:x/.test(envA2.$('fScript').textContent) && envA2.$('fErr').hidden === true);
   draftsResp = { drafts: [] };
+
   const autoKey = 'wfo-flow-autosave-/work/fix';
   const autoVal = JSON.stringify(dft(FAN.nodes, FAN.edges, { name: 'recovered' }));
   const env5 = mkEnv({ [autoKey]: autoVal }, true);

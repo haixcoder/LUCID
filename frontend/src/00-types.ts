@@ -53,9 +53,12 @@ interface FlowConn { source: string; sourceHandle: string | null; target: string
 type FlowEdge = FlowConn & { id: string };
 type FlowView = { x: number; y: number; zoom: number };
 type FlowPhase = { title: string; detail?: string };   // meta.phases 的一条(1.2.50:v2 可显式编辑,空数组=沿用推导)
+// args 契约(1.2.51):schemaText/exampleText 存**JSON 原文**(与 agent.schemaText 同一约定——
+// 编辑器是文本框,存文本才不丢"正在编辑的半截 JSON";落盘前 flowValidate 已保证合法)。
+type FlowArgsSpec = { schemaText: string; exampleText: string; required: boolean };
 interface FlowDraft {
   v: 1 | 2; name: string; desc: string; cwd: string;
-  whenToUse?: string; phases?: FlowPhase[];            // v2 加宽字段(v1 草稿缺省为空 = 与旧行为逐字节一致)
+  whenToUse?: string; phases?: FlowPhase[]; argsSpec?: FlowArgsSpec;   // v2 加宽字段(v1 草稿缺省为空 = 与旧行为逐字节一致)
   nodes: FlowNode[]; edges: FlowEdge[]; next: number; view: FlowView;
 }
 // handleBounds:编辑器手写测量的注入件(C10;字段口径镜像 @xyflow/system 的 getHandleBounds)

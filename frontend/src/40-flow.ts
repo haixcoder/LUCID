@@ -14,8 +14,8 @@ const FLOW_EXTENT: number[][] = [[-1e5, -1e5], [1e5, 1e5]];
 const FLOW_LS = 'wfo-flow-autosave-';  // 防误关丢失(按项目 slug 存;显式保存才走 /api/draft/save)
 const FLOW_MODELS = ['sonnet', 'opus', 'haiku', 'fable', 'mythos'];
 
-interface FlowStore { name: string; desc: string; cwd: string; whenToUse: string; phases: FlowPhase[]; nodes: FlowNode[]; edges: FlowEdge[]; next: number; sel: Set<string>; view: FlowView }
-let FS: FlowStore = { name: '', desc: '', cwd: '', whenToUse: '', phases: [], nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
+interface FlowStore { name: string; desc: string; cwd: string; whenToUse: string; phases: FlowPhase[]; argsSpec: FlowArgsSpec; nodes: FlowNode[]; edges: FlowEdge[]; next: number; sel: Set<string>; view: FlowView }
+let FS: FlowStore = { name: '', desc: '', cwd: '', whenToUse: '', phases: [], argsSpec: { schemaText: '', exampleText: '', required: false }, nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
 let flowVisible = false, flowWired = false;
 let fpz: FlowPanZoom | null = null;
 const flookup = new Map<string, FlowIntern>();       // adoptUserNodes 的产物(XYDrag/XYHandle 都读它)
@@ -317,9 +317,9 @@ function refreshFlowScript(): void {
   }
 }
 function flowDraft(): FlowDraft {
-  // v=2(1.2.50):纯加宽——whenToUse/phases 为空时产物与 v1 逐字节一致(黄金钉死),不空时才有码
+  // v=2(1.2.50):纯加宽——whenToUse/phases/argsSpec 为空时产物与 v1 逐字节一致(黄金钉死),不空时才有码
   return { v: 2, name: FS.name.trim() || 'untitled', desc: FS.desc, cwd: FS.cwd,
-    whenToUse: FS.whenToUse, phases: FS.phases.map(p => ({ ...p })),
+    whenToUse: FS.whenToUse, phases: FS.phases.map(p => ({ ...p })), argsSpec: { ...FS.argsSpec },
     nodes: FS.nodes, edges: FS.edges, next: FS.next, view: FS.view };
 }
 
@@ -338,6 +338,8 @@ function flowApply(d: FlowDraft): void {
   FS.whenToUse = String(d.whenToUse || '');
   // v1 草稿没有这两项 → 缺省空(不猜不塞默认值;空 = 沿用推导,与旧行为逐字节一致)
   FS.phases = (Array.isArray(d.phases) ? d.phases : []).map(p => ({ title: String(p?.title ?? ''), detail: String(p?.detail ?? '') }));
+  const as = d.argsSpec || ({} as Partial<FlowArgsSpec>);
+  FS.argsSpec = { schemaText: String(as.schemaText ?? ''), exampleText: String(as.exampleText ?? ''), required: !!as.required };
   FS.nodes = (d.nodes || []).map(n => ({ id: String(n.id), type: n.type, position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 }, data: { ...n.data } }));
   FS.edges = (d.edges || []).map(e => ({ id: String(e.id), source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null }));
   // 发号器只前进不回退:存盘 next 与现存 id 尾号取大 +1(重号会让 vendor 的 data-id 反查串节点)
@@ -450,12 +452,16 @@ async function openFlow(cwd: string): Promise<void> {
   nextFrame(() => { flowRender(); fitFlowView(); });     // 二次测量(字体/布局稳定后)+ 适配视图
 }
 function flowBlank(): void {
-  FS = { name: '', desc: '', cwd: FS.cwd, whenToUse: '', phases: [], nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
+  FS = { name: '', desc: '', cwd: FS.cwd, whenToUse: '', phases: [], argsSpec: { schemaText: '', exampleText: '', required: false },
+    nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
 }
 function syncHeadInputs(): void {
   $<HTMLInputElement>('fName').value = FS.name;
   $<HTMLInputElement>('fDesc').value = FS.desc;
   $<HTMLInputElement>('fWhen').value = FS.whenToUse;
+  $<HTMLTextAreaElement>('fArgS').value = FS.argsSpec.schemaText;
+  $<HTMLTextAreaElement>('fArgE').value = FS.argsSpec.exampleText;
+  $<HTMLInputElement>('fArgR').checked = FS.argsSpec.required;
 }
 function closeFlow(): void {
   $<HTMLElement>('flow').hidden = true; flowVisible = false;
@@ -493,6 +499,9 @@ function wireShell(): void {
   $<HTMLInputElement>('fName').oninput = e => { FS.name = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLInputElement>('fDesc').oninput = e => { FS.desc = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLInputElement>('fWhen').oninput = e => { FS.whenToUse = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
+  $<HTMLTextAreaElement>('fArgS').oninput = e => { FS.argsSpec.schemaText = (e.target as HTMLTextAreaElement).value; refreshFlowScript(); autosaveFlow(); };
+  $<HTMLTextAreaElement>('fArgE').oninput = e => { FS.argsSpec.exampleText = (e.target as HTMLTextAreaElement).value; refreshFlowScript(); autosaveFlow(); };
+  $<HTMLInputElement>('fArgR').onchange = e => { FS.argsSpec.required = !!(e.target as HTMLInputElement).checked; refreshFlowScript(); autosaveFlow(); };
   document.querySelectorAll<HTMLElement>('#fPalette .pal').forEach(p => {
     const add = (): void => { flowAddNode((p.dataset.t || 'agent') as FlowKind, flowCenter()); };
     p.addEventListener('click', add);
