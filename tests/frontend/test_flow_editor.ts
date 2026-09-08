@@ -619,8 +619,57 @@ const FAN = {
      JSON.stringify([envA2.$('fArgS').value, envA2.$('fArgE').value, envA2.$('fArgR').checked]));
   ck('args/回载后脚本与面板一致(生成器读的是同一份 argsSpec)',
      /args 缺少字段:x/.test(envA2.$('fScript').textContent) && envA2.$('fErr').hidden === true);
+  // ── 运行与分发命令区(1.2.52 · Phase 3):首次 / 恢复 / 分发三条 + 边界文案(写边界不撒谎)──
   draftsResp = { drafts: [] };
+  saveResp = { ok: true, msg: '已保存', path: '/home/u/.claude/cc-viewer/drafts/fix-abc123/demo-research.js', sha: 'abc12345' };
+  const envC = mkEnv();
+  await envC.flush();
+  envC.run('void openFlow("/work/fix")');
+  await envC.flush(30);
+  const cS = envC.$('fArgS'), cE = envC.$('fArgE');
+  cS.value = '{"type":"object","properties":{"paths":{"type":"array"}},"required":["paths"]}';
+  cS.oninput!({ target: cS });
+  cE.value = '{"paths":["a.ts"]}';
+  cE.oninput!({ target: cE });
+  envC.run('saveFlowDraft(false)');
+  await envC.flush(20);
+  const P = '/home/u/.claude/cc-viewer/drafts/fix-abc123/demo-research.js';
+  ck('命令区三条命令齐(首次 / 恢复 / 分发)',
+     envC.$('fRun').hidden === false && !!envC.$('fRunCmd') && !!envC.$('fCmdResume') && !!envC.$('fCmdDist'),
+     JSON.stringify([envC.$('fRun').hidden, !!envC.$('fRunCmd'), !!envC.$('fCmdResume'), !!envC.$('fCmdDist')]));
+  ck('首次命令 = Workflow({ scriptPath: 绝对路径, args: 示例 })',
+     envC.$('fRunCmd').textContent === `Workflow({ scriptPath: '${P}', args: {"paths":["a.ts"]} })`,
+     envC.$('fRunCmd').textContent);
+  ck('恢复命令附 resumeFromRunId 占位且与首次同 scriptPath',
+     /resumeFromRunId: 'wf_…'/.test(envC.$('fCmdResume').textContent) && envC.$('fCmdResume').textContent.indexOf(P) > 0,
+     envC.$('fCmdResume').textContent);
+  ck('分发命令给出项目与个人两处 cp 目标(个人用 $HOME——单引号会掐掉 ~ 展开)',
+     new RegExp('cp \'' + P + '\' \'/work/fix/\\.claude/workflows/demo-research\\.js\'').test(envC.$('fCmdDist').textContent)
+     && /cp '.*' "\$HOME\/\.claude\/workflows\/demo-research\.js"/.test(envC.$('fCmdDist').textContent),
+     envC.$('fCmdDist').textContent);
+  ck('首次/恢复命令不含任何写 .claude/workflows 的动作(分发是用户手动的 cp,不是服务写盘)',
+     !/\.claude\/workflows/.test(envC.$('fRunCmd').textContent) && !/\.claude\/workflows/.test(envC.$('fCmdResume').textContent));
+  ck('命令区写明写边界与服务不做控制面(服务只写 cc-viewer/,执行/恢复/停止在终端 /workflows)',
+     /cc-viewer/.test(envC.$('fRunNote').textContent) && /\/workflows/.test(envC.$('fRunNote').textContent)
+     && /仅同会话|同一会话/.test(envC.$('fRunNote').textContent), envC.$('fRunNote').textContent.slice(0, 200));
+  envC.$('fCopyCmd').onclick!({});
+  await envC.flush(3);
+  ck('一键复制首条命令(复用 copyText)', envC.clipboard[envC.clipboard.length - 1] === envC.$('fRunCmd').textContent,
+     String(envC.clipboard[envC.clipboard.length - 1]).slice(0, 60));
+  envC.$('fCopyResume').onclick!({});
+  envC.$('fCopyDist').onclick!({});
+  await envC.flush(3);
+  ck('恢复/分发命令同样一键复制(三条各自独立按钮)',
+     envC.clipboard[envC.clipboard.length - 2] === envC.$('fCmdResume').textContent
+     && envC.clipboard[envC.clipboard.length - 1] === envC.$('fCmdDist').textContent);
+  envC.run("document.getElementById('langsel').value='en'; document.getElementById('langsel').onchange({target:{value:'en'}});");
+  await envC.flush();
+  ck('切语言后命令区文案同步刷新(动态拼接的标签与说明也走 T())',
+     !/[一-鿿]/.test(envC.$('fRun').textContent) && /first run|Resume|Distribute/i.test(envC.$('fRun').textContent),
+     envC.$('fRun').textContent.slice(0, 200));
+  ck('切语言不丢命令内容(scriptPath 是数据,不参与翻译)', envC.$('fRunCmd').textContent.indexOf(P) > 0);
 
+  draftsResp = { drafts: [] };
   const autoKey = 'wfo-flow-autosave-/work/fix';
   const autoVal = JSON.stringify(dft(FAN.nodes, FAN.edges, { name: 'recovered' }));
   const env5 = mkEnv({ [autoKey]: autoVal }, true);

@@ -65,6 +65,7 @@ export class El {
   declare title: string;   // 反射属性:始终返回字符串(浏览器同语义)
   declare onchange?: ((ev: any) => void) | null;
   declare oninput?: ((ev: any) => void) | null;
+  declare onclick?: ((ev: any) => void) | null;
   constructor(tag: string) {
     this.tag = String(tag).toLowerCase();
     this.attrs = {};
@@ -342,6 +343,7 @@ export interface Env {
   timers: Timers;
   fetchCalls: string[];
   errs: string[];
+  clipboard: string[];
   flush(rounds?: number): Promise<void>;
   $(id: string): El;
   $q(s: string): El | null;
@@ -400,6 +402,7 @@ export function load(opts?: LoadOpts): Env {
   const timers: Timers = { intervals: [], timeouts: [] };
   const fetchCalls: string[] = [];
   const errs: string[] = [];
+  const clipboard: string[] = [];   // navigator.clipboard 桩:一键复制类断言靠它(无则 copyText 走 catch 分支)
   const env = {} as Env;
   env.fetchFor = opts.fetchFor || (() => undefined);
   async function fetchStub(url: string, init?: any) {
@@ -411,7 +414,8 @@ export function load(opts?: LoadOpts): Env {
   }
 
   const ctx: Record<string, any> = {
-    document: documentProxy, window: win, location, navigator: { language: opts.language || 'zh-CN' },
+    document: documentProxy, window: win, location,
+    navigator: { language: opts.language || 'zh-CN', clipboard: { writeText: async (t: unknown) => { clipboard.push(String(t)); } } },
     localStorage: localStorageStub, fetch: fetchStub,
     console: { log: () => {}, warn: () => {}, error: (...a: unknown[]) => { errs.push(a.join(' ')); } },
     setInterval: (fn: Handler) => (timers.intervals.push(fn), timers.intervals.length),
@@ -433,7 +437,7 @@ export function load(opts?: LoadOpts): Env {
   vm.runInContext(bundle, ctx, { filename: 'index.html#main' });
 
   const flush = async (rounds?: number) => { for (let i = 0; i < (rounds || 15); i++) await new Promise((r) => setImmediate(r)); };
-  Object.assign(env, { doc: documentProxy, docRoot, rootEl, win, location, localStorage: localStorageStub, timers, fetchCalls, errs, flush,
+  Object.assign(env, { doc: documentProxy, docRoot, rootEl, win, location, localStorage: localStorageStub, timers, fetchCalls, errs, clipboard, flush,
     $: (id: string) => documentProxy.getElementById(id)!, $q: (s: string) => rootEl.querySelector(s), $qa: (s: string) => rootEl.querySelectorAll(s),
     fireTop: (t: string) => documentProxy.dispatch(t), fireWin: (t: string) => win.dispatch(t) });
   return env;

@@ -171,6 +171,25 @@ function flowMetaPhases(fs: FlowDraft): FlowPhase[] {
   return out.length ? out : flowDerivedPhases(fs);
 }
 
+// ── 运行/分发命令拼装单点(1.2.52,Phase 3)────────────────────────────────────
+// 三种形态共用这一处,UI 与测试都只调它。写边界(铁律 2/3):分发只给**用户手动的 cp**——
+// 服务从不写 .claude/workflows/;执行、恢复、停止永远在用户终端(/workflows)。
+type FlowCmds = { first: string; resume: string; dist: string };
+const flowSq = (s: string): string => "'" + String(s).replace(/'/g, "'\\''") + "'";
+function flowCommands(jsPath: string, name: string, cwd: string, example: string): FlowCmds {
+  const p = String(jsPath || '');
+  const nm = String(name || '').trim() || 'untitled';
+  const ex = String(example || '').trim() || "'<输入>'";            // 没写示例就留占位,不假装知道参数
+  const common = `scriptPath: ${flowSq(p)}, args: ${ex}`;
+  const proj = String(cwd || '').replace(/\/+$/, '') + '/.claude/workflows/' + nm + '.js';
+  return {
+    first: `Workflow({ ${common} })`,
+    resume: `Workflow({ ${common}, resumeFromRunId: 'wf_…' })`,
+    // 个人位置必须用 "$HOME/…":单引号里的 ~ 不会被 shell 展开(项目位置是绝对路径,单引号即可)
+    dist: `cp ${flowSq(p)} ${flowSq(proj)}\ncp ${flowSq(p)} "$HOME/.claude/workflows/${nm}.js"`,
+  };
+}
+
 // 字符串 → 沙箱安全的 JS 字面量。转义集 = \ ` ${ 三件全覆盖(不变式,单测钉死);
 // 无占位符且单行 → JSON 字符串(免模板字面量噪音);含 {{nX}} 或换行 → 模板字面量。
 function flowLiteral(fs: FlowDraft, text: string): string {

@@ -130,6 +130,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     '何时用(meta.whenToUse)': 'When to use (meta.whenToUse)',
     'args 契约(JSON Schema)': 'args contract (JSON Schema)',
     '必填:生成前置校验块': 'Required: emit preflight check',
+    '首次运行': 'Run first',
+    '恢复运行': 'Resume',
+    '分发': 'Distribute',
+    '复制': 'Copy',
+    '分发命令已复制': 'Distribute command copied',
+    '服务只写 ~/.claude/cc-viewer/;执行、恢复、停止都在你的终端(/workflows)。':
+      'The service only writes ~/.claude/cc-viewer/; run, resume and stop all happen in your terminal (/workflows).',
+    '恢复仅限同一会话,恢复前先在 /workflows 停掉旧 run;分发是复制命令,由你在终端执行。':
+      'Resume only works in the same session — stop the old run in /workflows first. Distribution is a copy command you run yourself.',
     '阶段标题': 'Phase title',
     '阶段说明': 'Phase detail',
     '草稿已载入: %1': 'Draft loaded: %1',
@@ -292,6 +301,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     '何时用(meta.whenToUse)': 'Cuándo usarlo (meta.whenToUse)',
     'args 契约(JSON Schema)': 'Contrato de args (JSON Schema)',
     '必填:生成前置校验块': 'Obligatorio: generar comprobación previa',
+    '首次运行': 'Primera ejecución',
+    '恢复运行': 'Reanudar',
+    '分发': 'Distribuir',
+    '复制': 'Copiar',
+    '分发命令已复制': 'Comando de distribución copiado',
+    '服务只写 ~/.claude/cc-viewer/;执行、恢复、停止都在你的终端(/workflows)。':
+      'El servicio solo escribe en ~/.claude/cc-viewer/; ejecutar, reanudar y detener ocurren en tu terminal (/workflows).',
+    '恢复仅限同一会话,恢复前先在 /workflows 停掉旧 run;分发是复制命令,由你在终端执行。':
+      'Reanudar solo funciona en la misma sesión: detén la ejecución anterior en /workflows. La distribución es un comando de copia que ejecutas tú.',
     '阶段标题': 'Título de fase',
     '阶段说明': 'Detalle de fase',
     '草稿已载入: %1': 'Borrador cargado: %1',
@@ -454,6 +472,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     '何时用(meta.whenToUse)': 'Quand l’utiliser (meta.whenToUse)',
     'args 契约(JSON Schema)': 'Contrat args (JSON Schema)',
     '必填:生成前置校验块': 'Obligatoire : générer la vérification préalable',
+    '首次运行': 'Première exécution',
+    '恢复运行': 'Reprendre',
+    '分发': 'Distribuer',
+    '复制': 'Copier',
+    '分发命令已复制': 'Commande de distribution copiée',
+    '服务只写 ~/.claude/cc-viewer/;执行、恢复、停止都在你的终端(/workflows)。':
+      'Le service n’écrit que dans ~/.claude/cc-viewer/ ; exécuter, reprendre et arrêter se font dans votre terminal (/workflows).',
+    '恢复仅限同一会话,恢复前先在 /workflows 停掉旧 run;分发是复制命令,由你在终端执行。':
+      'La reprise ne vaut que dans la même session — arrêtez l’ancienne exécution dans /workflows. La distribution est une commande de copie que vous lancez.',
     '阶段标题': 'Titre de phase',
     '阶段说明': 'Détail de phase',
     '草稿已载入: %1': 'Brouillon chargé : %1',
@@ -616,6 +643,15 @@ const I18N: Record<Lang, Record<string, string>> = {
     '何时用(meta.whenToUse)': 'Wann verwenden (meta.whenToUse)',
     'args 契约(JSON Schema)': 'args-Vertrag (JSON Schema)',
     '必填:生成前置校验块': 'Pflicht: Vorabprüfung erzeugen',
+    '首次运行': 'Erster Lauf',
+    '恢复运行': 'Fortsetzen',
+    '分发': 'Verteilen',
+    '复制': 'Kopieren',
+    '分发命令已复制': 'Verteilungsbefehl kopiert',
+    '服务只写 ~/.claude/cc-viewer/;执行、恢复、停止都在你的终端(/workflows)。':
+      'Der Dienst schreibt nur nach ~/.claude/cc-viewer/; Ausführen, Fortsetzen und Stoppen passieren in deinem Terminal (/workflows).',
+    '恢复仅限同一会话,恢复前先在 /workflows 停掉旧 run;分发是复制命令,由你在终端执行。':
+      'Fortsetzen geht nur in derselben Sitzung — stoppe den alten Lauf zuerst in /workflows. Verteilen ist ein Kopierbefehl, den du selbst ausführst.',
     '阶段标题': 'Phasentitel',
     '阶段说明': 'Phasendetail',
     '草稿已载入: %1': 'Draft geladen: %1',

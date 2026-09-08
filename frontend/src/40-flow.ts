@@ -316,6 +316,19 @@ function refreshFlowScript(): void {
     stat.textContent = `L${js.split('\n').length} · ${bytes} · ◆${flowMetaPhases(d).length}`;
   }
 }
+// 命令区重绘(保存成功/切语言时调):三种形态全部由 flowCommands 单点产出,这里只做文案与落 DOM。
+// 边界文案不是客套:用户会以为"页面能给的就是全部",所以要写明服务只写 cc-viewer/、执行在终端。
+let fRunPath = '';
+function renderRunBox(): void {
+  if (!fRunPath || !$<HTMLElement>('fRun')) return;
+  const c = flowCommands(fRunPath, FS.name.trim(), FS.cwd, FS.argsSpec.exampleText);
+  $<HTMLElement>('fRunCmd').textContent = c.first;
+  $<HTMLElement>('fCmdResume').textContent = c.resume;
+  $<HTMLElement>('fCmdDist').textContent = c.dist;
+  $<HTMLElement>('fRunNote').textContent =
+    T('服务只写 ~/.claude/cc-viewer/;执行、恢复、停止都在你的终端(/workflows)。') + '\n' +
+    T('恢复仅限同一会话,恢复前先在 /workflows 停掉旧 run;分发是复制命令,由你在终端执行。');
+}
 function flowDraft(): FlowDraft {
   // v=2(1.2.50):纯加宽——whenToUse/phases/argsSpec 为空时产物与 v1 逐字节一致(黄金钉死),不空时才有码
   return { v: 2, name: FS.name.trim() || 'untitled', desc: FS.desc, cwd: FS.cwd,
@@ -360,11 +373,9 @@ async function saveFlowDraft(overwrite: boolean): Promise<void> {
   const alt = String(r.path || '').split('/').pop() || '';
   const conflicted = alt !== FS.name.trim() + '.js';
   flowNote(conflicted ? T('已并存为 %1(同名草稿内容不同)', alt) : T('已保存: %1', String(r.path)), true);
+  fRunPath = String(r.path || '');
   const box = $<HTMLElement>('fRun');
-  if (box) {
-    box.hidden = false;
-    $<HTMLElement>('fRunCmd').textContent = `Workflow({ scriptPath: '${String(r.path)}', args: '<输入>' })`;
-  }
+  if (box && fRunPath) { box.hidden = false; renderRunBox(); }
   $<HTMLElement>('fOver').hidden = !conflicted;                  // 冲突时才给「覆盖原稿」入口(默认宁并存不覆盖)
   try { localStorage.removeItem(FLOW_LS + flowSlug()); } catch { /* 无键则已 */ }
   void loadFlowDrafts(FS.cwd);
@@ -436,6 +447,7 @@ async function openFlow(cwd: string): Promise<void> {
   FS.cwd = cwd || '';
   $<HTMLElement>('fCwd').textContent = cwd || T('(未选项目)');
   $<HTMLElement>('fRun').hidden = true;
+  fRunPath = '';                                             // 命令区跟着「本次会话保存过的草稿」走,重开即清
   $<HTMLElement>('fOver').hidden = true;
   flowErr('');
   await loadFlowDrafts(FS.cwd);
@@ -496,6 +508,8 @@ function wireShell(): void {
   };
   $<HTMLElement>('fCopy').onclick = () => { void copyText($<HTMLElement>('fScript').textContent || '', T('脚本已复制')); };
   $<HTMLElement>('fCopyCmd').onclick = () => { void copyText($<HTMLElement>('fRunCmd').textContent || '', T('命令已复制')); };
+  $<HTMLElement>('fCopyResume').onclick = () => { void copyText($<HTMLElement>('fCmdResume').textContent || '', T('命令已复制')); };
+  $<HTMLElement>('fCopyDist').onclick = () => { void copyText($<HTMLElement>('fCmdDist').textContent || '', T('分发命令已复制')); };
   $<HTMLInputElement>('fName').oninput = e => { FS.name = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLInputElement>('fDesc').oninput = e => { FS.desc = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLInputElement>('fWhen').oninput = e => { FS.whenToUse = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
@@ -548,6 +562,7 @@ function flowRelang(): void {
   renderDraftOptions();
   flowNote('', true);
   phSig = '';                                               // 阶段带的 placeholder 是动态拼的:清签名逼重绘
+  renderRunBox();                                           // 命令区标签/边界文案同样是动态拼的
   flowRender();                                             // 内部会重跑 refreshFlowScript(错误清单同语言)
 }
 // ── 入口可见性单点:编排是**按项目**的事,没有"全部项目"的 workflow ──

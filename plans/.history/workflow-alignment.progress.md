@@ -41,3 +41,22 @@
 **影响后续相位的发现：**
 - `flowValidate` 现在对 `agent.schemaText` 强制根形状——**既有草稿若写了 `{"type":"object"}` 而缺 `properties` 会开始报错**（PRD §5.4 规则 3 的要求，且运行期本就只接受该形状）。真机升级后如遇用户草稿报错，属预期。
 - `flowArgsSpec` 是 argsSpec 的唯一读取口，Phase 4 的 `map.items` 若要引 `ARGS.x` 从这里取，不要另读 `fs.argsSpec`。
+
+## Phase 3 · 运行与分发通道（命令区 + 边界文案）— 完成（1.2.51 → 1.2.52）
+
+**结果：** run_all GREEN 33/33（`test_flow_editor.ts` 160→169）；`?flowsmoke=1` = SMOKE OK 十二项。
+
+**实现：**
+- `flowCommands(jsPath, name, cwd, example)` 单点（`45-flowgen.ts` 纯函数）：首次 / 恢复（`resumeFromRunId: 'wf_…'`）/ 分发（项目 + 个人两条 `cp`）。
+- 命令区三行 + 边界说明（`#fRunNote`），三条各自复制按钮（复用 `copyText`）；`renderRunBox()` 由保存成功与 `flowRelang()` 调用。
+- 边界文案两条：服务只写 `~/.claude/cc-viewer/`、执行/恢复/停止在终端 `/workflows`；恢复仅同会话且先停旧 run。
+
+**偏离计划：** 无。
+
+**执行中的决策：**
+- 个人分发目标写 `"$HOME/.claude/workflows/<name>.js"` 而**不是** `'~/...'`：单引号会掐掉 `~` 展开，用户粘进终端会拷到字面量目录。
+- 命令区在重开编辑器时清空（`fRunPath=''`）——命令必须对应"刚保存过的那份草稿",不跨会话悬空。
+
+**影响后续相位的发现：**
+- `#fRun` 现在依赖 `FS.argsSpec.exampleText` 作示例参数；Phase 4+ 若给 map 加 `items` 示例，仍从 argsSpec 取（示例只有一份）。
+- 测试基建新增 `harness.clipboard`（navigator.clipboard 桩）+ `El.onclick` 声明——后续复制类断言直接用。

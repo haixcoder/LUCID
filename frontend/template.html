@@ -359,8 +359,11 @@ body.flow-open{overflow:hidden}
 #fNote{padding:6px 12px;border-top:1px solid var(--ln);font:400 10px/1.6 var(--mono);letter-spacing:.02em;color:var(--dim);min-height:2.5em;overflow-wrap:anywhere}
 /* 执行命令沿用页面上"你输入 ❯ / 机器回 ▸"的终端语汇 */
 #fRun{border-top:1px dashed var(--ln2);padding:8px 12px;background:var(--pnl2)}
-#fRun::before{content:'❯ ';color:var(--cy);font:600 11px var(--mono)}
-#fRunCmd{margin:0 0 7px;font:11px/1.6 var(--mono);color:var(--cy);white-space:pre-wrap;overflow-wrap:anywhere}
+.cmdrow{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px}
+.cmd-k{flex:0 0 auto;font:600 9px var(--mono);letter-spacing:.12em;color:var(--dim2);padding-top:2px}
+.cmdrow code{flex:1 1 auto;min-width:0;font:11px/1.6 var(--mono);color:var(--cy);white-space:pre-wrap;overflow-wrap:anywhere}
+.cmdrow button{flex:0 0 auto}
+#fRunNote{margin:2px 0 0;font:10px/1.6 var(--mono);color:var(--dim2);white-space:pre-line}
 /* 空画布是"邀请动手",不是报错;不用 .idle 类(setLang 会摘掉它) */
 #fEmpty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;color:var(--dim2);
  font:600 10px var(--disp);letter-spacing:.2em;text-align:center;line-height:1.9;pointer-events:none}
@@ -474,7 +477,12 @@ body.flow-open{overflow:hidden}
         </div>
       </div>
       <div id="fErr" hidden></div>
-      <div id="fRun" hidden><pre id="fRunCmd"></pre><button id="fCopyCmd" data-i18n="复制执行命令">复制执行命令</button></div>
+      <div id="fRun" hidden>
+        <div class="cmdrow"><span class="cmd-k" data-i18n="首次运行">首次运行</span><code id="fRunCmd"></code><button id="fCopyCmd" data-i18n="复制">复制</button></div>
+        <div class="cmdrow"><span class="cmd-k" data-i18n="恢复运行">恢复运行</span><code id="fCmdResume"></code><button id="fCopyResume" data-i18n="复制">复制</button></div>
+        <div class="cmdrow"><span class="cmd-k" data-i18n="分发">分发</span><code id="fCmdDist"></code><button id="fCopyDist" data-i18n="复制">复制</button></div>
+        <p id="fRunNote"></p>
+      </div>
       <div id="fNote"></div>
     </div>
   </div>
