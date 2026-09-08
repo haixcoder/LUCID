@@ -62,6 +62,40 @@ function handleHTML(n: FlowNode, type: 'source' | 'target', hid?: string, pos?: 
   return `<div class="${FLOW_LIB}-flow__handle ${type}${hid ? ' h-' + hid : ''} nodrag connectable connectableend" data-handleid="${id}"` +
     ` data-handlepos="${position}" data-nodeid="${n.id}" data-id="${FLOW_ID}-${n.id}-${id}-${type}" title="${type}"></div>`;
 }
+// ── 字段选择(1.2.60):把上游节点的 schema 字段做成可点芯片,点一下插到 prompt 光标处 ──
+// 候选口径单点(与生成器同一套语法):上游节点 ∪ map 链内的 item/index;字段名来自上游 agent 的
+// schemaText.properties(flowSchemaProps 单点)——解析不出来就不猜,只给"整节点"芯片(校验器会说话)。
+interface FieldChip { ins: string; text: string; title: string }
+function flowFieldChips(n: FlowNode, d: FlowDraft): FieldChip[] {
+  if (n.type !== 'agent' && n.type !== 'map') return [];
+  const out: FieldChip[] = [];
+  const chains = flowMapChains(d);
+  const inMap = n.type === 'map' || [...chains.values()].some(c => c.inner.has(n.id));
+  if (inMap) {
+    out.push({ ins: '{{item}}', text: 'item', title: T('map 的当前条目') });
+    out.push({ ins: '{{index}}', text: 'index', title: T('当前条目下标') });
+  }
+  const up = flowUpstream(d).get(n.id) || new Set<string>();
+  for (const id of flowLevels(d).groups.flat().filter(x => up.has(x))) {
+    const u = d.nodes.find(x => x.id === id); if (!u) continue;
+    const props = u.type === 'agent' ? flowSchemaProps(String(u.data.schemaText || '')) : null;
+    if (props) {
+      for (const k of Object.keys(props)) {
+        const spec = props[k] as { description?: unknown } | null;
+        out.push({ ins: `{{${id}.${k}}}`, text: `${id}.${k}`, title: String(spec?.description ?? '') || `${id}.${k}` });
+      }
+    } else if (!String(u.data.schemaText || '').trim()) {     // 声明了 schema 却解析不出 → 校验器已在报错,这里不重复
+      out.push({ ins: `{{${id}}}`, text: id, title: T('整节点结果') });
+    }
+  }
+  return out;
+}
+function chipsHTML(n: FlowNode): string {
+  const chips = flowFieldChips(n, flowDraft());
+  if (!chips.length) return '';
+  return `<span class="fh-k">${T('字段选择')}</span>` + chips.map(c =>
+    `<button type="button" class="chip nodrag" data-ins="${esc(c.ins)}" title="${esc(c.title + ' · ' + T('点击插入到光标处'))}">${esc(c.text)}</button>`).join('');
+}
 function nodeHTML(n: FlowNode): string {
   const d = n.data, t = n.type;
   const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'loop' ? 'LOOP' : t === 'log' ? 'LOG' : t === 'code' ? 'CODE' : t === 'subflow' ? 'SUBFLOW' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
@@ -69,7 +103,8 @@ function nodeHTML(n: FlowNode): string {
   if (t === 'start') fields = `<label>${T('说明(生成 args 入口)')}</label><input class="nodrag f-note" value="${esc(d.note || '')}" placeholder="${esc(T('如:调研选题'))}">`;
   if (t === 'agent') fields =
     `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
-    `<label>${T('prompt(可引用 {{nX}})')}</label><textarea class="nodrag f-prompt" rows="3">${esc(d.prompt || '')}</textarea>` +
+    `<label>${T('prompt(可引用 {{nX}} 或 {{nX.字段}})')}</label><textarea class="nodrag f-prompt" rows="3">${esc(d.prompt || '')}</textarea>` +
+    `<div class="fchips">${chipsHTML(n)}</div>` +
     `<label>${T('model / schema(可空)')}</label><div class="frow"><select class="nodrag f-model"><option value="">inherit</option>${FLOW_MODELS.map(m => `<option${d.model === m ? ' selected' : ''}>${m}</option>`).join('')}</select><textarea class="nodrag f-schema" rows="1" placeholder="{JSON Schema}">${esc(d.schemaText || '')}</textarea></div>` +
     `<label>${T('effort / agentType(可空)')}</label><div class="frow"><select class="nodrag f-effort"><option value="">inherit</option>${FLOW_EFFORTS.map(e => `<option${d.effort === e ? ' selected' : ''}>${e}</option>`).join('')}</select><input class="nodrag f-atype" list="fATypes" value="${esc(d.agentType || '')}" placeholder="agentType"></div>` +
     `<label>${T('retry(n / 退避 ms;0 = 不重试)')}</label><div class="frow"><input class="nodrag f-rn" type="number" min="0" value="${esc(String(d.retryN === undefined || d.retryN === '' ? 0 : d.retryN))}"><input class="nodrag f-rms" type="number" min="0" value="${esc(String(d.retryMs === undefined || d.retryMs === '' ? 1000 : d.retryMs))}"></div>` +
@@ -78,6 +113,7 @@ function nodeHTML(n: FlowNode): string {
     `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
     `<label>${T('items 表达式(如 ARGS.paths)')}</label><input class="nodrag f-items" value="${esc(d.items || '')}" placeholder="ARGS.paths">` +
     `<label>${T('回调模板({{item}} / {{index}})')}</label><textarea class="nodrag f-prompt" rows="2">${esc(d.prompt || '')}</textarea>` +
+    `<div class="fchips">${chipsHTML(n)}</div>` +
     `<div class="fnote">${T('下游每级 = pipeline 的一级(逐条目、无栅栏);要汇总请用汇合点之后的节点')}</div>`;
   if (t === 'branch') fields =
     `<label>${T('label')}</label><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label">` +
@@ -177,6 +213,22 @@ function wireNodes(): void {
     };
     bind('.f-label', 'label'); bind('.f-phase', 'phase'); bind('.f-prompt', 'prompt');
     bind('.f-model', 'model'); bind('.f-schema', 'schemaText'); bind('.f-ret', 'ret'); bind('.f-note', 'note');
+    // schema 改了 → 下游节点的字段芯片要跟着变(只重出芯片容器,不整重渲染,免得正在输入的 textarea 丢焦点)
+    el.querySelector<HTMLTextAreaElement>('.f-schema')?.addEventListener('input', refreshFieldChips);
+    // 字段芯片:插入 {{nX.字段}} 到 prompt 光标处(事件委托在节点上,芯片容器重出也不用重绑)
+    el.addEventListener('mousedown', () => {                 // 先于芯片 click 记锚点(click 时焦点已被夺走)
+      const ta = el.querySelector<HTMLTextAreaElement>('.f-prompt');
+      if (ta && typeof document.activeElement !== 'undefined' && document.activeElement === ta) {
+        fCaret = { id: n.id, s: Number(ta.selectionStart) || 0, e: Number(ta.selectionEnd) || 0 };
+      }
+    });
+    el.addEventListener('click', ev => {
+      let t = ev.target as HTMLElement | null;
+      while (t && !(t.classList && t.classList.contains('chip'))) t = t.parentElement;
+      if (!t) return;
+      ev.preventDefault();
+      insertRef(el, n, String(t.getAttribute('data-ins') || ''));
+    });
     bind('.f-items', 'items'); bind('.f-cond', 'cond'); bind('.f-rounds', 'maxRounds');
     bind('.f-effort', 'effort'); bind('.f-atype', 'agentType'); bind('.f-rn', 'retryN'); bind('.f-rms', 'retryMs'); bind('.f-text', 'text');
     bind('.f-code', 'code'); bind('.f-ref', 'ref'); bind('.f-args', 'argsExpr');
@@ -221,6 +273,32 @@ function applyDrag(items: Map<string, { position: FlowPos }>): void {
 }
 function refreshSel(): void {
   for (const n of FS.nodes) { const el = fNodeEl(n.id); if (el) el.classList.toggle('sel', FS.sel.has(n.id)); }
+}
+// 芯片插入:改写 textarea 值 + 同步状态 + 光标落在插入串之后。
+// ⚠ 光标锚点必须在**芯片的 mousedown** 时先记下来:那一下会先把焦点从 textarea 夺走,等 click 再读
+// selectionStart 时,一个从未聚焦过的 textarea 会报 0 —— 实测插入落到开头(`{{n2.title}}看 …`,冒烟
+// field-chips 抓到的就是这条)。记不到锚点(没在 textarea 里放过光标)→ 追加到末尾。
+let fCaret: { id: string; s: number; e: number } | null = null;
+function insertRef(el: HTMLElement, n: FlowNode, ins: string): void {
+  const ta = el.querySelector<HTMLTextAreaElement>('.f-prompt');
+  if (!ta || !ins) return;
+  const v = String(ta.value || '');
+  const at = fCaret && fCaret.id === n.id ? fCaret : null;
+  const s = at ? at.s : v.length, e = at ? at.e : s;
+  fCaret = null;
+  ta.value = v.slice(0, s) + ins + v.slice(e);
+  try { ta.selectionStart = ta.selectionEnd = s + ins.length; } catch { /* 桩无 selection */ }
+  n.data.prompt = ta.value;
+  refreshFlowScript(); autosaveFlow();
+  try { ta.focus(); } catch { /* 同上 */ }
+}
+// 只重出芯片容器(节点卡其余部分与焦点不动)——schema 改动后下游要立刻看到新字段
+function refreshFieldChips(): void {
+  for (const n of FS.nodes) {
+    const el = fNodeEl(n.id); if (!el) continue;
+    const box = el.querySelector<HTMLElement>('.fchips'); if (!box) continue;
+    box.innerHTML = chipsHTML(n);
+  }
 }
 
 // ── 连线:XYHandle.onPointerDown 全权接管(自挂 move/up、吸附、回调)──
@@ -842,6 +920,25 @@ function flowSmoke(): void {
       check('code-gen', new RegExp('const ' + kCode + ' = await \\(async \\(\\) => \\{').test(ks)
         && new RegExp('const ' + kSub + ' = await workflow\\(\\{ scriptPath: "/abs/triage\\.js" \\}\\)').test(ks)
         && $<HTMLElement>('fErr').hidden);
+      // 1.2.60 字段选择:上游 schema 字段 → 芯片 → 真点击插进 prompt(桩给不出真实点击与布局,这里补)
+      flowBlank();
+      const fSt = sm('start', 60, 150, { note: 'q' });
+      const fAg = sm('agent', 300, 150, { label: '抽取', phase: 'P', prompt: '抽', schemaText: '{"type":"object","properties":{"title":{"type":"string"}}}' });
+      const fB = sm('agent', 540, 150, { label: '汇总', phase: 'P', prompt: '看 ' }), fRt = sm('return', 780, 150, { ret: '' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: fSt, sourceHandle: 'out', target: fAg, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: fAg, sourceHandle: 'out', target: fB, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: fB, sourceHandle: 'out', target: fRt, targetHandle: 'in' });
+      flowRender();
+      await frames(10);
+      const fBEl = fNodeEl(fB), fTa = fBEl && fBEl.querySelector<HTMLTextAreaElement>('textarea.f-prompt');
+      const fChip = fBEl && fBEl.querySelector<HTMLElement>('.fchips .chip[data-ins="{{' + fAg + '.title}}"]');
+      if (fChip) fChip.click();                                    // 真实点击 → 冒泡到节点上的委托监听器
+      await frames(6);
+      const fOk = !!fChip && !!fTa && fTa.value === '看 {{' + fAg + '.title}}'
+        && new RegExp('\\$\\{' + fAg + '\\?\\.title\\}').test($<HTMLElement>('fScript').textContent || '');
+      if (!fOk) res.push('[fchip=' + (fChip ? 'y' : 'n') + ' chips=' + String(fBEl && fBEl.querySelectorAll('.fchips .chip').length)
+        + ' val=' + JSON.stringify(fTa ? fTa.value : null) + ' err=' + String($<HTMLElement>('fErr').textContent).slice(0, 60) + ']');
+      check('field-chips', fOk);
       refreshFlowScript();
       check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');

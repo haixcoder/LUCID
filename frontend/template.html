@@ -330,6 +330,12 @@ body.flow-open{overflow:hidden}
 .wfnode textarea{min-height:42px;resize:vertical;line-height:1.5}
 .wfnode .frow{display:flex;gap:6px;margin:2px 7px 0}
 .wfnode .frow input{flex:1}.wfnode .frow select{flex:0 0 86px}.wfnode .frow textarea{flex:1}
+/* 字段选择芯片(1.2.60):上游节点 schema 字段的可点入口——点了把 {{nX.字段}} 插到 prompt 光标处 */
+.wfnode .fchips{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin:4px 7px 0}
+.wfnode .fchips .fh-k{color:var(--dim2);font:600 8px var(--mono);letter-spacing:.16em}
+.wfnode .fchips .chip{cursor:pointer;background:var(--pnl2);border:1px solid var(--ln);color:var(--dim);
+ font:10px/1 var(--mono);padding:2px 5px;border-radius:3px;transition:border-color .15s,color .15s}
+.wfnode .fchips .chip:hover{border-color:var(--am);color:var(--am)}
 .lucid-flow__handle{position:absolute;width:11px;height:11px;background:var(--bg);border:2px solid var(--ln2);border-radius:50%;cursor:crosshair;z-index:2;transition:border-color .15s,background .15s,box-shadow .15s}
 .lucid-flow__handle.source{right:-7px;border-color:color-mix(in srgb,var(--am) 62%,var(--ln2))}
 .lucid-flow__handle.target{left:-7px;border-color:color-mix(in srgb,var(--cy) 55%,var(--ln2))}

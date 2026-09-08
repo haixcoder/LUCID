@@ -81,7 +81,7 @@ const FAN = {
     N('n2', 'agent', 200, 0, { label: 'A', phase: 'P1', prompt: '拆', model: '', schemaText: '' }),
     N('n3', 'agent', 400, -80, { label: 'B1', phase: 'P2', prompt: 'b1 {{n2}}', model: '', schemaText: '' }),
     N('n4', 'agent', 400, 80, { label: 'B2', phase: 'P2', prompt: 'b2 {{n2}}', model: 'sonnet', schemaText: '{"type":"object","properties":{"x":{"type":"string"}},"required":["x"]}' }),
-    N('n5', 'agent', 600, 0, { label: 'C', phase: 'P3', prompt: '汇 {{n3}} {{n4}}', model: '', schemaText: '' }),
+    N('n5', 'agent', 600, 0, { label: 'C', phase: 'P3', prompt: '汇 {{n3}} {{n4.x}}', model: '', schemaText: '' }),
     N('n6', 'return', 800, 0, { ret: '' })],
   edges: [E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3'), E('e3', 'n2', 'n4'), E('e4', 'n3', 'n5'), E('e5', 'n4', 'n5'), E('e6', 'n5', 'n6')],
 };
@@ -351,8 +351,8 @@ const FAN = {
      && /\(\) => agent\(`b1 \$\{n2\}`, \{ label: "B1", phase: "P2" \}\),/.test(fan)
      && /\(\) => agent\(`b2 \$\{n2\}`, \{ label: "B2", phase: "P2", model: "sonnet", schema: SCHEMA_n4 \}\),/.test(fan), fan);
   ck('gen/schemaText → 顶部 SCHEMA 常量(在 async 体外,合法 JS)', /^const SCHEMA_n4 = \{"type":"object"/m.test(fan), fan.split('\n').slice(7, 9).join('\n'));
-  ck('gen/汇聚节点在下一层单 await(多入边 = 栅栏而非流水线)',
-     /const n5 = await agent\(`汇 \$\{n3\} \$\{n4\}`, \{ label: "C", phase: "P3" \}\)/.test(fan), fan);
+  ck('gen/汇聚节点在下一层单 await(多入边 = 栅栏而非流水线);带 schema 的上游取字段走可选链',
+     /const n5 = await agent\(`汇 \$\{n3\} \$\{n4\?\.x\}`, \{ label: "C", phase: "P3" \}\)/.test(fan), fan);
   ck('gen/return 空 → 兜底"最后一个含 agent 的层"(末层是 Return 时不得输出空 results)',
      fan.includes('return { results: [n5].filter(Boolean) }'), fan.slice(-60));
   ck('gen/兜底对链式图同样取末个 agent 层',
@@ -724,7 +724,8 @@ const FAN = {
   async function runJs(js: string, args: unknown): Promise<{ phases: string[]; calls: { prompt: string; opts: any }[]; ret: any }> {
     const stripped = js.replace('export const meta', 'const meta');
     const phases: string[] = [], calls: { prompt: string; opts: any }[] = [];
-    const agent = async (prompt: string, opts: any): Promise<string> => { calls.push({ prompt, opts }); return 'R(' + String((opts && opts.label) || '?') + ')'; };
+    // 带 schema 的调用按官方语义返回**对象**(1.2.60 起下游可以取字段:{{n4.x}} → R(B2).x)
+    const agent = async (prompt: string, opts: any): Promise<unknown> => { calls.push({ prompt, opts }); return opts && opts.schema ? { x: 'R(' + String(opts.label || '?') + ')' } : 'R(' + String((opts && opts.label) || '?') + ')'; };
     const parallel = async (thunks: any[]): Promise<any[]> => Promise.all(thunks.map(t => t()));
     const phase = (t: string): void => { phases.push(t); };
     const fn = new Function('args', 'phase', 'agent', 'parallel', 'log', 'return (async () => {' + stripped + '})()');
@@ -746,7 +747,8 @@ const FAN = {
      r2.calls.length === 4 && r2.calls[1].opts.phase === 'P2' && r2.calls[2].opts.phase === 'P2'
      && r2.calls[0].opts.phase === 'P1' && r2.calls[3].opts.phase === 'P3',
      JSON.stringify(r2.calls.map(c => [c.opts.label, c.opts.phase])));
-  ck('run/汇聚步拿到的是两个并行分支的返回值', /R\(B1\)[\s\S]*R\(B2\)/.test(r2.calls[3].prompt), r2.calls[3].prompt);
+  ck('run/汇聚步拿到的是两个并行分支的返回值(带 schema 的取字段,不是 [object Object])',
+     r2.calls[3].prompt === '汇 R(B1) R(B2)', r2.calls[3].prompt);
   ck('run/schema 传入对象(非字符串),model 生效', typeof r2.calls[2].opts.schema === 'object' && r2.calls[2].opts.model === 'sonnet',
      JSON.stringify(r2.calls[2].opts));
   ck('run/兜底 return 给出末层结果数组(agent 可能返回 null → filter(Boolean))',
@@ -940,6 +942,59 @@ const FAN = {
   cta.fire('input', { target: cta });
   await envC2.flush(4);
   ck('改成合法片段后警告消失(同一次 flowWarnings 调用出结果)', envC2.$('fWarn').hidden === true);
+
+  // ── 字段选择芯片(1.2.60):上游 schema 字段 → 可点芯片 → 插入 {{nX.字段}} 到 prompt ──
+  const envF = mkEnv();
+  await envF.flush();
+  envF.run('void openFlow("/work/fix")');
+  await envF.flush(10);
+  const FIELD = {
+    nodes: [N('n1', 'start', 0, 0, { note: 'q' }),
+      N('n2', 'agent', 200, 0, { label: 'A', phase: 'P', prompt: '抽', schemaText: '{"type":"object","properties":{"title":{"type":"string","description":"标题"},"tags":{"type":"array"}},"required":["title"]}' }),
+      N('n3', 'agent', 400, 0, { label: 'B', phase: 'P', prompt: '看 ' }),
+      N('n4', 'return', 600, 0, { ret: '' })],
+    edges: [E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3'), E('e3', 'n3', 'n4')],
+  };
+  envF.run('FS.nodes = ' + JSON.stringify(FIELD.nodes) + '; FS.edges = ' + JSON.stringify(FIELD.edges) + '; FS.next = 99; flowRender()');
+  await envF.flush(4);
+  const n3El = querySelectorEl(envF.rootEl, '.wfnode[data-nodeid="n3"]');
+  const chips = n3El.querySelectorAll('.fchips .chip');
+  ck('字段选择/上游 schema 的字段成为可点芯片(含 description 作 tooltip;start 仍是整节点芯片)',
+     chips.length === 3 && chips[0].getAttribute('data-ins') === '{{n1}}'
+     && chips[1].getAttribute('data-ins') === '{{n2.title}}' && /标题/.test(chips[1].title)
+     && chips[2].getAttribute('data-ins') === '{{n2.tags}}',
+     chips.map(c => c.getAttribute('data-ins')).join(','));
+  const ta3 = n3El.querySelector('textarea.f-prompt') as unknown as { value: string };
+  chips[1].fire('click', { preventDefault: () => {} });
+  await envF.flush(4);
+  ck('字段选择/点芯片 → 插到 prompt 末尾 + 状态与脚本同步',
+     ta3.value === '看 {{n2.title}}' && envF.get('FS.nodes.find(n => n.id === "n3").data.prompt') === '看 {{n2.title}}'
+     && /\$\{n2\?\.title\}/.test(envF.$('fScript').textContent), ta3.value);
+  ck('字段选择/插入后校验通过(不是"看着接上了"实则报错)', envF.$('fErr').hidden === true, envF.$('fErr').textContent.slice(0, 80));
+  // 上游改 schema → 芯片跟着变(只重出芯片容器,不整重渲染)
+  const sc2 = querySelectorEl(envF.rootEl, '.wfnode[data-nodeid="n2"] textarea.f-schema');
+  sc2.value = '{"type":"object","properties":{"owner":{"type":"string"}}}';
+  sc2.fire('input', { target: sc2 });
+  await envF.flush(4);
+  const chips2 = querySelectorEl(envF.rootEl, '.wfnode[data-nodeid="n3"]').querySelectorAll('.fchips .chip');
+  ck('字段选择/schema 改动后下游芯片立即更新(无需重开编辑器)',
+     chips2.length === 2 && chips2[1].getAttribute('data-ins') === '{{n2.owner}}', chips2.map(c => c.getAttribute('data-ins')).join(','));
+  // 无上游 schema 时不出现芯片行;map 链内额外给 item/index
+  envF.run('FS.nodes = ' + JSON.stringify([N('n1', 'start', 0, 0, { note: 'q' }), N('n2', 'agent', 200, 0, { label: 'A', phase: 'P', prompt: 'a' }), N('n3', 'return', 400, 0, { ret: '' })]) +
+    '; FS.edges = ' + JSON.stringify([E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3')]) + '; flowRender()');
+  await envF.flush(4);
+  ck('字段选择/上游没有 schema → 给整节点芯片({{n2}}),不是空行',
+     querySelectorEl(envF.rootEl, '.wfnode[data-nodeid="n2"]').querySelectorAll('.fchips .chip').map(c => c.getAttribute('data-ins')).join(',') === '{{n1}}',
+     querySelectorEl(envF.rootEl, '.wfnode[data-nodeid="n2"]').querySelector('.fchips')!.textContent);
+  const envM = mkEnv();
+  await envM.flush();
+  envM.run('void openFlow("/work/fix")');
+  await envM.flush(10);
+  envM.run('FS.nodes = ' + JSON.stringify([N('n1', 'start', 0, 0, { note: 'q' }), N('n2', 'map', 200, 0, { items: 'ARGS.paths', prompt: '', label: 'm' }), N('n3', 'return', 400, 0, { ret: '' })]) +
+    '; FS.edges = ' + JSON.stringify([E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3')]) + '; flowRender()');
+  await envM.flush(4);
+  const mChips = querySelectorEl(envM.rootEl, '.wfnode[data-nodeid="n2"]').querySelectorAll('.fchips .chip').map(c => c.getAttribute('data-ins')).join(',');
+  ck('字段选择/map 节点的回调模板先给 {{item}} / {{index}} 芯片', mChips.indexOf('{{item}},{{index}},') === 0, mChips);
   draftsResp = { drafts: [] };
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

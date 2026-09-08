@@ -7,8 +7,16 @@
 const FLOW_MODEL_OK = ['sonnet', 'opus', 'haiku', 'fable', 'mythos'];   // agent(opts.model) 档位白名单;'' = inherit
 // ⚠ 共享带 /g 的正则做 .test()/.exec() 会留下 lastIndex 状态(同一正则被两个调用方交错使用即漏判)——
 // 因此探测用无 g 的 FLOW_REF_PROBE,枚举用 matchAll(自带独立迭代状态),替换用带 g 的 replace(结束时自复位)。
-const FLOW_REF_PROBE = /\{\{(n\d+|start|item|index)\}\}/;
-const FLOW_REF_RE = /\{\{(n\d+|start|item|index)\}\}/g;
+// 1.2.60 起占位符带**可选字段路径**(字段选择):{{n2.title}} / {{n2.tags[0]}} / {{item.name}}。
+// 路径段白名单 = 标识符或数字下标 —— 生成物是 JS 源码,白名单即注入防线(别放宽成任意字符)。
+// 三件套同一形状:PROBE(无 g,探测)、RE(带 g,枚举/替换)、FULL(整串判定合规);LIKE 抓"形似引用"。
+// ⚠ 路径必须**捕获**(m[2]):`((?:…)*)` 的括号在重复组外层——写成 (?:…) 会让 m[2] 恒为 undefined,
+// 三个字段引用会被当成同一个"整节点引用"(1.2.60 实现期实际踩到,报错信息里路径整段消失)。
+const FLOW_REF_PATH = '((?:\\.[A-Za-z_$][\\w$]*|\\[\\d+\\])*)';
+const FLOW_REF_PROBE = new RegExp('\\{\\{(n\\d+|start|item|index)' + FLOW_REF_PATH + '\\}\\}');
+const FLOW_REF_RE = new RegExp('\\{\\{(n\\d+|start|item|index)' + FLOW_REF_PATH + '\\}\\}', 'g');
+const FLOW_REF_FULL = new RegExp('^\\{\\{(n\\d+|start|item|index)' + FLOW_REF_PATH + '\\}\\}$');
+const FLOW_REF_LIKE = /\{\{(n\d+|start|item|index)[^}]*\}\}/g;   // 形似引用(含不合规的):用 FULL 判合规,不合规必须报错——不许再静默当字面量
 const FLOW_SANDBOX_BANNED = /Date\.now\(\)|Math\.random\(\)|new Date\(\)/;   // 沙箱禁用且破坏 resume
 const FLOW_BUDGET_FLOOR = 50000;
 const FLOW_EFFORT_OK = ['low', 'medium', 'high', 'xhigh', 'max'];   // agent(opts.effort) 五档(官方技能)
@@ -274,10 +282,12 @@ function flowCodeWarns(fs: FlowDraft, id: string, code: string): string[] {
   for (const w of unknown) warns.push(`节点 ${id} 的 code 片段用了未知全局「${w}」——不在脚本白名单/内建/本片段声明内;若是上游节点的结果请写 {{nX}}`);
   return warns;
 }
-// 警告单点(与 flowValidate 同一次调用并列的第二类结果:错误拦生成,警告只提示)
+// 警告单点(与 flowValidate 同一次调用并列的第二类结果:错误拦生成,警告只提示)。
+// 两类来源:code 片段的未知全局 + 引用诊断里的"疑似取不到值"(flowRefIssues 同一次扫描产出)。
 function flowWarnings(fs: FlowDraft): string[] {
   const out: string[] = [];
   for (const n of fs.nodes) if (n.type === 'code') out.push(...flowCodeWarns(fs, n.id, String(n.data.code || '')));
+  out.push(...flowRefIssues(fs, flowMapChains(fs), flowBranchRegions(fs), flowLoopRegions(fs)).warns);
   return out;
 }
 // subflow 引用校验(Phase 8):ref 必填;按名引用时查草稿列表 + 嵌套深度;路径引用不做存在性检查。
@@ -296,6 +306,12 @@ function flowSubflowErrs(fs: FlowDraft, ctx?: FlowCtx): string[] {
   return errs;
 }
 
+// 字段路径 → JS 访问表达式(单点):{{n2.a.b}} → ?.a?.b,{{n2.list[0]}} → ?.list?.[0]。
+// 全程可选链:上游 agent 被跳过 / 终止性 API 错误时返回 null(官方语义),取字段不该把整张图炸掉
+// (代价是拿到 "undefined" —— 比 ReferenceError 好,也比 [object Object] 诚实)。
+function flowPathExpr(path: string): string {
+  return String(path || '').replace(/\.([A-Za-z_$][\w$]*)/g, '?.$1').replace(/\[(\d+)\]/g, '?.[$1]');
+}
 // 上游可达集(单点:占位符引用与"汇聚等待"判定都靠它)。
 // ⚠ 不能用"带 trail 的递归 + memo":trail 会在遇到回边时截断探索,而截断结果被 memo 缓存后
 // 会污染后续查询(1.2.58 全节点夹具实测:循环体节点 n10 查上游 n8 被缓存成空集 → 误报"不是它的上游")。
@@ -352,57 +368,97 @@ function flowLevels(fs: FlowDraft): { groups: string[][]; orphan: string[]; cycl
   return { groups, orphan, cycle, dangling, selfEdge };
 }
 
-function flowRefErrs(fs: FlowDraft, chains: Map<string, MapChain>, branches: Map<string, BranchRegion>, loops: Map<string, LoopRegion>): string[] {
+// 引用诊断单点(1.2.60 起同时产出**错误与警告**,铁律 8:同一口径只此一处)。
+// 扫的模板字段 = 真正会过 flowLiteral 的那几个:agent/map 的 prompt 与 label、log 的 text。
+// 字段选择(1.2.60)新增四类判定:
+//   ① 形似引用但不合规({{n2.1bad}} / {{n2 .t}})→ 错误(旧实现原样当字面量喂给子代理,静默坏);
+//   ② {{nX}} 指向声明了 schema 的节点 → 错误(模板字符串会把对象变成 [object Object],静默坏);
+//   ③ start/index 取字段 → 错误(它们不是对象);④ 取字段但上游没有 schema / 字段名不在 properties → 警告。
+function flowRefIssues(fs: FlowDraft, chains: Map<string, MapChain>, branches: Map<string, BranchRegion>, loops: Map<string, LoopRegion>): { errs: string[]; warns: string[] } {
   const byId = new Map(fs.nodes.map(n => [n.id, n]));
   const up = flowUpstream(fs);
   const startId = fs.nodes.find(n => n.type === 'start')?.id;
   const regionOf = flowRegionOf(chains, branches, loops);
-  const errs: string[] = [];
+  const errs: string[] = [], warns: string[] = [];
   for (const n of fs.nodes) {
-    if (n.type !== 'agent' && n.type !== 'map') continue;
+    const texts = n.type === 'log' ? [String(n.data.text || '')]
+      : (n.type === 'agent' || n.type === 'map') ? [String(n.data.prompt || ''), String(n.data.label || '')] : [];
+    if (!texts.length) continue;
     const own = regionOf.get(n.id);
     const chain = n.type === 'map' ? (chains.get(n.id) || null) : (own?.kind === 'map' ? chains.get(own.id)! : null);
-    const seen = new Set<string>();
-    for (const m of String(n.data.prompt || '').matchAll(FLOW_REF_RE)) seen.add(m[1]);
-    for (const ref of seen) {
-      if (ref === 'item' || ref === 'index') {                       // 只在 map 链的级里有意义
-        if (!chain) errs.push(`节点 ${n.id} 的 {{${ref}}} 只能在 map 链内使用`);
-        continue;
+    for (const text of texts) {
+      for (const m of text.matchAll(FLOW_REF_LIKE)) {                // ① 形似引用但不合规:必须报错,不许静默
+        if (!FLOW_REF_FULL.test(m[0])) errs.push(`节点 ${n.id} 的占位符 ${m[0]} 无法识别(只支持 {{nX}} / {{nX.字段}} / {{item.字段}} / {{index}} / {{start}})`);
       }
-      const target = ref === 'start' ? startId : ref;
-      if (!target || !byId.has(target)) { errs.push(`节点 ${n.id} 引用了不存在的节点 {{${ref}}}`); continue; }
-      if (target === n.id) { errs.push(`节点 ${n.id} 引用了自身 {{${ref}}}`); continue; }
-      if (chain && chain.mapId !== n.id) {                           // map 链内:只有"上一级"的结果拿得到(回调的 prev)
-        const si = chain.stages.findIndex(lv => lv.indexOf(n.id) >= 0);
-        const prevLv = si > 0 ? chain.stages[si - 1] : [];
-        const tgtRegion = regionOf.get(target);
-        if (tgtRegion || target === chain.mapId) {                   // 链内节点(含 map 自身)只许当"上一级"用
-          if (prevLv.indexOf(target) < 0) errs.push(`节点 ${n.id} 在 ${chain.mapId} 的 map 链内,只能引用上一级的结果 {{${ref}}}`);
+      const seen = new Set<string>();
+      for (const m of text.matchAll(FLOW_REF_RE)) {
+        const ref = m[1], path = m[2] || '';
+        if (seen.has(m[0])) continue;                                 // 同一文本里重复出现只报一次
+        seen.add(m[0]);
+        if (ref === 'item' || ref === 'index') {                      // 只在 map 链的级里有意义
+          if (!chain) { errs.push(`节点 ${n.id} 的 {{${ref}${path}}} 只能在 map 链内使用`); continue; }
+          if (path && ref === 'index') errs.push(`节点 ${n.id} 的 {{index${path}}} 不合法:index 是数字,没有字段`);
           continue;
         }
-        if (!(up.get(n.id)?.has(target))) errs.push(`节点 ${n.id} 的 {{${ref}}} 不是它的上游(连不到 = 拿不到结果)`);
-        continue;
+        const target = ref === 'start' ? startId : ref;
+        if (!target || !byId.has(target)) { errs.push(`节点 ${n.id} 引用了不存在的节点 {{${ref}${path}}}`); continue; }
+        if (target === n.id) { errs.push(`节点 ${n.id} 引用了自身 {{${ref}${path}}}`); continue; }
+        let bad = false;
+        if (chain && chain.mapId !== n.id) {                          // map 链内:只有"上一级"的结果拿得到(回调的 prev)
+          const si = chain.stages.findIndex(lv => lv.indexOf(n.id) >= 0);
+          const prevLv = si > 0 ? chain.stages[si - 1] : [];
+          const tgtRegion = regionOf.get(target);
+          if (tgtRegion || target === chain.mapId) {                  // 链内节点(含 map 自身)只许当"上一级"用
+            if (prevLv.indexOf(target) < 0) { errs.push(`节点 ${n.id} 在 ${chain.mapId} 的 map 链内,只能引用上一级的结果 {{${ref}${path}}}`); bad = true; }
+          } else if (!(up.get(n.id)?.has(target))) { errs.push(`节点 ${n.id} 的 {{${ref}${path}}} 不是它的上游(连不到 = 拿不到结果)`); bad = true; }
+        } else {
+          const tgtRegion = regionOf.get(target);
+          if (tgtRegion && (!own || own.kind !== tgtRegion.kind || own.id !== tgtRegion.id)) {
+            // 区域外引用:map 链内变量只活在回调闭包,pipeline 自身的结果也要等它算完
+            errs.push(tgtRegion.kind === 'map'
+              ? `节点 ${n.id} 引用了 map 链内的节点 {{${ref}${path}}}(链内变量只在 pipeline 回调里存在)`
+              : tgtRegion.kind === 'loop'
+                ? `节点 ${n.id} 引用了循环体内的节点 {{${ref}${path}}}(循环体变量在循环外不可见,请引用 loop 节点自身)`
+                : `节点 ${n.id} 引用了分支区域内的节点 {{${ref}${path}}}(块作用域变量在分支外不可见,请用 merge 汇合)`);
+            bad = true;
+          } else if (!(up.get(n.id)?.has(target))) { errs.push(`节点 ${n.id} 的 {{${ref}${path}}} 不是它的上游(连不到 = 拿不到结果)`); bad = true; }
+        }
+        if (bad) continue;
+        // ②③④ 字段规则(仅在引用本身合法时判,免得在一条错误上再叠三条噪音)
+        const tgt = byId.get(target)!;
+        if (path && tgt.type === 'start') { errs.push(`节点 ${n.id} 的 {{${ref}${path}}} 不合法:Start 是文本入口,没有字段`); continue; }
+        if (tgt.type !== 'agent') continue;
+        const props = flowSchemaProps(String(tgt.data.schemaText || ''));
+        if (!path) {
+          if (props) errs.push(`节点 ${n.id} 的 {{${ref}}} 指向声明了 schema 的节点 ${ref}(返回对象):模板里只会得到 [object Object],请改用 {{${ref}.字段}} 选择字段`);
+          continue;
+        }
+        if (!props) { warns.push(`节点 ${n.id} 的 {{${ref}${path}}} 取了字段,但节点 ${ref} 没有声明 schema(返回文本)——可能拿不到值`); continue; }
+        const first = /^\.([A-Za-z_$][\w$]*)/.exec(path)?.[1] || '';
+        if (first && !Object.prototype.hasOwnProperty.call(props, first)) {
+          warns.push(`节点 ${n.id} 的 {{${ref}${path}}} 字段「${first}」不在节点 ${ref} 的 schema properties 内(可能拼错;嵌套字段不查)`);
+        }
       }
-      const tgtRegion = regionOf.get(target);
-      if (tgtRegion && (!own || own.kind !== tgtRegion.kind || own.id !== tgtRegion.id)) {
-        // 区域外引用:map 链内变量只活在回调闭包,pipeline 自身的结果也要等它算完
-        errs.push(tgtRegion.kind === 'map'
-          ? `节点 ${n.id} 引用了 map 链内的节点 {{${ref}}}(链内变量只在 pipeline 回调里存在)`
-          : tgtRegion.kind === 'loop'
-            ? `节点 ${n.id} 引用了循环体内的节点 {{${ref}}}(循环体变量在循环外不可见,请引用 loop 节点自身)`
-            : `节点 ${n.id} 引用了分支区域内的节点 {{${ref}}}(块作用域变量在分支外不可见,请用 merge 汇合)`);
-        continue;
-      }
-      if (!(up.get(n.id)?.has(target))) errs.push(`节点 ${n.id} 的 {{${ref}}} 不是它的上游(连不到 = 拿不到结果)`);
     }
   }
-  return errs;
+  return { errs, warns };
 }
 
 // args 契约读取单点(缺省 = 全空,不猜不塞)——生成器、校验器、UI 都从这里取
 function flowArgsSpec(fs: FlowDraft): FlowArgsSpec {
   const a = fs.argsSpec || ({} as Partial<FlowArgsSpec>);
   return { schemaText: String(a.schemaText ?? ''), exampleText: String(a.exampleText ?? ''), required: !!a.required };
+}
+// schema.properties 单点(字段校验的警告与编辑器「字段选择」芯片共用):不可解析/无 properties → null
+// (null ≠ "没有字段"——只是"判定不了",所以调用方一律降级为不提示,不假装知道)。
+function flowSchemaProps(text: string): Record<string, unknown> | null {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  try {
+    const j = JSON.parse(t) as { properties?: unknown };
+    const p = j && typeof j === 'object' && !Array.isArray(j) ? j.properties : null;
+    return p && typeof p === 'object' && !Array.isArray(p) ? p as Record<string, unknown> : null;
+  } catch { return null; }
 }
 // JSON Schema 根形状校验单点:**agent.schemaText 与 argsSpec.schemaText 共用**(PRD §5.4 规则 3——
 // 运行期 agent() 只接受 {type:'object',properties:{…}} 且 required ⊆ properties,不可满足的 schema 在那里就抛)。
@@ -458,7 +514,7 @@ function flowValidate(fs: FlowDraft, ctx?: FlowCtx): string[] {
     const solo = g.filter(id => { const t = byId.get(id)?.type; return t === 'map' || t === 'branch' || t === 'loop'; });
     if (solo.length && g.length > 1) errs.push(`节点 ${solo.join(', ')}(map/branch/loop)不能与其他步骤同层(它会独占一个 await 点)`);
   }
-  errs.push(...flowRefErrs(fs, chains, branches, loops));
+  errs.push(...flowRefIssues(fs, chains, branches, loops).errs);
   // ── 载荷:code / subflow(Phase 8)──
   for (const n of fs.nodes) if (n.type === 'code') errs.push(...flowCodeErrs(n.id, String(n.data.code || '')));
   errs.push(...flowSubflowErrs(fs, ctx));
@@ -543,11 +599,13 @@ function flowLiteral(fs: FlowDraft, text: string, ctx?: { prev?: Set<string> }):
   const s = String(text ?? '');
   if (!FLOW_REF_PROBE.test(s) && !s.includes('\n')) return JSON.stringify(s);
   const body = s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
-    .replace(FLOW_REF_RE, (_m: string, id: string) => {
-      if (id === 'item') return '${item}';
-      if (id === 'index') return '${i}';
-      if (ctx?.prev?.has(id)) return '${prev}';
-      return '${' + (id === 'start' || id === startId ? 'Q' : id) + '}';
+    .replace(FLOW_REF_RE, (_m: string, id: string, path: string) => {
+      // 字段路径(1.2.60):{{n2.title}} → ${n2?.title}。整节点引用(path='')逐字节不变(黄金钉死)。
+      const px = flowPathExpr(path || '');
+      if (id === 'item') return '${item' + px + '}';
+      if (id === 'index') return '${i' + px + '}';
+      if (ctx?.prev?.has(id)) return '${prev' + px + '}';
+      return '${' + (id === 'start' || id === startId ? 'Q' : id) + px + '}';
     });
   return '`' + body + '`';
 }
