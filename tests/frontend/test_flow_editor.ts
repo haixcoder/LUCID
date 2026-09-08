@@ -376,7 +376,7 @@ const FAN = {
   // 校验:结构 / 引用 / 载荷三类错误逐条对案
   ck('val/缺 Start', /缺 Start/.test(V(CHAIN.nodes.slice(1), CHAIN.edges.slice(1))));
   ck('val/缺 Return', /缺 Return/.test(V(CHAIN.nodes.slice(0, 3), CHAIN.edges.slice(0, 2))));
-  ck('val/无 agent 步骤', /至少需要一个 Agent/.test(V([N('n1', 'start', 0, 0), N('n2', 'return', 1, 0)], [])));
+  ck('val/无执行步骤(纯 start/return)', /至少需要一个执行步骤/.test(V([N('n1', 'start', 0, 0), N('n2', 'return', 1, 0)], [])));
   ck('val/环:报错并列出成员', /环.*n2, n3/.test(V(CHAIN.nodes, [E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3'), E('e9', 'n3', 'n2'), E('e3', 'n3', 'n4')])),
      V(CHAIN.nodes, [E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3'), E('e9', 'n3', 'n2'), E('e3', 'n3', 'n4')]));
   ck('val/孤立节点(无任何连线)', /孤立.*n9/.test(V(CHAIN.nodes.concat([N('n9', 'agent', 9, 9, { label: 'orphan' })]), CHAIN.edges)));
@@ -872,5 +872,54 @@ const FAN = {
   lt.fire('input', { target: lt });
   await envR.flush(4);
   ck('log 文本 {{nX}} 在生成物里解析成模板插值', /log\(`已确认 \$\{n2\} 条`\)/.test(envR.$('fScript').textContent), envR.$('fScript').textContent.slice(0, 200));
+
+  // ── code / subflow 卡片与警告区(1.2.57 · Phase 8)──
+  // 手工建一张含 code/subflow 的图(孤立节点会被校验拦下,所以必须连进链路)
+  draftsResp = { drafts: [{ name: 'triage-issues', meta: { name: 'triage-issues' }, mtime: 1, js: '/x/t.js',
+    draft: { v: 2, name: 'triage-issues', nodes: [{ id: 'a1', type: 'agent', data: {} }], edges: [] } }] };
+  const envC2 = mkEnv();
+  await envC2.flush();
+  envC2.run('void openFlow("/work/fix")');
+  await envC2.flush(30);
+  envC2.run(`(function(){
+    FS.nodes = [
+      { id: 'n1', type: 'start', position: { x: 0, y: 0 }, data: { note: 'q' } },
+      { id: 'n2', type: 'agent', position: { x: 200, y: 0 }, data: { label: 'A', phase: 'P', prompt: 'a' } },
+      { id: 'n3', type: 'code', position: { x: 400, y: 0 }, data: { code: 'return 1' } },
+      { id: 'n4', type: 'subflow', position: { x: 600, y: 0 }, data: { ref: 'triage-issues', argsExpr: '' } },
+      { id: 'n5', type: 'return', position: { x: 800, y: 0 }, data: { ret: '{ v: n4 }' } }];
+    FS.edges = [
+      { id: 'e1', source: 'n1', sourceHandle: 'out', target: 'n2', targetHandle: 'in' },
+      { id: 'e2', source: 'n2', sourceHandle: 'out', target: 'n3', targetHandle: 'in' },
+      { id: 'e3', source: 'n3', sourceHandle: 'out', target: 'n4', targetHandle: 'in' },
+      { id: 'e4', source: 'n4', sourceHandle: 'out', target: 'n5', targetHandle: 'in' }];
+    flowRender();
+  })()`);
+  await envC2.flush(6);
+  const cidEl = querySelectorEl(envC2.rootEl, '.wfnode[data-nodeid="n3"]');
+  ck('code 卡片 = CODE 徽章 + 醒目的"不参与可视化语义"提示 + 等宽编辑区',
+     /CODE/.test(cidEl.querySelector('.hd b')!.textContent) && !!cidEl.querySelector('.codehint')
+     && !!cidEl.querySelector('textarea.f-code') && /不参与可视化语义/.test(visibleText(cidEl)));
+  const sidEl = querySelectorEl(envC2.rootEl, '.wfnode[data-nodeid="n4"]');
+  ck('subflow 卡片 = ref(带草稿 datalist)+ 参数表达式 + 一层嵌套提示',
+     !!sidEl.querySelector('input.f-ref') && sidEl.querySelector('input.f-ref')!.getAttribute('list') === 'fDraftRefs'
+     && !!sidEl.querySelector('input.f-args') && /一层/.test(visibleText(sidEl)));
+  ck('草稿下拉与 subflow ref 候选同源(renderDraftOptions 一处刷两处)',
+     /triage-issues/.test(envC2.$('fDraftRefs').innerHTML) && /triage-issues/.test(envC2.$('fDraft').innerHTML),
+     envC2.$('fDraftRefs').innerHTML.slice(0, 80));
+  // 警告区:未知全局只提示、不拦生成
+  const cta = cidEl.querySelector('textarea.f-code')!;
+  cta.value = 'return agents(n2)';
+  cta.fire('input', { target: cta });
+  await envC2.flush(4);
+  ck('警告区显示未知全局(code 片段是唯一会引入幻觉 API 的地方)',
+     /未知全局/.test(envC2.$('fWarn').textContent) && envC2.$('fWarn').hidden === false, envC2.$('fWarn').textContent.slice(0, 120));
+  ck('警告不拦生成(#fErr 仍空,脚本照出)', envC2.$('fErr').hidden === true && /export const meta/.test(envC2.$('fScript').textContent),
+     envC2.$('fErr').textContent.slice(0, 80));
+  cta.value = 'return 1';
+  cta.fire('input', { target: cta });
+  await envC2.flush(4);
+  ck('改成合法片段后警告消失(同一次 flowWarnings 调用出结果)', envC2.$('fWarn').hidden === true);
+  draftsResp = { drafts: [] };
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

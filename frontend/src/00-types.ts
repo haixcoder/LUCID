@@ -46,7 +46,7 @@ type Fu = Partial<{ p: string; r: string; m: boolean }>;
 
 // ── 编排器图契约(1.2.43;与落盘的 <name>.json 草稿 1:1 = 前后端唯一契约,见 dev-guide §3.1)──
 type FlowPos = { x: number; y: number };
-type FlowKind = 'start' | 'agent' | 'map' | 'branch' | 'loop' | 'log' | 'merge' | 'return';
+type FlowKind = 'start' | 'agent' | 'map' | 'branch' | 'loop' | 'log' | 'code' | 'subflow' | 'merge' | 'return';
 interface FlowNodeData {
   label?: string; phase?: string; prompt?: string; model?: string; schemaText?: string; note?: string; ret?: string;
   items?: string;          // map 节点的 items 表达式(如 ARGS.paths)——pipeline 的输入列表
@@ -59,7 +59,12 @@ interface FlowNodeData {
   isolation?: boolean;     // agent 是否在独立 git worktree 里跑(贵)
   retryN?: number | string;    // 重试次数(0/空 = 不重试)
   retryMs?: number | string;   // 退避基数毫秒(空 = 1000)
+  code?: string;           // code 节点的 JS 片段(沙箱内执行,返回值绑定节点 id)
+  ref?: string;            // subflow 引用的工作流名或脚本路径
+  argsExpr?: string;       // subflow 的参数表达式(原生 JS,空 = 不传)
 }
+// 校验上下文(可选):草稿列表让"引用不存在的子流"能在生成前拦下;不给就只查形状,不假装知道存在性。
+interface FlowCtx { drafts?: { name: string; nested?: boolean }[] }
 interface FlowNode { id: string; type: FlowKind; position: FlowPos; data: FlowNodeData; measured?: { width: number; height: number } }
 interface FlowConn { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }
 type FlowEdge = FlowConn & { id: string };

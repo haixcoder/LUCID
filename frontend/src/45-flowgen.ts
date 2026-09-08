@@ -202,6 +202,96 @@ function flowRegionOf(chains: Map<string, MapChain>, branches: Map<string, Branc
   return m;
 }
 
+// ── code 片段扫描(Phase 8)────────────────────────────────────────────────
+// 把字符串/注释换成等长空白(保留偏移,便于按原样报错)。正则字面量**不识别**——那正是"无法判定"的来源:
+// 命中但扫描器说它在字面量里 → 降级为警告(宁可漏报,不可误杀合法片段)。
+function flowStripLiterals(src: string): string {
+  const s = String(src || '');
+  let out = '', i = 0;
+  while (i < s.length) {
+    const c = s[i], n = s[i + 1];
+    if (c === '/' && n === '/') { while (i < s.length && s[i] !== '\n') { out += ' '; i++; } continue; }
+    if (c === '/' && n === '*') {
+      out += '  '; i += 2;
+      while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) { out += s[i] === '\n' ? '\n' : ' '; i++; }
+      if (i < s.length) { out += '  '; i += 2; }
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      const q = c; out += ' '; i++;
+      while (i < s.length && s[i] !== q) {
+        if (s[i] === '\\') { out += ' '; i++; if (i < s.length) { out += s[i] === '\n' ? '\n' : ' '; i++; } continue; }
+        out += s[i] === '\n' ? '\n' : ' '; i++;
+      }
+      if (i < s.length) { out += ' '; i++; }
+      continue;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+// 脚本沙箱的全局白名单(技能原文 + JS 内建)。**不是**穷举——未知全局只警告不拦。
+const FLOW_GLOBALS = new Set(['agent', 'parallel', 'pipeline', 'phase', 'log', 'budget', 'workflow', 'args',
+  'console', 'setTimeout', 'clearTimeout', 'Promise', 'JSON', 'Math', 'Array', 'Object', 'String', 'Number',
+  'Boolean', 'Set', 'Map', 'WeakMap', 'RegExp', 'Symbol', 'BigInt', 'Error', 'TypeError', 'parseInt', 'parseFloat',
+  'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'undefined', 'null', 'true', 'false', 'NaN', 'Infinity']);
+const FLOW_KEYWORDS = new Set(['return', 'const', 'let', 'var', 'function', 'if', 'else', 'for', 'while', 'do', 'break',
+  'continue', 'new', 'typeof', 'instanceof', 'in', 'of', 'this', 'await', 'async', 'try', 'catch', 'finally', 'throw',
+  'class', 'extends', 'super', 'switch', 'case', 'default', 'delete', 'void', 'yield', 'static', 'get', 'set', 'import', 'export']);
+// 确定性/导入禁令:只对**去掉字符串与注释**的片段判定(命中在字面量里 → 降级警告)
+function flowCodeErrs(id: string, code: string): string[] {
+  const raw = String(code || '');
+  const clean = flowStripLiterals(raw);
+  const errs: string[] = [];
+  if (!raw.trim()) errs.push(`节点 ${id} 的 code 片段为空`);
+  if (/import\s*\(/.test(clean)) errs.push(`节点 ${id} 的 code 片段含 import( —— 沙箱禁动态导入,运行前就会失败`);
+  if (FLOW_SANDBOX_BANNED.test(clean)) errs.push(`节点 ${id} 的 code 片段含沙箱禁用调用(Date.now()/Math.random()/new Date())——会破坏 resume 可重放`);
+  return errs;
+}
+function flowCodeWarns(fs: FlowDraft, id: string, code: string): string[] {
+  const raw = String(code || ''), clean = flowStripLiterals(raw), warns: string[] = [];
+  if (!FLOW_SANDBOX_BANNED.test(clean) && FLOW_SANDBOX_BANNED.test(raw)) {
+    warns.push(`节点 ${id} 的 code 片段里出现确定性禁用调用,但可能在字符串/注释里——无法判定,仅提示`);
+  }
+  const declared = new Set<string>(fs.nodes.map(n => n.id));
+  for (const m of clean.matchAll(/(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g)) declared.add(m[1]);
+  for (const m of clean.matchAll(/([A-Za-z_$][\w$]*)\s*=>/g)) declared.add(m[1]);
+  for (const m of clean.matchAll(/(?:function\s*[A-Za-z_$]?[\w$]*\s*)?\(([^)]*)\)\s*(?:=>|\{)/g)) {
+    for (const p of m[1].split(',')) { const t = p.trim().replace(/=.*$/, '').trim(); if (/^[A-Za-z_$][\w$]*$/.test(t)) declared.add(t); }
+  }
+  const unknown = new Set<string>();
+  for (const m of clean.matchAll(/([A-Za-z_$][\w$]*)/g)) {
+    const w = m[1], at = m.index || 0;
+    if (FLOW_GLOBALS.has(w) || FLOW_KEYWORDS.has(w) || declared.has(w)) continue;
+    if (at > 0 && clean[at - 1] === '.') continue;                 // 属性访问
+    if (clean[at + w.length] === ':') continue;                    // 对象键
+    unknown.add(w);
+  }
+  for (const w of unknown) warns.push(`节点 ${id} 的 code 片段用了未知全局「${w}」——不在脚本白名单/内建/本片段声明内;若是上游节点的结果请写 {{nX}}`);
+  return warns;
+}
+// 警告单点(与 flowValidate 同一次调用并列的第二类结果:错误拦生成,警告只提示)
+function flowWarnings(fs: FlowDraft): string[] {
+  const out: string[] = [];
+  for (const n of fs.nodes) if (n.type === 'code') out.push(...flowCodeWarns(fs, n.id, String(n.data.code || '')));
+  return out;
+}
+// subflow 引用校验(Phase 8):ref 必填;按名引用时查草稿列表 + 嵌套深度;路径引用不做存在性检查。
+function flowSubflowErrs(fs: FlowDraft, ctx?: FlowCtx): string[] {
+  const errs: string[] = [];
+  for (const n of fs.nodes) {
+    if (n.type !== 'subflow') continue;
+    const ref = String(n.data.ref || '').trim();
+    if (!ref) { errs.push(`节点 ${n.id} 的 subflow 缺少 ref(已保存的工作流名或脚本路径)`); continue; }
+    if (/^[./~]/.test(ref) || /\.js$/.test(ref)) continue;
+    if (!ctx || !ctx.drafts) continue;
+    const hit = ctx.drafts.find(x => x.name === ref);
+    if (!hit) { errs.push(`节点 ${n.id} 引用的工作流「${ref}」不存在(当前项目已保存的草稿里没有它)`); continue; }
+    if (hit.nested) errs.push(`节点 ${n.id} 引用的「${ref}」内部还有 subflow:子流只允许一层(运行期会抛)`);
+  }
+  return errs;
+}
+
 // 上游可达集(单点:占位符引用与"汇聚等待"判定都靠它)
 function flowUpstream(fs: FlowDraft): Map<string, Set<string>> {
   const bySrc = new Map<string, string[]>();
@@ -332,13 +422,15 @@ function flowSchemaErrs(where: string, text: string): string[] {
 }
 
 // 校验清单(空 = 可生成)。顺序固定:结构 → 区域(map 链)→ 引用 → 载荷,便于 UI 红条稳定不跳。
-function flowValidate(fs: FlowDraft): string[] {
+function flowValidate(fs: FlowDraft, ctx?: FlowCtx): string[] {
   const errs: string[] = [];
   const starts = fs.nodes.filter(n => n.type === 'start'), terms = fs.nodes.filter(n => n.type === 'return');
   const agents = fs.nodes.filter(n => n.type === 'agent');
   if (!starts.length) errs.push('缺 Start 节点(生成脚本的 args 入口)');
   if (!terms.length) errs.push('缺 Return 节点(生成脚本的产出)');
-  if (!agents.length) errs.push('至少需要一个 Agent 步骤');
+  // "执行步骤" = 会真的产生调用的节点型;纯 start/return/log 的图没有意义(1.2.57 起含 code/subflow)
+  if (!fs.nodes.some(n => n.type === 'agent' || n.type === 'map' || n.type === 'code' || n.type === 'subflow'))
+    errs.push('至少需要一个执行步骤(Agent / Map / Code / Subflow)');
   const { groups, orphan, cycle, dangling, selfEdge } = flowLevels(fs);
   if (cycle.length) errs.push('图中存在环,请调整连线:' + cycle.join(', '));
   if (selfEdge.length) errs.push('存在自环连线:' + selfEdge.map(i => i + ' → ' + i).join(', '));
@@ -366,6 +458,9 @@ function flowValidate(fs: FlowDraft): string[] {
     if (solo.length && g.length > 1) errs.push(`节点 ${solo.join(', ')}(map/branch/loop)不能与其他步骤同层(它会独占一个 await 点)`);
   }
   errs.push(...flowRefErrs(fs, chains, branches, loops));
+  // ── 载荷:code / subflow(Phase 8)──
+  for (const n of fs.nodes) if (n.type === 'code') errs.push(...flowCodeErrs(n.id, String(n.data.code || '')));
+  errs.push(...flowSubflowErrs(fs, ctx));
   for (const n of fs.nodes) if (n.type === 'agent') errs.push(...flowSchemaErrs(`节点 ${n.id} 的 schema`, String(n.data.schemaText || '')));
   const aspec = flowArgsSpec(fs);
   errs.push(...flowSchemaErrs('args 的 schema', aspec.schemaText));
@@ -454,8 +549,8 @@ function flowLiteral(fs: FlowDraft, text: string, ctx?: { prev?: Set<string> }):
 }
 
 // 前置条件:flowValidate(fs) 为空。抛 Error 仅限内部 bug(常规错误走 flowValidate)。
-function flowGenerate(fs: FlowDraft): string {
-  const errs = flowValidate(fs);
+function flowGenerate(fs: FlowDraft, ctx?: FlowCtx): string {
+  const errs = flowValidate(fs, ctx);
   if (errs.length) throw new Error(errs.join('\n'));
   const { groups } = flowLevels(fs);
   const byId = (id: string): FlowNode | undefined => fs.nodes.find(n => n.id === id);
@@ -567,6 +662,18 @@ function flowGenerate(fs: FlowDraft): string {
     if (!live.length) continue;
     for (const id of live) if (byId(id)?.type === 'map') lines.push(`const ${id} = await ${pipeExpr(chains.get(id)!)}`);
     for (const id of live) if (byId(id)?.type === 'log') lines.push(`log(${flowLiteral(fs, String(byId(id)!.data.text || ''))})`);
+    for (const id of live) if (byId(id)?.type === 'code') {          // 片段原文插入,返回值绑定节点 id
+      lines.push(`const ${id} = await (async () => {`);
+      lines.push(String(byId(id)!.data.code || ''));
+      lines.push('})()');
+    }
+    for (const id of live) if (byId(id)?.type === 'subflow') {       // 子流:按名或按路径,仅一层
+      const ref = String(byId(id)!.data.ref || '').trim();
+      const isPath = /^[.\/~]/.test(ref) || /\.js$/.test(ref);
+      const refExpr = isPath ? `{ scriptPath: ${JSON.stringify(ref)} }` : JSON.stringify(ref);
+      const a = String(byId(id)!.data.argsExpr || '').trim();
+      lines.push(`const ${id} = await workflow(${refExpr}${a ? ', ' + a : ''})`);
+    }
     for (const id of live) {
       const lp = loops.get(id);
       if (!lp) continue;
@@ -608,6 +715,7 @@ function flowGenerate(fs: FlowDraft): string {
   const ret = String(terms[0]?.data.ret || '').trim() || `{ results: [${lastVars.join(', ')}].filter(Boolean) }`;
   lines.push(`return ${ret}`);
   const js = lines.join('\n') + '\n';
-  if (FLOW_SANDBOX_BANNED.test(js)) throw new Error('生成结果含沙箱禁用调用(内部 bug)');
+  // 只对**去掉字符串/注释**的产物判定:code 片段里的 'Date.now()' 是数据不是调用(1.2.57)
+  if (FLOW_SANDBOX_BANNED.test(flowStripLiterals(js))) throw new Error('生成结果含沙箱禁用调用(内部 bug)');
   return js;
 }

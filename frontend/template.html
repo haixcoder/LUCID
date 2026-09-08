@@ -368,6 +368,11 @@ body.flow-open{overflow:hidden}
 #fErr[hidden],#fRun[hidden],#fOver[hidden],#fEmpty[hidden]{display:none}
 #fNote{padding:6px 12px;border-top:1px solid var(--ln);font:400 10px/1.6 var(--mono);letter-spacing:.02em;color:var(--dim);min-height:2.5em;overflow-wrap:anywhere}
 /* 执行命令沿用页面上"你输入 ❯ / 机器回 ▸"的终端语汇 */
+#fWarn{padding:6px 10px;border-top:1px dashed var(--ln2);color:var(--am);font:10px/1.6 var(--mono);white-space:pre-line}
+#fWarn[hidden]{display:none}
+.codehint{padding:3px 4px;margin:2px 0;background:color-mix(in srgb,var(--rd) 10%,transparent);border-left:2px solid var(--rd);
+ color:var(--rd);font:600 9px/1.5 var(--mono)}
+.wfnode textarea.f-code{font:10px/1.5 var(--mono);background:var(--pnl2)}
 #fRun{border-top:1px dashed var(--ln2);padding:8px 12px;background:var(--pnl2)}
 .cmdrow{display:flex;align-items:flex-start;gap:8px;margin-bottom:6px}
 .cmd-k{flex:0 0 auto;font:600 9px var(--mono);letter-spacing:.12em;color:var(--dim2);padding-top:2px}
@@ -459,6 +464,8 @@ body.flow-open{overflow:hidden}
       <h3 data-i18n="组件 · 点或拖入">组件 · 点或拖入</h3>
       <div class="pal" data-t="agent" tabindex="0"><span data-i18n="◆ Agent 步骤">◆ Agent 步骤</span><small data-i18n="子代理执行一段指令">子代理执行一段指令</small></div>
       <div class="pal" data-t="map" tabindex="0"><span data-i18n="⤾ Map 逐条目">⤾ Map 逐条目</span><small data-i18n="pipeline:对每个条目跑下游各级">pipeline:对每个条目跑下游各级</small></div>
+      <div class="pal" data-t="code" tabindex="0"><span data-i18n="⟨/⟩ Code 逃生舱">⟨/⟩ Code 逃生舱</span><small data-i18n="沙箱内任意 JS,不参与可视化语义">沙箱内任意 JS,不参与可视化语义</small></div>
+      <div class="pal" data-t="subflow" tabindex="0"><span data-i18n="⊞ Subflow 子流">⊞ Subflow 子流</span><small data-i18n="内联跑另一个工作流(仅一层)">内联跑另一个工作流(仅一层)</small></div>
       <div class="pal" data-t="log" tabindex="0"><span data-i18n="▪ Log 旁白">▪ Log 旁白</span><small data-i18n="进度树上的 log() 行">进度树上的 log() 行</small></div>
       <div class="pal" data-t="loop" tabindex="0"><span data-i18n="⧉ Loop 循环">⧉ Loop 循环</span><small data-i18n="while:跑到条件不成立或到上界">while:跑到条件不成立或到上界</small></div>
       <div class="pal" data-t="branch" tabindex="0"><span data-i18n="⋔ Branch 分支">⋔ Branch 分支</span><small data-i18n="if/else:true/false 各走一条">if/else:true/false 各走一条</small></div>
@@ -477,6 +484,7 @@ body.flow-open{overflow:hidden}
       </div>
     </div>
     <datalist id="fATypes"></datalist>
+    <datalist id="fDraftRefs"></datalist>
     <div id="fPane" class="lucid-flow__pane"><div id="fViewport" class="xyflow__viewport lucid-flow__viewport">
       <svg id="fEdges"><defs><marker id="fArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
         <path d="M1,1 L6,4 L1,7" fill="none" stroke="var(--ln2)" stroke-width="1.4"></path></marker></defs><path id="fConn"></path></svg>
@@ -494,6 +502,7 @@ body.flow-open{overflow:hidden}
           <label class="ck"><input type="checkbox" id="fArgR"><span data-i18n="必填:生成前置校验块">必填:生成前置校验块</span></label>
         </div>
       </div>
+      <div id="fWarn" hidden></div>
       <div id="fErr" hidden></div>
       <div id="fRun" hidden>
         <div class="cmdrow"><span class="cmd-k" data-i18n="首次运行">首次运行</span><code id="fRunCmd"></code><button id="fCopyCmd" data-i18n="复制">复制</button></div>

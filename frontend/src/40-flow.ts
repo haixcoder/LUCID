@@ -64,7 +64,7 @@ function handleHTML(n: FlowNode, type: 'source' | 'target', hid?: string, pos?: 
 }
 function nodeHTML(n: FlowNode): string {
   const d = n.data, t = n.type;
-  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'loop' ? 'LOOP' : t === 'log' ? 'LOG' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
+  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'loop' ? 'LOOP' : t === 'log' ? 'LOG' : t === 'code' ? 'CODE' : t === 'subflow' ? 'SUBFLOW' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
   let fields = '';
   if (t === 'start') fields = `<label>${T('说明(生成 args 入口)')}</label><input class="nodrag f-note" value="${esc(d.note || '')}" placeholder="${esc(T('如:调研选题'))}">`;
   if (t === 'agent') fields =
@@ -90,6 +90,13 @@ function nodeHTML(n: FlowNode): string {
     `<label class="ck"><input type="checkbox" class="nodrag f-guard"${d.budgetGuard ? ' checked' : ''}><span>${T('预算守卫(剩余不足时提前收束)')}</span></label>` +
     `<div class="fnote">${T('循环体:body 出把接进去,体末连回本节点;out 接循环之后的步骤')}</div>`;
   if (t === 'log') fields = `<label>${T('log 文本(可引用 {{nX}})')}</label><textarea class="nodrag f-text" rows="2">${esc(d.text || '')}</textarea>`;
+  if (t === 'code') fields =
+    `<div class="codehint">⚠ ${T('此段不参与可视化语义(CODE 逃生舱),沙箱内执行、返回值绑定本节点')}</div>` +
+    `<textarea class="nodrag f-code" rows="5" spellcheck="false" placeholder="const seen = new Set(); return found.filter(x => !seen.has(x))">${esc(d.code || '')}</textarea>`;
+  if (t === 'subflow') fields =
+    `<label>${T('引用的工作流(ref)')}</label><input class="nodrag f-ref" list="fDraftRefs" value="${esc(d.ref || '')}" placeholder="${esc(T('已保存的名字或 /abs/x.js'))}">` +
+    `<label>${T('参数表达式(args,可空)')}</label><input class="nodrag f-args" value="${esc(d.argsExpr || '')}" placeholder="{ issues: ARGS.ids }">` +
+    `<div class="fnote">${T('子流只允许一层:被引用的工作流里不能再有 subflow')}</div>`;
   if (t === 'merge') fields = `<div class="fnote">${T('汇合点:扇出/分支在此收束,自身不执行')}</div>`;
   if (t === 'return') fields = `<label>${T('return 表达式')}</label><textarea class="nodrag f-ret" rows="2">${esc(d.ret || '')}</textarea>`;
   // 徽章 = 脚本里的变量名:下游 prompt 要敲的 {{nX}} 就是它(结构即信息,不是装饰)
@@ -172,6 +179,7 @@ function wireNodes(): void {
     bind('.f-model', 'model'); bind('.f-schema', 'schemaText'); bind('.f-ret', 'ret'); bind('.f-note', 'note');
     bind('.f-items', 'items'); bind('.f-cond', 'cond'); bind('.f-rounds', 'maxRounds');
     bind('.f-effort', 'effort'); bind('.f-atype', 'agentType'); bind('.f-rn', 'retryN'); bind('.f-rms', 'retryMs'); bind('.f-text', 'text');
+    bind('.f-code', 'code'); bind('.f-ref', 'ref'); bind('.f-args', 'argsExpr');
     const iso = el.querySelector<HTMLInputElement>('.f-iso');
     if (iso) iso.addEventListener('change', () => { n.data.isolation = iso.checked; refreshFlowScript(); autosaveFlow(); });
     const guard = el.querySelector<HTMLInputElement>('.f-guard');
@@ -287,6 +295,7 @@ function flowAddNode(type: FlowKind, pos: FlowPos): string {
     : type === 'branch' ? { label: T('分支') + id, cond: '' }
     : type === 'loop' ? { label: T('循环') + id, cond: '', maxRounds: 1, budgetGuard: false }
     : type === 'log' ? { text: '' }
+    : type === 'code' ? { code: '' } : type === 'subflow' ? { ref: '', argsExpr: '' }
     : type === 'start' ? { note: '' } : type === 'merge' ? {} : { ret: '' };
   FS.nodes.push({ id, type, position: { x: pos.x, y: pos.y }, data });
   flowRender();
@@ -335,6 +344,12 @@ function renderPhaseBand(force = false): void {
 // 读数全用数字与符号(行数/字节/段数),不新增文案。
 // 成本/上限预估条(1.2.55):估算值来自 flowAgentEstimate 单点;阈值 25 对齐官方 `Large workflow` 告警。
 const FLOW_LARGE_AGENTS = 25;
+// 警告区(1.2.57):与错误分开显示——错误拦生成,警告只提示(如 code 片段的未知全局)。
+function renderWarns(list: string[]): void {
+  const el = $<HTMLElement>('fWarn'); if (!el) return;
+  el.textContent = list.length ? '⚠ ' + list.join('\n⚠ ') : '';
+  el.hidden = !list.length;
+}
 function renderCost(d: FlowDraft): void {
   const el = $<HTMLElement>('fCost'); if (!el) return;
   const n = flowAgentEstimate(d);
@@ -350,8 +365,9 @@ function renderCost(d: FlowDraft): void {
     : T('估算值:agent 数 × 所在循环的 maxRounds;并发上限 16、单次运行代理总数上限 1000');
 }
 function refreshFlowScript(): void {
-  const out = $<HTMLElement>('fScript'), d = flowDraft(), errs = flowValidate(d);
+  const out = $<HTMLElement>('fScript'), d = flowDraft(), ctx = flowCtx(), errs = flowValidate(d, ctx);
   renderPhaseBand(); renderCost(d);
+  renderWarns(flowWarnings(d));
   const stat = $<HTMLElement>('fStat'), label = $<HTMLElement>('fOut');
   if (label) label.setAttribute('data-t', 'OUT · ' + T('运行产物'));
   let js = '';
@@ -361,7 +377,7 @@ function refreshFlowScript(): void {
     if (stat) stat.textContent = '·';
     return;
   }
-  try { js = flowGenerate(d); flowErr(''); }
+  try { js = flowGenerate(d, ctx); flowErr(''); }
   catch (e) { out.textContent = '// ' + T('存在错误,无法生成'); flowErr(String((e as Error)?.message ?? e)); if (stat) stat.textContent = '·'; return; }
   out.textContent = js;
   if (stat) {
@@ -382,6 +398,11 @@ function renderRunBox(): void {
   $<HTMLElement>('fRunNote').textContent =
     T('服务只写 ~/.claude/cc-viewer/;执行、恢复、停止都在你的终端(/workflows)。') + '\n' +
     T('恢复仅限同一会话,恢复前先在 /workflows 停掉旧 run;分发是复制命令,由你在终端执行。');
+}
+// 校验上下文单点(草稿列表 → FlowCtx):让"引用不存在的子流 / 二层嵌套"在生成前拦下。
+// nested 的口径只在这里算一次(草稿 JSON 里有没有 subflow 节点)。
+function flowCtx(): FlowCtx {
+  return { drafts: fDrafts.map(d => ({ name: d.name, nested: !!(d.draft as FlowDraft)?.nodes?.some(n => n.type === 'subflow') })) };
 }
 function flowDraft(): FlowDraft {
   // v=2(1.2.50):纯加宽——whenToUse/phases/argsSpec 为空时产物与 v1 逐字节一致(黄金钉死),不空时才有码
@@ -415,13 +436,13 @@ function flowApply(d: FlowDraft): void {
   FS.sel.clear();
 }
 async function saveFlowDraft(overwrite: boolean): Promise<void> {
-  const d = flowDraft(), errs = flowValidate(d);
+  const d = flowDraft(), ctx = flowCtx(), errs = flowValidate(d, ctx);
   if (errs.length) { flowErr(T('存在错误,无法生成') + '\n· ' + errs.join('\n· ')); flowNote(T('先修复生成错误'), false); return; }
   flowNote(T('保存中…'), true);
   let r: DraftSaveResp;
   try {
     r = await (await fetch('/api/draft/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: FS.name.trim(), draft: d, script: flowGenerate(d), overwrite }) })).json() as DraftSaveResp;
+      body: JSON.stringify({ name: FS.name.trim(), draft: d, script: flowGenerate(d, ctx), overwrite }) })).json() as DraftSaveResp;
   } catch (e) { flowNote(T('保存失败:%1', String((e as Error)?.message ?? e)), false); return; }
   if (!r.ok) { flowNote(T('保存失败:%1', String(r.msg || '')), false); return; }
   const alt = String(r.path || '').split('/').pop() || '';
@@ -441,6 +462,8 @@ function renderDraftOptions(): void {
   if (!sel) return;
   sel.innerHTML = `<option value="">${esc(T('载入草稿…'))}</option>` +
     fDrafts.map(x => `<option value="${esc(x.name)}">${esc(String(x.meta?.name || x.name))}</option>`).join('');
+  const dl = $<HTMLElement>('fDraftRefs');                 // subflow 的 ref 候选 = 已保存草稿名
+  if (dl) dl.innerHTML = fDrafts.map(x => `<option value="${esc(x.name)}"></option>`).join('');
 }
 // agentType 候选(1.2.56):后端只读枚举本机 + 插件 agents;取不到就静默回落自由文本(下拉只是起点,不是约束)
 let fATypes: string[] = [];
@@ -800,6 +823,20 @@ function flowSmoke(): void {
       const ls = $<HTMLElement>('fScript').textContent || '';
       check('loop-gen', /while \(\(true\) && round < 3\) \{/.test(ls) && /budget\.remaining\(\)/.test(ls)
         && /◆3/.test($<HTMLElement>('fCost').textContent || '') && $<HTMLElement>('fErr').hidden);
+      // 1.2.57 code / subflow(Phase 8):真机里建图 → 出码含片段原文与 workflow()(路径引用免存在性检查)
+      flowBlank();
+      const kSt = sm('start', 60, 150, { note: 'q' }), kAg = sm('agent', 300, 150, { label: 'A', phase: 'P', prompt: 'a' });
+      const kCode = sm('code', 540, 150, { code: 'return String(' + kAg + ').toUpperCase()' });
+      const kSub = sm('subflow', 780, 150, { ref: '/abs/triage.js', argsExpr: '' }), kRt = sm('return', 1020, 150, { ret: '' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: kSt, sourceHandle: 'out', target: kAg, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: kAg, sourceHandle: 'out', target: kCode, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: kCode, sourceHandle: 'out', target: kSub, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: kSub, sourceHandle: 'out', target: kRt, targetHandle: 'in' });
+      refreshFlowScript();
+      const ks = $<HTMLElement>('fScript').textContent || '';
+      check('code-gen', new RegExp('const ' + kCode + ' = await \\(async \\(\\) => \\{').test(ks)
+        && new RegExp('const ' + kSub + ' = await workflow\\(\\{ scriptPath: "/abs/triage\\.js" \\}\\)').test(ks)
+        && $<HTMLElement>('fErr').hidden);
       refreshFlowScript();
       check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');

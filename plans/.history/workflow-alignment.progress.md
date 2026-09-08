@@ -134,3 +134,21 @@
 **影响后续相位的发现：**
 - `phase` 恒发后，`phase()` 全局调用与 opts.phase 并存——运行期以后者为准；阶段带与 agent.phase 不一致的老问题（Phase 1 记录）现在多了一层冗余信息，Phase 9 真机验收要观察 `/workflows` 分组是否如预期。
 - `/api/agents` 是**新增只读路由**（铁律 2 只约束写盘；已加"CONF_DIR 之外一字未改"的反向断言）。
+
+## Phase 8 · code + subflow + 载荷/引用校验 — 完成（1.2.56 → 1.2.57）
+
+**结果：** run_all GREEN 41/41（新增 `test_flowgen_code.ts` 17 断言、`test_flowgen_subflow.ts` 12 断言；`test_flow_editor.ts` +7 DOM/警告）；`?flowsmoke=1` = SMOKE OK 十六项（新增 `code-gen`）。
+
+**实现：**
+- `flowStripLiterals`（字符串/注释 → 等长空白，正则字面量不识别 = "无法判定"来源）+ `flowCodeErrs`（import/确定性禁令，只判去字面量后的片段）+ `flowWarnings`（第二类结果:未知全局等,只提示不拦）。
+- `flowSubflowErrs(fs, ctx)`:ref 必填、按名引用的存在性 + 一层嵌套;路径引用免检。`flowCtx()` 单点从 `fDrafts` 生成上下文。
+- 生成:`code` → `const nX = await (async () => { 片段原文 })()`;`subflow` → `workflow("名"/{scriptPath}, args?)`。
+- 产物沙箱禁令改为**去字面量后**判定(code 片段里的 `'Date.now()'` 是数据不是调用)。
+- "至少一个 Agent 步骤"放宽为"至少一个执行步骤(Agent/Map/Code/Subflow)"——纯 subflow 图合法。
+- UI:code 卡片(CODE 徽章 + 红条"不参与可视化语义" + 等宽编辑区)、subflow 卡片(ref 带草稿 datalist + args 表达式)、`#fWarn` 警告区(与 #fErr 分开)。
+
+**偏离计划：** 无。
+
+**影响后续相位的发现：**
+- `flowValidate/flowGenerate` 现在有可选的第二参 `ctx`(草稿列表);**新增"需要外部知识的校验"请走 FlowCtx**,别把 IO 塞进纯函数。
+- 警告通道已建(#fWarn + flowWarnings):后续若要加"建议类"提示,别再塞进 errors(会拦住保存)。
