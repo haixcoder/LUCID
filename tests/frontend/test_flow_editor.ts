@@ -413,8 +413,8 @@ const FAN = {
   env2.run('saveFlowDraft(false)');
   await env2.flush(20);
   const body = posts[posts.length - 1] || {};
-  ck('保存:POST /api/draft/save 带 name/draft(v=1)/script/overwrite=false',
-     body.name === 'demo-research' && body.draft && body.draft.v === 1
+  ck('保存:POST /api/draft/save 带 name/draft(v=2)/script/overwrite=false',
+     body.name === 'demo-research' && body.draft && body.draft.v === 2
      && /^\/\/ 由 Lucid 编排器生成/m.test(String(body.script)) && /export const meta = \{/.test(String(body.script))
      && body.overwrite === false,
      JSON.stringify(Object.keys(body)));
@@ -464,6 +464,101 @@ const FAN = {
   ck('未知草稿版本 → 提示不猜(§3.1 规则:图状态保持原样,不做猜测性读取)',
      /未知草稿版本/.test(env4.$('fNote').textContent) && env4.get('FS.nodes.length') === 0 && env4.get('FS.name') === '',
      env4.$('fNote').textContent);
+  // ── 草稿 v2(1.2.50 · Phase 1):whenToUse 头部输入 + 阶段带可编辑(title/detail)+ 双端版本判定同改 ──
+  // 为什么两件事同一相位:v2 是"持久化 + 载入"两层的最小切片,漏改任一端就是"存了却看不见"(1.2.35 类)。
+  draftsResp = { drafts: [] };
+  const envV = mkEnv();
+  await envV.flush();
+  envV.run('void openFlow("/work/fix")');
+  await envV.flush(30);
+  ck('v2/头部有 whenToUse 输入框(meta.whenToUse 的唯一入口)', !!envV.$('fWhen'));
+  const wIn = envV.$('fWhen');
+  wIn.value = '需要并行审计多个路由时';
+  wIn.oninput!({ target: wIn });
+  await envV.flush(4);
+  ck('v2/输入 whenToUse → 脚本 meta 立即出现该字段',
+     /whenToUse: "需要并行审计多个路由时"/.test(envV.$('fScript').textContent), envV.$('fScript').textContent.slice(0, 160));
+  ck('v2/flowDraft() 出 v=2 且带 whenToUse(保存载荷即 v2)',
+     envV.get('flowDraft().v') === 2 && envV.get('flowDraft().whenToUse') === '需要并行审计多个路由时',
+     String(envV.get('JSON.stringify({v: flowDraft().v, w: flowDraft().whenToUse})')));
+  // 阶段带:留空 → 推导三枚;编辑标题 → 物化为显式(推导 → 用户顺序)
+  const chips0 = envV.$qa('#fPhases .ph');
+  ck('v2/阶段带留空时按推导渲染三枚芯片(Scope/Search/Verify)',
+     chips0.length === 3 && chips0[0].querySelector('input.ph-t')!.value === 'Scope'
+     && chips0[2].querySelector('input.ph-t')!.value === 'Verify',
+     JSON.stringify(chips0.map(c => c.querySelector('input.ph-t')!.value)));
+  ck('v2/阶段芯片 = 标题输入 + 说明输入(可编辑,不是只读文本)',
+     !!chips0[0].querySelector('input.ph-t') && !!chips0[0].querySelector('input.ph-d'));
+  const t0 = querySelectorEl(envV.rootEl, '#fPhases .ph input.ph-t');
+  t0.value = '扫描';
+  t0.fire('input', { target: t0 });
+  await envV.flush(4);
+  ck('v2/编辑标题 → FS.phases 物化(推导转显式)且脚本 meta.phases 跟着变',
+     envV.get('JSON.stringify(flowDraft().phases)') === '[{"title":"扫描","detail":""},{"title":"Search","detail":""},{"title":"Verify","detail":""}]'
+     && /phases: \[\{ title: "扫描" \}, \{ title: "Search" \}, \{ title: "Verify" \}\]/.test(envV.$('fScript').textContent),
+     String(envV.get('JSON.stringify(flowDraft().phases)')) + ' | ' + envV.$('fScript').textContent.slice(0, 200));
+  ck('v2/编辑阶段带不重建该带(逐键重绘 = 焦点每键丢一次)', envV.$qa('#fPhases .ph input.ph-t')[0] === t0);
+  const d0 = querySelectorEl(envV.rootEl, '#fPhases .ph input.ph-d');
+  d0.value = '每文件一个审计代理';
+  d0.fire('input', { target: d0 });
+  await envV.flush(4);
+  ck('v2/编辑说明 → detail 落到 meta.phases(逐字)',
+     /phases: \[\{ title: "扫描", detail: "每文件一个审计代理" \}/.test(envV.$('fScript').textContent),
+     envV.$('fScript').textContent.slice(0, 220));
+  ck('v2/阶段带编辑即时自动存盘(防误关丢 whenToUse/phases)',
+     JSON.parse(String(envV.localStorage.getItem('wfo-flow-autosave-/work/fix'))).phases[0].title === '扫描');
+  // 保存载荷带 v2 全字段
+  envV.run('saveFlowDraft(false)');
+  await envV.flush(20);
+  const vbody = posts[posts.length - 1] || {};
+  ck('v2/保存载荷 = v2 全字段(whenToUse + phases[].title/detail)',
+     vbody.draft && vbody.draft.v === 2 && vbody.draft.whenToUse === '需要并行审计多个路由时'
+     && JSON.stringify(vbody.draft.phases) === '[{"title":"扫描","detail":"每文件一个审计代理"},{"title":"Search","detail":""},{"title":"Verify","detail":""}]',
+     JSON.stringify(vbody.draft && vbody.draft.phases));
+  // 回载:v2 草稿 → 头部 + 阶段带逐字还原
+  const v2draft = dft(CHAIN.nodes, CHAIN.edges, { v: 2, name: 'v2-one', whenToUse: '只在需要审计时', phases: [{ title: '扫描', detail: '每文件一个' }, { title: '汇总' }] });
+  draftsResp = { drafts: [{ name: 'v2-one', meta: { name: 'v2-one' }, mtime: 1, js: '/x/v2-one.js', draft: v2draft }] };
+  const envV2 = mkEnv();
+  await envV2.flush();
+  envV2.run('void openFlow("/work/fix")');
+  await envV2.flush(20);
+  envV2.run('(function(){const s=document.getElementById("fDraft");s.value="v2-one";s.onchange({target:s})})()');
+  await envV2.flush(10);
+  ck('v2/回载:v=2 草稿被接受且 whenToUse 逐字还原到头部',
+     envV2.get('FS.name') === 'v2-one' && envV2.$('fWhen').value === '只在需要审计时', envV2.$('fWhen').value);
+  ck('v2/回载:阶段带按显式清单还原(title + detail 逐字)',
+     envV2.get('JSON.stringify(FS.phases)') === '[{"title":"扫描","detail":"每文件一个"},{"title":"汇总","detail":""}]'
+     && envV2.$qa('#fPhases .ph input.ph-t').map(e => e.value).join(',') === '扫描,汇总'
+     && envV2.$qa('#fPhases .ph input.ph-d').map(e => e.value).join(',') === '每文件一个,',
+     envV2.get('JSON.stringify(FS.phases)') + ' | ' + envV2.$qa('#fPhases .ph input.ph-t').map(e => e.value).join(','));
+  ck('v2/回载后生成脚本与 UI 逐字一致', /whenToUse: "只在需要审计时"/.test(envV2.$('fScript').textContent)
+     && /phases: \[\{ title: "扫描", detail: "每文件一个" \}, \{ title: "汇总" \}\]/.test(envV2.$('fScript').textContent),
+     envV2.$('fScript').textContent.slice(0, 240));
+  // v1 兼容:老草稿原样载入,新字段缺省为空(不塞默认值 = 不改变既有产物)
+  draftsResp = { drafts: [{ name: 'v1-one', meta: { name: 'v1-one' }, mtime: 1, js: '/x/v1-one.js', draft: dft(CHAIN.nodes, CHAIN.edges, { name: 'v1-one' }) }] };
+  const envV1 = mkEnv();
+  await envV1.flush();
+  envV1.run('void openFlow("/work/fix")');
+  await envV1.flush(20);
+  envV1.run('(function(){const s=document.getElementById("fDraft");s.value="v1-one";s.onchange({target:s})})()');
+  await envV1.flush(10);
+  ck('v1/v=1 老草稿原样载入,whenToUse/phases 缺省为空(不猜不塞)',
+     envV1.get('FS.name') === 'v1-one' && envV1.$('fWhen').value === '' && envV1.get('FS.phases.length') === 0,
+     envV1.get('JSON.stringify({n: FS.name, w: FS.whenToUse, p: FS.phases})'));
+  ck('v1/载入后产物与旧版一致(meta 无 whenToUse,phases 走推导)',
+     !/whenToUse/.test(envV1.$('fScript').textContent) && /phases: \[\{ title: "P1" \}, \{ title: "P2" \}\]/.test(envV1.$('fScript').textContent),
+     envV1.$('fScript').textContent.slice(0, 200));
+  // 未知版本仍拒绝且状态不动(只加宽 v1→v2,不放松"未知不猜")
+  draftsResp = { drafts: [{ name: 'v3', meta: { name: 'v3' }, mtime: 1, js: '/x/v3.js', draft: { v: 3, name: 'v3', nodes: [], edges: [] } }] };
+  const envV3 = mkEnv();
+  await envV3.flush();
+  envV3.run('void openFlow("/work/fix")');
+  await envV3.flush(20);
+  envV3.run('(function(){const s=document.getElementById("fDraft");s.value="v3";s.onchange({target:s})})()');
+  ck('v3/未知版本(v=3)拒绝并给可读提示,图状态不动',
+     /未知草稿版本/.test(envV3.$('fNote').textContent) && envV3.get('FS.nodes.length') === 0 && envV3.get('FS.name') === '',
+     envV3.$('fNote').textContent);
+
   draftsResp = { drafts: [] };
   const autoKey = 'wfo-flow-autosave-/work/fix';
   const autoVal = JSON.stringify(dft(FAN.nodes, FAN.edges, { name: 'recovered' }));

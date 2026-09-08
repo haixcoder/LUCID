@@ -295,8 +295,10 @@ try:
        '中文 cwd 往返')
     ck('draft: 恶意 name 经 HTTP 同样被拒',
        post('/api/draft/save', {'name': '../escape', 'draft': DDRAFT, 'script': 'x'})[1].get('ok') is False)
-    ck('draft: draft.v!=1 经 HTTP 被拒',
-       post('/api/draft/save', {'name': 'vv', 'draft': {'v': 2, 'cwd': '/work/fix'}, 'script': 'x'})[1].get('ok') is False)
+    ck('draft: draft.v=2 经 HTTP 放行(1.2.50 起 v∈{1,2})',
+       post('/api/draft/save', {'name': 'vv2', 'draft': {'v': 2, 'cwd': '/work/fix'}, 'script': 'x'})[1].get('ok') is True)
+    ck('draft: 未知 draft.v=3 经 HTTP 被拒(不猜)',
+       post('/api/draft/save', {'name': 'vv', 'draft': {'v': 3, 'cwd': '/work/fix'}, 'script': 'x'})[1].get('ok') is False)
 finally:
     proc.terminate()
     try:

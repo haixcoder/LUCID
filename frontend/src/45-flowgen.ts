@@ -123,8 +123,8 @@ function flowValidate(fs: FlowDraft): string[] {
   return errs;
 }
 
-// phase 首现去重单点(生成与 UI 预览共用)
-function flowMetaPhases(fs: FlowDraft): { title: string }[] {
+// 推导口径(阶段带留空时用它):agent 的 phase||label 按分层顺序首现去重(1.2.43 起不变)
+function flowDerivedPhases(fs: FlowDraft): FlowPhase[] {
   const { groups } = flowLevels(fs);
   const seen: string[] = [];
   for (const g of groups) for (const id of g) {
@@ -133,6 +133,23 @@ function flowMetaPhases(fs: FlowDraft): { title: string }[] {
     if (ph && !seen.includes(ph)) seen.push(ph);
   }
   return seen.map(title => ({ title }));
+}
+// 阶段带的**显示**清单(唯一实现):显式则原样(含正在编辑的空标题行——行不能边打字边消失),否则推导。
+// 与 flowMetaPhases 的差别只是"编辑中"与"落码":后者过滤空标题、全空则回落推导。
+function flowBandPhases(fs: FlowDraft): FlowPhase[] {
+  const norm = (p: FlowPhase | undefined): FlowPhase => ({ title: String(p?.title ?? ''), detail: String(p?.detail ?? '') });
+  return fs.phases && fs.phases.length ? fs.phases.map(norm) : flowDerivedPhases(fs).map(norm);
+}
+// meta.phases 单点(生成与 UI 阶段带共用):**显式阶段带优先,空/全空标题 → 回落推导**。
+// 显式 = 用户在阶段带上写过的标题(顺序即用户顺序);推导 = 上面的 flowDerivedPhases。
+// detail 逐字保留(空则不出该键——空字段落码会让 v1 草稿产物漂移,零 diff 断言钉死)。
+function flowMetaPhases(fs: FlowDraft): FlowPhase[] {
+  const out: FlowPhase[] = [];
+  for (const p of flowBandPhases(fs)) {
+    if (!p.title.trim()) continue;
+    out.push(String(p.detail ?? '').trim() ? p : { title: p.title });
+  }
+  return out.length ? out : flowDerivedPhases(fs);
 }
 
 // 字符串 → 沙箱安全的 JS 字面量。转义集 = \ ` ${ 三件全覆盖(不变式,单测钉死);
@@ -153,22 +170,28 @@ function flowGenerate(fs: FlowDraft): string {
   const { groups } = flowLevels(fs);
   const byId = (id: string): FlowNode | undefined => fs.nodes.find(n => n.id === id);
   const starts = fs.nodes.filter(n => n.type === 'start'), terms = fs.nodes.filter(n => n.type === 'return');
-  const phases = flowMetaPhases(fs).map(p => p.title);
+  const metaPhases = flowMetaPhases(fs);
   const lines: string[] = [];
   lines.push(`// 由 Lucid 编排器生成 —— 目标项目: ${fs.cwd || '(未填)'}`);
   lines.push(`// 用法: cd 目标项目 && Workflow({ scriptPath: '<本文件路径>', args: '<输入>' })`);
   lines.push('export const meta = {');
   lines.push(`  name: ${JSON.stringify(fs.name || 'untitled')},`);
   lines.push(`  description: ${JSON.stringify(fs.desc || '')},`);
-  lines.push(`  phases: [${phases.map(p => `{ title: ${JSON.stringify(p)} }`).join(', ')}],`);
+  // whenToUse 与 detail 都是"有才出"(空字段落码 = v1 草稿产物漂移,零 diff 断言钉死)
+  const wtu = String(fs.whenToUse ?? '');
+  if (wtu.trim()) lines.push(`  whenToUse: ${JSON.stringify(wtu)},`);
+  lines.push(`  phases: [${metaPhases.map(p => (p.detail ? `{ title: ${JSON.stringify(p.title)}, detail: ${JSON.stringify(p.detail)} }` : `{ title: ${JSON.stringify(p.title)} }`)).join(', ')}],`);
   lines.push('}');
   for (const id of groups.flat()) {
     const n = byId(id);
     if (n?.type === 'agent' && String(n.data.schemaText || '').trim()) lines.push(`const SCHEMA_${id} = ${String(n.data.schemaText).trim()}`);
   }
-  lines.push(`phase(${JSON.stringify(phases[0] || '')})`);
+  // 前置 phase() 用**推导**首项,不是阶段带首项:它声明的是"其后 agent 归入哪组",必须与 agent.phase 同名;
+  // 用阶段带标题会凭空多出一个空进度组(阶段带是 meta.phases 的元数据,不改变执行语义)。
+  const prelude = flowDerivedPhases(fs)[0]?.title || '';
+  lines.push(`phase(${JSON.stringify(prelude)})`);
   lines.push(`const Q = (typeof args === 'string' && args.trim()) || ${starts[0]?.data.note ? JSON.stringify(String(starts[0].data.note)) : "''"}`);
-  let curPhase = phases[0] || '';
+  let curPhase = prelude;
   for (const g of groups) {
     if (!g) continue;
     const ags = g.map(byId).filter((n): n is FlowNode => !!n && n.type === 'agent');

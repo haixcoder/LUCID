@@ -14,8 +14,8 @@ const FLOW_EXTENT: number[][] = [[-1e5, -1e5], [1e5, 1e5]];
 const FLOW_LS = 'wfo-flow-autosave-';  // 防误关丢失(按项目 slug 存;显式保存才走 /api/draft/save)
 const FLOW_MODELS = ['sonnet', 'opus', 'haiku', 'fable', 'mythos'];
 
-interface FlowStore { name: string; desc: string; cwd: string; nodes: FlowNode[]; edges: FlowEdge[]; next: number; sel: Set<string>; view: FlowView }
-let FS: FlowStore = { name: '', desc: '', cwd: '', nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
+interface FlowStore { name: string; desc: string; cwd: string; whenToUse: string; phases: FlowPhase[]; nodes: FlowNode[]; edges: FlowEdge[]; next: number; sel: Set<string>; view: FlowView }
+let FS: FlowStore = { name: '', desc: '', cwd: '', whenToUse: '', phases: [], nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
 let flowVisible = false, flowWired = false;
 let fpz: FlowPanZoom | null = null;
 const flookup = new Map<string, FlowIntern>();       // adoptUserNodes 的产物(XYDrag/XYHandle 都读它)
@@ -265,17 +265,39 @@ function flowCenter(): FlowPos {
   return { x: c.x - 125, y: c.y - 40 };                    // 减半卡宽/一截卡高:新节点落在画布正中偏上
 }
 
+// ── 阶段带(1.2.50 起可编辑)──
+// 显示清单走 flowBandPhases 单点(显式优先/空则推导,与生成脚本同一口径);
+// 编辑即物化(推导 → 显式)并即时落 autosave;重绘按**内容签名**跳过——否则每敲一键都重建 DOM,焦点必丢。
+let phSig = '';
+function renderPhaseBand(force = false): void {
+  const box = $<HTMLElement>('fPhases'); if (!box) return;
+  const list = flowBandPhases(flowDraft());
+  const sig = JSON.stringify(list);
+  if (!force && sig === phSig) return;
+  phSig = sig;
+  box.innerHTML = `<span class="fh-k">PHASES</span>` + (list.length
+    ? list.map(p => `<span class="ph"><input class="ph-t" value="${esc(p.title)}" placeholder="${esc(T('阶段标题'))}">`
+        + `<input class="ph-d" value="${esc(p.detail || '')}" placeholder="${esc(T('阶段说明'))}"></span>`).join('')
+    : '<i>—</i>');
+  box.querySelectorAll<HTMLElement>('.ph').forEach((el, i) => {
+    const t = el.querySelector<HTMLInputElement>('.ph-t'), d = el.querySelector<HTMLInputElement>('.ph-d');
+    const apply = (): void => {
+      const raw = flowBandPhases(flowDraft()).map(x => ({ ...x }));
+      raw[i] = { title: t?.value ?? '', detail: d?.value ?? '' };
+      FS.phases = raw;                                   // 推导 → 显式物化(用户编辑过就归用户)
+      phSig = JSON.stringify(flowBandPhases(flowDraft()));  // 先认账:refreshFlowScript 才不会重建本带(否则每键丢焦点)
+      refreshFlowScript(); autosaveFlow();
+    };
+    t?.addEventListener('input', apply);
+    d?.addEventListener('input', apply);
+  });
+}
 // ── 脚本预览 + 校验(铁律 7:错误清单不裁,定高滚动)+ 两块读数 ──
 // 阶段条数据只读 flowMetaPhases 单点(与生成脚本用的是同一个函数:编排时看到的 == 跑起来看到的);
 // 读数全用数字与符号(行数/字节/段数),不新增文案。
 function refreshFlowScript(): void {
   const out = $<HTMLElement>('fScript'), d = flowDraft(), errs = flowValidate(d);
-  const ph = $<HTMLElement>('fPhases');
-  if (ph) {
-    const titles = flowMetaPhases(d).map(x => x.title);
-    ph.innerHTML = `<span class="fh-k">PHASES</span>` + (titles.length
-      ? titles.map(t => `<span class="ph">${esc(t)}</span>`).join('') : '<i>—</i>');
-  }
+  renderPhaseBand();
   const stat = $<HTMLElement>('fStat'), label = $<HTMLElement>('fOut');
   if (label) label.setAttribute('data-t', 'OUT · ' + T('运行产物'));
   let js = '';
@@ -295,7 +317,10 @@ function refreshFlowScript(): void {
   }
 }
 function flowDraft(): FlowDraft {
-  return { v: 1, name: FS.name.trim() || 'untitled', desc: FS.desc, cwd: FS.cwd, nodes: FS.nodes, edges: FS.edges, next: FS.next, view: FS.view };
+  // v=2(1.2.50):纯加宽——whenToUse/phases 为空时产物与 v1 逐字节一致(黄金钉死),不空时才有码
+  return { v: 2, name: FS.name.trim() || 'untitled', desc: FS.desc, cwd: FS.cwd,
+    whenToUse: FS.whenToUse, phases: FS.phases.map(p => ({ ...p })),
+    nodes: FS.nodes, edges: FS.edges, next: FS.next, view: FS.view };
 }
 
 // ── 持久化:localStorage 防误关(按项目 slug)+ 显式保存到后端(CONF_DIR/drafts,铁律 2)──
@@ -310,6 +335,9 @@ function autosavePeek(cwd: string): FlowDraft | null {
 }
 function flowApply(d: FlowDraft): void {
   FS.name = String(d.name || ''); FS.desc = String(d.desc || ''); FS.cwd = String(d.cwd || '');
+  FS.whenToUse = String(d.whenToUse || '');
+  // v1 草稿没有这两项 → 缺省空(不猜不塞默认值;空 = 沿用推导,与旧行为逐字节一致)
+  FS.phases = (Array.isArray(d.phases) ? d.phases : []).map(p => ({ title: String(p?.title ?? ''), detail: String(p?.detail ?? '') }));
   FS.nodes = (d.nodes || []).map(n => ({ id: String(n.id), type: n.type, position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 }, data: { ...n.data } }));
   FS.edges = (d.edges || []).map(e => ({ id: String(e.id), source: e.source, sourceHandle: e.sourceHandle ?? null, target: e.target, targetHandle: e.targetHandle ?? null }));
   // 发号器只前进不回退:存盘 next 与现存 id 尾号取大 +1(重号会让 vendor 的 data-id 反查串节点)
@@ -356,7 +384,8 @@ async function loadFlowDrafts(cwd: string): Promise<void> {
   sel.onchange = () => {
     const hit = fDrafts.find(x => x.name === sel.value); if (!hit) return;
     const j = hit.draft as FlowDraft;
-    if (!j || j.v !== 1) { flowNote(T('未知草稿版本,不猜'), false); return; }   // 只增不改义:遇未知版本提示而非猜测读取
+    // 载入版本白名单与后端 save_draft 的 draft_ver_ok 同一口径(1.2.50:v1 兼容 + v2);未知版本提示而非猜测读取
+    if (!j || (j.v !== 1 && j.v !== 2)) { flowNote(T('未知草稿版本,不猜'), false); return; }
     flowApply(j); syncHeadInputs(); sel.value = '';
     fpz?.setViewport(FS.view);
     flowRender(); flowNote(T('草稿已载入: %1', String(hit.meta?.name || hit.name)), true);
@@ -421,11 +450,12 @@ async function openFlow(cwd: string): Promise<void> {
   nextFrame(() => { flowRender(); fitFlowView(); });     // 二次测量(字体/布局稳定后)+ 适配视图
 }
 function flowBlank(): void {
-  FS = { name: '', desc: '', cwd: FS.cwd, nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
+  FS = { name: '', desc: '', cwd: FS.cwd, whenToUse: '', phases: [], nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
 }
 function syncHeadInputs(): void {
   $<HTMLInputElement>('fName').value = FS.name;
   $<HTMLInputElement>('fDesc').value = FS.desc;
+  $<HTMLInputElement>('fWhen').value = FS.whenToUse;
 }
 function closeFlow(): void {
   $<HTMLElement>('flow').hidden = true; flowVisible = false;
@@ -462,6 +492,7 @@ function wireShell(): void {
   $<HTMLElement>('fCopyCmd').onclick = () => { void copyText($<HTMLElement>('fRunCmd').textContent || '', T('命令已复制')); };
   $<HTMLInputElement>('fName').oninput = e => { FS.name = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLInputElement>('fDesc').oninput = e => { FS.desc = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
+  $<HTMLInputElement>('fWhen').oninput = e => { FS.whenToUse = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   document.querySelectorAll<HTMLElement>('#fPalette .pal').forEach(p => {
     const add = (): void => { flowAddNode((p.dataset.t || 'agent') as FlowKind, flowCenter()); };
     p.addEventListener('click', add);
@@ -507,6 +538,7 @@ function flowRelang(): void {
   $<HTMLElement>('fCwd').textContent = FS.cwd || T('(未选项目)');
   renderDraftOptions();
   flowNote('', true);
+  phSig = '';                                               // 阶段带的 placeholder 是动态拼的:清签名逼重绘
   flowRender();                                             // 内部会重跑 refreshFlowScript(错误清单同语言)
 }
 // ── 入口可见性单点:编排是**按项目**的事,没有"全部项目"的 workflow ──
@@ -635,6 +667,13 @@ function flowSmoke(): void {
         flowRemoveNode(addId);                               // 孤立卡会挡校验:复原后再验生成器
         await frames(4);
       } else { res.push('✗drag-add(no-palette)'); }
+      // 1.2.50 草稿 v2:whenToUse 头部输入 + 可编辑阶段带——真实 DOM 里才验得到"输入框真的在、值真的回填"
+      FS.whenToUse = 'smoke-when'; FS.phases = [{ title: 'S1', detail: 'd1' }];
+      refreshFlowScript();
+      const bandT = $<HTMLElement>('fPhases').querySelector<HTMLInputElement>('input.ph-t');
+      check('meta-v2', !!$('fWhen') && !!bandT && bandT.value === 'S1'
+        && /whenToUse: "smoke-when"/.test($<HTMLElement>('fScript').textContent || '')
+        && /phases: \[\{ title: "S1", detail: "d1" \}\]/.test($<HTMLElement>('fScript').textContent || ''));
       refreshFlowScript();
       check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');

@@ -263,14 +263,19 @@ body.flow-open{overflow:hidden}
 .flow-head input:focus{outline:none;border-bottom-color:var(--am);box-shadow:0 1px 0 var(--am)}
 .flow-head select{background:var(--pnl2);border:1px solid var(--ln2);color:var(--tx);padding:4px 7px;font:11px var(--mono)}
 .flow-head select:focus{outline:none;border-color:var(--am)}
-#fName{width:146px}#fDesc{flex:1 1 170px;min-width:120px}
+#fName{width:146px}#fDesc{flex:1 1 170px;min-width:120px}#fWhen{flex:0 1 160px;min-width:110px}
 #fCwd{font-size:10px;color:var(--dim2);letter-spacing:.04em;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #fCwd::before{content:'▚ ';color:var(--ln2)}
-/* —— 招牌件:阶段条(= 这张图会生成哪几段),数据只读 flowMetaPhases 单点 —— */
+/* —— 招牌件:阶段条(= 这张图会生成哪几段),数据只读 flowBandPhases/flowMetaPhases 单点 —— */
 #fPhases{display:flex;align-items:center;gap:14px;min-width:0;flex:0 1 auto;margin-left:auto}
 #fPhases .fh-k{font:600 8px var(--mono);letter-spacing:.26em;color:var(--dim2)}
 #fPhases i{font-style:normal;color:var(--dim2)}
-#fPhases .ph{background:var(--pnl);max-width:14ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#fPhases .ph{background:var(--pnl);display:flex;flex-direction:column;gap:1px;padding:1px 2px}
+#fPhases .ph input{width:12ch;background:transparent;border:0;border-bottom:1px solid transparent;color:var(--tx);
+ padding:0 1px;font:500 10px var(--mono)}
+#fPhases .ph input.ph-d{color:var(--dim2);font-size:9px;width:16ch}
+#fPhases .ph input::placeholder{color:var(--dim2);opacity:.6}
+#fPhases .ph input:focus{outline:none;border-bottom-color:var(--am)}
 .flow-head button,.flow-bar button{background:transparent;border:1px solid var(--ln2);color:var(--am);font:600 10px var(--mono);
  letter-spacing:.12em;padding:4px 10px;cursor:pointer;white-space:nowrap;transition:border-color .15s,background .15s,filter .15s}
 .flow-head button:hover,.flow-bar button:hover{border-color:var(--am);background:var(--hov)}
@@ -417,6 +422,7 @@ body.flow-open{overflow:hidden}
     <b class="flow-title" data-i18n="✦ 编排 Workflow">✦ 编排 Workflow</b>
     <input id="fName" placeholder="workflow 名" data-i18n-ph="workflow 名" autocomplete="off" spellcheck="false">
     <input id="fDesc" placeholder="一句话描述(meta.description)" data-i18n-ph="一句话描述(meta.description)" autocomplete="off" spellcheck="false">
+    <input id="fWhen" placeholder="何时用(meta.whenToUse)" data-i18n-ph="何时用(meta.whenToUse)" autocomplete="off" spellcheck="false">
     <span id="fPhases"><span class="fh-k">PHASES</span></span>
     <span id="fCwd"></span>
     <select id="fDraft"></select>

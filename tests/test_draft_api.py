@@ -95,13 +95,34 @@ ck('conflict/overwrite=true → 覆盖原件且配对 .json 一起更新',
 ck('size/脚本 1MB+1 被拒',
    web.save_draft({'name': 'big', 'draft': draft(name='big'), 'script': 'x' * (1_000_001)}).get('ok') is False)
 ck('size/空脚本被拒', web.save_draft({'name': 'empty', 'draft': draft(name='empty'), 'script': ''}).get('ok') is False)
-ck('schema/draft.v!=1 被拒', web.save_draft({'name': 'v2', 'draft': draft(v=2), 'script': SCRIPT}).get('ok') is False)
 ck('schema/draft 非 dict 被拒',
    web.save_draft({'name': 'x1', 'draft': '[]', 'script': SCRIPT}).get('ok') is False
    and web.save_draft({'name': 'x2', 'draft': None, 'script': SCRIPT}).get('ok') is False)
 ck('schema/坏载荷(缺字段/None)不抛错只回 ok:false',
    web.save_draft(None).get('ok') is False and web.save_draft({}).get('ok') is False)
 ck('卫生/落盘不留 .tmp', not list(DRAFTS.rglob('*.tmp')))
+
+# ── 4b) 草稿版本契约(1.2.50 起 v∈{1,2}):v2 是纯加宽;未知/非整数/缺失一律拒绝且不落盘 ──
+# 为什么要逐档钉:版本判定在**两端各有一份**(后端 save_draft + 前端载入守卫),漏改一端即
+# "存了却看不见"(1.2.35 类事故)。这里管后端那一端,前端那端在 test_flow_editor.ts。
+d2 = draft(v=2)
+d2['whenToUse'] = '需要并行审计多个路由时'
+d2['phases'] = [{'title': 'Scan', 'detail': '每文件一个审计代理'}, {'title': 'Verify'}]
+r_v2 = web.save_draft({'name': 'v2-draft', 'draft': d2, 'script': SCRIPT})
+ck('v2/保存成功(v=2 不再被拒)', r_v2.get('ok') is True, repr(r_v2)[:160])
+ck('v2/.json 逐字回读(whenToUse + phases[].detail 全保真)',
+   json.loads(Path(r_v2['path']).with_suffix('.json').read_text(encoding='utf-8')) == d2, str(r_v2.get('path')))
+ck('v2/list_drafts 透传 v2 草稿(回载数据面与保存同版本口径)',
+   next((x['draft'] for x in web.list_drafts(CWD_OK)['drafts'] if x['name'] == 'v2-draft'), {}).get('v') == 2)
+for vv, label in [(3, 'v=3'), ('2', 'v="2"'), (2.0, 'v=2.0'), (True, 'v=true'), (None, 'v=null')]:
+    res = web.save_draft({'name': 'bad-ver', 'draft': draft(v=vv), 'script': SCRIPT})
+    ck('v 拒绝:' + label, res.get('ok') is False and not res.get('path'), repr(res)[:140])
+miss = draft()
+miss.pop('v')
+res = web.save_draft({'name': 'bad-ver', 'draft': miss, 'script': SCRIPT})
+ck('v 拒绝:字段缺失', res.get('ok') is False and not res.get('path'), repr(res)[:140])
+ck('v 拒绝路径零落盘(不留半个文件)', not any('bad-ver' in p.name for p in DRAFTS.rglob('*')),
+   str(sorted(p.name for p in DRAFTS.rglob('*')))[:200])
 
 # ── 5) list_drafts:枚举/坏件跳过/与 save 往返一致 ──
 lst = web.list_drafts(CWD_OK)

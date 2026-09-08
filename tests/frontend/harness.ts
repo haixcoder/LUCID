@@ -473,6 +473,63 @@ export function makeCk(): { ck: (name: string, cond: unknown, detail?: unknown) 
   return { ck, done, FAILS };
 }
 
+// ── 生成脚本的沙箱桩替身(1.2.50,AD-6 单点)────────────────────────────────
+// 为什么必须有:前面全是"文本求值"级别的断言,而 .js 是要被 Workflow 工具在**沙箱**里执行的产物——
+// 转义漏一个字符、phase 顺序错、parallel 少个 opts.phase,只有跑起来才暴露(比人工终端闭环便宜且不烧 token)。
+// 沙箱全局按官方技能契约摆:agent/parallel/pipeline/phase/log/budget/workflow/args/setTimeout。
+// 调用序列、每次调用的参数、返回值三者都可断言——这就是"图 = 脚本"的可执行证明(不是文本比对)。
+export interface FlowSandboxRec {
+  meta: any;                                              // 脚本首语句的 meta(经 __meta 捕获;纯字面量要求由调用方断言)
+  phases: string[];                                       // phase(title) 调用序列
+  logs: string[];                                         // log(msg) 调用序列
+  calls: { prompt: string; opts: any }[];                 // 每次 agent() 的入参(按发生顺序)
+  workflows: { ref: unknown; args: unknown }[];           // workflow(ref, args) 调用序列
+  order: string[];                                        // 事件顺序(agent 用 label 记;pipeline/parallel 记容器名)——无栅栏断言靠它
+  ret: any;                                               // 脚本 return 值
+}
+export interface FlowSandboxHooks {
+  agent?: (prompt: string, opts: any, n: number) => unknown;      // 自定义桩返回值(默认 'R(<label>)')
+  parallel?: (thunks: Array<() => Promise<unknown>>) => Promise<unknown[]>;
+  pipeline?: (items: unknown[], ...stages: Array<(prev: any, item: any, i: number) => unknown>) => Promise<unknown[]>;
+  budget?: { total: number | null; remaining: () => number };
+}
+export async function runFlowScript(js: string, args?: unknown, hooks?: FlowSandboxHooks): Promise<FlowSandboxRec> {
+  const h = hooks || {};
+  const rec: FlowSandboxRec = { meta: null, phases: [], logs: [], calls: [], workflows: [], order: [], ret: undefined };
+  const agent = async (prompt: string, opts: any, n = rec.calls.length): Promise<unknown> => {
+    rec.calls.push({ prompt, opts });
+    const label = String((opts && opts.label) || '');
+    rec.order.push('agent:' + label);
+    return h.agent ? await h.agent(prompt, opts, n) : 'R(' + label + ')';
+  };
+  const parallel = async (thunks: Array<() => Promise<unknown>>): Promise<unknown[]> => {
+    rec.order.push('parallel');
+    return h.parallel ? await h.parallel(thunks) : await Promise.all(thunks.map((t) => t()));
+  };
+  // pipeline 语义(官方技能):无栅栏、每级收 (prevResult, originalItem, index)、某级抛错 → 该条目落 null 且跳过后续级。
+  // 默认桩按规范实现(逐条目跑完所有级),要断言"无栅栏"的到达顺序就传自定义 pipeline。
+  const pipeline = async (items: unknown[], ...stages: Array<(prev: any, item: any, i: number) => unknown>): Promise<unknown[]> => {
+    rec.order.push('pipeline');
+    if (h.pipeline) return await h.pipeline(items, ...stages);
+    return await Promise.all(items.map(async (orig, i) => {
+      let prev: unknown = orig;
+      for (const st of stages) { try { prev = await st(prev, orig, i); } catch { return null; } }
+      return prev;
+    }));
+  };
+  const phase = (t: string): void => { rec.phases.push(String(t)); };
+  const log = (m: unknown): void => { rec.logs.push(String(m)); };
+  const workflow = async (ref: unknown, a?: unknown): Promise<unknown> => { rec.workflows.push({ ref, args: a }); return { wf: ref }; };
+  const budget = h.budget ? { total: h.budget.total, spent: () => 0, remaining: h.budget.remaining } : { total: null, spent: () => 0, remaining: () => Infinity };
+  const stripped = js.replace('export const meta =', 'const meta = __meta =');
+  const fn = new Function('args', 'phase', 'agent', 'parallel', 'pipeline', 'log', 'workflow', 'budget', 'setTimeout', 'console',
+    'let __meta; return (async () => { const __r = await (async () => {' + stripped + '})(); return { ret: __r, meta: __meta }; })()');
+  const out = await fn(args, phase, agent, parallel, pipeline, log, workflow, budget,
+    (f: () => void) => { setImmediate(f); }, { log, warn: log, error: log });
+  rec.ret = out.ret; rec.meta = out.meta;
+  return rec;
+}
+
 // ── fixture 载荷(与后端 /api/runs //api/sessions 契约对齐;全 ASCII 时间无关字段保证黄金稳定) ──
 // 值逐字不许动(黄金快照依赖);any 是诚实标注——它们是"服务端 JSON 契约"的镜像,由后端测试钉结构。
 export const RUN_DONE: any = {

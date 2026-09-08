@@ -34,6 +34,13 @@ _NAME_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._ -]{0,79}\Z')   # 首字符必须
 _NO_CWD = '__no_cwd__'   # 空 cwd 的确定落点——realpath('') 会回落到进程工作目录,保存与回载就可能不同目录
 SCRIPT_CAP = 1_000_000
 DRAFT_LIMIT = 200
+DRAFT_VERS = (1, 2)      # 1.2.50:v2 = 纯加宽(whenToUse/phases[].detail/argsSpec),v1 原样兼容;未知版本仍拒绝,不猜
+
+
+def draft_ver_ok(v):
+    """draft.v 的判定单点(保存端;前端载入守卫是同一口径的镜像)。只认白名单内的**整数**版本——
+    bool 是 int 的子类(True==1),不显式排除就会把 JSON `true` 当成 v1 放行。"""
+    return type(v) is int and v in DRAFT_VERS
 
 
 def static_path(name):
@@ -68,8 +75,8 @@ def save_draft(data):
     script = script if isinstance(script, str) else ''
     if not _NAME_RE.match(name):
         return {'ok': False, 'msg': f'名称非法:{name!r}(需 1-80 字符,首字符为字母/数字,可含 . _ - 空格)'}
-    if not isinstance(draft, dict) or draft.get('v') != 1:
-        return {'ok': False, 'msg': f'草稿非法:draft 需为对象且 v==1(收到 {type(draft).__name__}/{draft.get("v") if isinstance(draft, dict) else "—"})'}
+    if not isinstance(draft, dict) or not draft_ver_ok(draft.get('v')):
+        return {'ok': False, 'msg': f'草稿非法:draft 需为对象且 v∈{DRAFT_VERS}(收到 {type(draft).__name__}/{draft.get("v") if isinstance(draft, dict) else "—"})'}
     if not script:
         return {'ok': False, 'msg': '脚本为空(生成失败时不该保存)'}
     if len(script) > SCRIPT_CAP:

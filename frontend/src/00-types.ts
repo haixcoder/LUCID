@@ -52,7 +52,12 @@ interface FlowNode { id: string; type: FlowKind; position: FlowPos; data: FlowNo
 interface FlowConn { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }
 type FlowEdge = FlowConn & { id: string };
 type FlowView = { x: number; y: number; zoom: number };
-interface FlowDraft { v: 1; name: string; desc: string; cwd: string; nodes: FlowNode[]; edges: FlowEdge[]; next: number; view: FlowView }
+type FlowPhase = { title: string; detail?: string };   // meta.phases 的一条(1.2.50:v2 可显式编辑,空数组=沿用推导)
+interface FlowDraft {
+  v: 1 | 2; name: string; desc: string; cwd: string;
+  whenToUse?: string; phases?: FlowPhase[];            // v2 加宽字段(v1 草稿缺省为空 = 与旧行为逐字节一致)
+  nodes: FlowNode[]; edges: FlowEdge[]; next: number; view: FlowView;
+}
 // handleBounds:编辑器手写测量的注入件(C10;字段口径镜像 @xyflow/system 的 getHandleBounds)
 interface FlowHandleBound { id: string | null; type: 'source' | 'target'; position: string; x: number; y: number; width: number; height: number }
 type FlowHandleBounds = { source: FlowHandleBound[]; target: FlowHandleBound[] };
