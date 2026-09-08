@@ -51,7 +51,8 @@ function flowWalkStages(fs: FlowDraft, start: string, where: string, firstIsStag
       const s = succ[0], node = byId.get(s)!;
       if (stopAt && stopAt.has(s)) { exits.push(s); break; }
       if (seen.has(s)) { errs.push(`${where} 出现环`); break; }
-      if (node.type === 'return' || (inn.get(s) || []).length > 1) { exits.push(s); break; }
+      // merge 一律是区域终点(哪怕只有 1 条入边)——它是用户"显式结束本区域"的把手
+      if (node.type === 'return' || node.type === 'merge' || (inn.get(s) || []).length > 1) { exits.push(s); break; }
       if (node.type !== 'agent') { errs.push(`${where} 内只允许 agent 级(遇到 ${node.type});嵌套组合请改用 code 节点`); break; }
       stages.push([s]); inner.add(s); seen.add(s); cur = s; continue;
     }
@@ -78,14 +79,17 @@ function flowWalkStages(fs: FlowDraft, start: string, where: string, firstIsStag
 }
 // map 链分析单点(Phase 4):级 1 = map 节点**自身**的 prompt/label 模板(PRD §5.1 的草稿形状),
 // 下游每级由 flowWalkStages 走。贪心到汇合点为止——map 的语义就是"下游每一级是 pipeline 的一级"(PRD §5.2 规则 4)。
-interface MapChain { mapId: string; stages: string[][]; inner: Set<string>; errs: string[] }
+interface MapChain { mapId: string; stages: string[][]; inner: Set<string>; exitMerge: string | null; errs: string[] }
 function flowMapChain(fs: FlowDraft, mapId: string): MapChain {
   const byId = new Map(fs.nodes.map(n => [n.id, n]));
   const stages: string[][] = [], inner = new Set<string>(), errs: string[] = [];   // inner 不含 map 自己(它负责出码)
   if (String(byId.get(mapId)?.data.prompt || '').trim()) stages.push([mapId]);
   const w = flowWalkStages(fs, mapId, `节点 ${mapId} 的 map 链`);
   stages.push(...w.stages); w.inner.forEach(id => inner.add(id)); errs.push(...w.errs);
-  return { mapId, stages, inner, errs };
+  // 链止于 merge(用户显式结束区域的把手):把 merge 别名成 pipeline 的结果,下游 {{merge}} 才拿得到
+  const exit = w.exits.length === 1 ? w.exits[0] : null;
+  const exitMerge = exit && byId.get(exit)?.type === 'merge' ? exit : null;
+  return { mapId, stages, inner, exitMerge, errs };
 }
 // 全图 map 链(生成与校验共用;生成时据此跳过链内节点)
 function flowMapChains(fs: FlowDraft): Map<string, MapChain> {
@@ -292,26 +296,23 @@ function flowSubflowErrs(fs: FlowDraft, ctx?: FlowCtx): string[] {
   return errs;
 }
 
-// 上游可达集(单点:占位符引用与"汇聚等待"判定都靠它)
+// 上游可达集(单点:占位符引用与"汇聚等待"判定都靠它)。
+// ⚠ 不能用"带 trail 的递归 + memo":trail 会在遇到回边时截断探索,而截断结果被 memo 缓存后
+// 会污染后续查询(1.2.58 全节点夹具实测:循环体节点 n10 查上游 n8 被缓存成空集 → 误报"不是它的上游")。
+// 改为按节点独立做可达性(visited 集自带环保护),规模 ≤ 数百节点,代价可忽略。
 function flowUpstream(fs: FlowDraft): Map<string, Set<string>> {
-  const bySrc = new Map<string, string[]>();
-  for (const e of fs.edges) {
-    const a = bySrc.get(e.target); if (a) a.push(e.source); else bySrc.set(e.target, [e.source]);
-  }
-  const memo = new Map<string, Set<string>>();
-  const walk = (id: string, trail: Set<string>): Set<string> => {
-    const hit = memo.get(id); if (hit) return hit;
-    const acc = new Set<string>();
-    for (const p of bySrc.get(id) || []) {
-      if (trail.has(p)) continue;                  // 环由 flowValidate 报，这里只防死递归
-      acc.add(p); trail.add(p);
-      for (const q of walk(p, trail)) acc.add(q);
-      trail.delete(p);
-    }
-    memo.set(id, acc); return acc;
-  };
+  const { inn } = flowAdj(fs);
   const out = new Map<string, Set<string>>();
-  for (const n of fs.nodes) out.set(n.id, walk(n.id, new Set([n.id])));
+  for (const n of fs.nodes) {
+    const acc = new Set<string>(), stack = [...(inn.get(n.id) || [])];
+    while (stack.length) {
+      const p = stack.pop()!;
+      if (p === n.id || acc.has(p)) continue;   // 自身不算上游;acc 兼作环保护
+      acc.add(p);
+      for (const q of inn.get(p) || []) stack.push(q);
+    }
+    out.set(n.id, acc);
+  }
   return out;
 }
 
@@ -660,7 +661,11 @@ function flowGenerate(fs: FlowDraft, ctx?: FlowCtx): string {
     if (!g) continue;
     const live = g.filter(id => !innerAll.has(id));
     if (!live.length) continue;
-    for (const id of live) if (byId(id)?.type === 'map') lines.push(`const ${id} = await ${pipeExpr(chains.get(id)!)}`);
+    for (const id of live) if (byId(id)?.type === 'map') {
+      const c = chains.get(id)!;
+      lines.push(`const ${id} = await ${pipeExpr(c)}`);
+      if (c.exitMerge) lines.push(`const ${c.exitMerge} = ${id};`);     // 汇合点 = 整条 pipeline 的结果
+    }
     for (const id of live) if (byId(id)?.type === 'log') lines.push(`log(${flowLiteral(fs, String(byId(id)!.data.text || ''))})`);
     for (const id of live) if (byId(id)?.type === 'code') {          // 片段原文插入,返回值绑定节点 id
       lines.push(`const ${id} = await (async () => {`);

@@ -152,3 +152,21 @@
 **影响后续相位的发现：**
 - `flowValidate/flowGenerate` 现在有可选的第二参 `ctx`(草稿列表);**新增"需要外部知识的校验"请走 FlowCtx**,别把 IO 塞进纯函数。
 - 警告通道已建(#fWarn + flowWarnings):后续若要加"建议类"提示,别再塞进 errors(会拦住保存)。
+
+## Phase 9 · 真实运行端到端验收 + 文档同步 — 自动部分完成，真机运行待用户终端（1.2.57 → 1.2.58）
+
+**已完成（可自动验证的部分）：**
+- 全节点型夹具 `tests/frontend/test_flowgen_allnodes.ts`（13 断言）：一张图覆盖 start/map/agent/branch/merge/loop/log/code/subflow/return，沙箱真跑断言每种节点型都被执行到（含 cond 真假两路）。
+- **修了一个真 bug**：`flowUpstream` 的"带 trail 递归 + memo"会在回边处截断并把截断结果缓存 → 循环体节点查上游误报"不是它的上游"（全节点夹具实测）。改为按节点独立可达性（visited 兼作环保护）。
+- **merge 一律是区域终点**（哪怕只有 1 条入边）：给"显式结束 map 链"一个把手；map 链止于 merge 时把 merge 别名成 pipeline 结果（下游 `{{merge}}` 拿得到）。
+- 部署 1.2.58：guard/server 双 pid 均指向新 cache 目录；`/api/runs` 200 且结构不变；页面 ver == api ver；`scripts/` 与安装副本逐文件一致；`/api/agents` 实测返回本机 5 个候选；对**运行中的服务**跑 `?flowsmoke=1` = SMOKE OK 十六项。
+- 文档：README.md / README.zh-CN.md 双语同步（节点型、agent 选项、args 面板、成本条、命令区、`/api/agents`、限制说明）。
+- 夹具草稿已通过真实 `POST /api/draft/save` 落盘：`~/.claude/cc-viewer/drafts/cc-viewer-9469c6/{all-nodes,all-nodes-child}.js`。
+
+**待用户终端（HITL，本相位不可由 agent 静默完成）：**
+1. 真跑 `Workflow({scriptPath:'<all-nodes.js 绝对路径>', args:'{"paths":["README.md"],"flag":true}'})`，核对 `/workflows` 阶段树与编辑器阶段带一致、页面出现该运行。
+2. 恢复命令实测 `resumeFromRunId`（应全部 cached、totalTokens=0）。
+3. 分发命令实测：`cp` 到 `.claude/workflows/` 后按名调用。
+
+**执行中的决策：**
+- 未由 agent 直接调用 Workflow 工具跑夹具：计划把"真跑"定为 HITL（消耗 token 且需用户 opt-in），工具本身也要求显式授权。
