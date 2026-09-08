@@ -165,29 +165,27 @@ import tempfile
 tmp_root = Path(tempfile.mkdtemp(prefix='lucid-static-'))
 orig_static, keep = web.STATIC_DIR, []
 try:
-    real_dir, outside = tmp_root / 'static', tmp_root / 'outside'
+    real_dir, outside_dir = tmp_root / 'static', tmp_root / 'outside'   # 别叫 outside:那是本文件的快照函数
     real_dir.mkdir()
-    outside.mkdir()
-    (outside / 'victim.js').write_text('SECRET', encoding='utf-8')
+    outside_dir.mkdir()
+    (outside_dir / 'victim.js').write_text('SECRET', encoding='utf-8')
     web.STATIC_DIR = real_dir
-    (real_dir / 'xyflow.system.umd.js').symlink_to(outside / 'victim.js')
+    (real_dir / 'xyflow.system.umd.js').symlink_to(outside_dir / 'victim.js')
     ck('static/名单内名字+真身在 static 外(软链)→ 拒', web.static_path('xyflow.system.umd.js') is None)
     (real_dir / 'xyflow.system.umd.js').unlink()
     (real_dir / 'xyflow.system.umd.js').write_text('UMD-STUB', encoding='utf-8')
     sp = web.static_path('xyflow.system.umd.js')
     ck('static/名单内名字+真身在内 → 可读(重定向后仍按模块属性取目录)',
        sp is not None and sp.read_text(encoding='utf-8') == 'UMD-STUB', str(sp))
-    keep = sorted(p.name for p in outside.iterdir())
+    keep = sorted(p.name for p in outside_dir.iterdir())
 finally:
     web.STATIC_DIR = orig_static
     shutil.rmtree(tmp_root, True)
 ck('static/测试未在别处留文件', keep == ['victim.js'], str(keep))
 
-done()
 
 # ── 7) agentType 候选枚举(1.2.56):只读本机 agents + 插件 agents;铁律 2 反向证据 ──
 # 判定:目录缺失/不可读静默跳过(空列表),重复去重,插件带 <plugin>: 前缀(与 Agent 工具注册表同形)。
-guard2 = outside()
 (home_agents := HOME / '.claude' / 'agents').mkdir(parents=True, exist_ok=True)
 (home_agents / 'code-reviewer.md').write_text('---\nname: code-reviewer\n---\n', encoding='utf-8')
 (home_agents / 'dup.md').write_text('x', encoding='utf-8')
@@ -195,6 +193,7 @@ plug = HOME / '.claude' / 'plugins' / 'cache' / 'mkt' / 'plug' / '1.0.0' / 'agen
 plug.mkdir(parents=True, exist_ok=True)
 (plug / 'legacy-analyst.md').write_text('x', encoding='utf-8')
 (plug / 'code-reviewer.md').write_text('x', encoding='utf-8')          # 与本机同名:带前缀后不撞
+guard2 = outside()          # 快照要在铺好夹具之后:枚举本身必须一字不写
 types = web.list_agent_types()['types']
 ck('agents/枚举本机 ~/.claude/agents/*.md', 'code-reviewer' in types and 'dup' in types, str(types))
 ck('agents/插件 agents 带 <plugin>: 前缀(与注册表命名空间同形)', 'plug:legacy-analyst' in types and 'plug:code-reviewer' in types, str(types))
@@ -205,3 +204,61 @@ ck('agents/根目录缺失 → 空列表不抛(列表不被坏目录炸掉)', we
 config.PROJ = _old_proj
 ck('agents/枚举是纯读取:CONF_DIR 之外一字未改(铁律 2)', outside() == guard2,
    str(sorted(set(outside()) ^ set(guard2)))[:200])
+
+# ── 8) 保存即分发(1.2.59):执行件同步写进 <cwd>/.claude/workflows/(同名覆盖)──
+# 写域变更:铁律 2 从「仅 CONF_DIR」扩到「CONF_DIR + 请求里那个 cwd 下的 .claude/workflows/」。
+# 安全面按官方"保存为命令"的规则收口:三级 symlink 拒绝 + name 白名单 + 只写执行件不写图草稿。
+import os as _os
+proj = HOME / 'work' / 'proj-a'
+(proj / '.claude' / 'workflows').mkdir(parents=True, exist_ok=True)
+r = web.save_draft({'name': 'dist-one', 'draft': draft(name='dist-one', cwd=str(proj)), 'script': SCRIPT})
+wf = proj / '.claude' / 'workflows' / 'dist-one.js'
+ck('dist/执行件写进项目 .claude/workflows/', r.get('ok') is True and wf.is_file() and wf.read_text(encoding='utf-8') == SCRIPT,
+   repr(r)[:200])
+ck('dist/响应回带 wfPath(前端要显示"已写入哪里")', r.get('wfPath') == str(wf), repr(r.get('wfPath')))
+ck('dist/项目里只放执行件,不放图草稿(.json 仍只住 cc-viewer/drafts)',
+   not (proj / '.claude' / 'workflows' / 'dist-one.json').exists())
+ck('dist/草稿本体照旧落 CONF_DIR(回载数据面不变)', Path(r.get('path', '')).is_file() and str(r['path']).startswith(str(DRAFTS)))
+# 同名覆盖(与草稿目录的"宁并存不覆盖"相反:项目目录是最终产物)
+r2 = web.save_draft({'name': 'dist-one', 'draft': draft(name='dist-one', cwd=str(proj)), 'script': '// v2\n'})
+ck('dist/同名不同内容 → 项目文件被覆盖(不产生 <name>-<sha8>.js)',
+   wf.read_text(encoding='utf-8') == '// v2\n' and sorted(p.name for p in (proj / '.claude' / 'workflows').glob('*')) == ['dist-one.js'],
+   str(sorted(p.name for p in (proj / '.claude' / 'workflows').glob('*'))))
+# 目录不存在 → 自动建(官方"保存为命令"同行为)
+proj2 = HOME / 'work' / 'proj-b'
+proj2.mkdir(parents=True, exist_ok=True)
+r3 = web.save_draft({'name': 'dist-two', 'draft': draft(name='dist-two', cwd=str(proj2)), 'script': SCRIPT})
+ck('dist/.claude/workflows 不存在 → 自动创建并写入',
+   r3.get('ok') is True and (proj2 / '.claude' / 'workflows' / 'dist-two.js').is_file(), repr(r3)[:160])
+# cwd 不存在 / 不是目录 → 草稿照常保存,只是 wfErr 带话(草稿是唯一真相,不被分发失败拖垮)
+r4 = web.save_draft({'name': 'dist-three', 'draft': draft(name='dist-three', cwd=str(HOME / 'nope' / 'x')), 'script': SCRIPT})
+ck('dist/cwd 不存在 → 草稿仍 ok:true,wfErr 说明没写进项目',
+   r4.get('ok') is True and Path(r4.get('path', '')).is_file() and r4.get('wfErr'), repr(r4)[:200])
+ck('dist/cwd 不存在 → 绝不凭空建目录(不猜目标)', not (HOME / 'nope').exists())
+# symlink 三重拒绝(官方规则):.claude / .claude/workflows / 目标文件
+link_root = HOME / 'work' / 'proj-link'
+link_root.mkdir(parents=True, exist_ok=True)
+(HOME / 'work' / 'real-claude').mkdir(parents=True, exist_ok=True)
+_os.symlink(HOME / 'work' / 'real-claude', link_root / '.claude')
+r5 = web.save_draft({'name': 'lnk', 'draft': draft(name='lnk', cwd=str(link_root)), 'script': SCRIPT})
+ck('dist/.claude 是软链 → 拒绝写入(wfErr 有话说,草稿仍保存)',
+   r5.get('ok') is True and r5.get('wfErr') and not (HOME / 'work' / 'real-claude' / 'workflows' / 'lnk.js').exists(), repr(r5)[:200])
+link2 = HOME / 'work' / 'proj-link2'
+(link2 / '.claude').mkdir(parents=True, exist_ok=True)
+(HOME / 'work' / 'real-wf').mkdir(parents=True, exist_ok=True)
+_os.symlink(HOME / 'work' / 'real-wf', link2 / '.claude' / 'workflows')
+r6 = web.save_draft({'name': 'lnk2', 'draft': draft(name='lnk2', cwd=str(link2)), 'script': SCRIPT})
+ck('dist/.claude/workflows 是软链 → 拒绝写入',
+   r6.get('ok') is True and r6.get('wfErr') and not (HOME / 'work' / 'real-wf' / 'lnk2.js').exists(), repr(r6)[:200])
+link3 = HOME / 'work' / 'proj-link3'
+(link3 / '.claude' / 'workflows').mkdir(parents=True, exist_ok=True)
+(HOME / 'work' / 'victim.js').write_text('KEEP', encoding='utf-8')
+_os.symlink(HOME / 'work' / 'victim.js', link3 / '.claude' / 'workflows' / 'lnk3.js')
+r7 = web.save_draft({'name': 'lnk3', 'draft': draft(name='lnk3', cwd=str(link3)), 'script': SCRIPT})
+ck('dist/目标文件是软链 → 拒绝写入(不许借软链改到别处)',
+   r7.get('ok') is True and r7.get('wfErr') and (HOME / 'work' / 'victim.js').read_text(encoding='utf-8') == 'KEEP', repr(r7)[:200])
+# 空 cwd(「全部项目」)不该写任何项目目录
+r8 = web.save_draft({'name': 'dist-none', 'draft': draft(name='dist-none', cwd=''), 'script': SCRIPT})
+ck('dist/空 cwd → 不写项目目录(编排入口本来就要求选中项目)', r8.get('ok') is True and not r8.get('wfPath'), repr(r8)[:160])
+
+done()

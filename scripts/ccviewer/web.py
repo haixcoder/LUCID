@@ -26,8 +26,10 @@ VER = hashlib.md5(_m.group(1).encode('utf-8')).hexdigest()[:12] if _m else ''
 
 # ── 编排器物料(1.2.43):vendored 静态件白名单 + 草稿落盘/枚举。判定与消毒只住这一处,handler 只调用 ──
 # 铁律 1:vendor 是提交入库的构建产物(同 bin/install.js 先例),不新增运行时依赖;
-# 铁律 2:草稿唯一可写点仍是 CONF_DIR(此处为 CONF_DIR/drafts/),cwd 只进 slug 的 basename 与哈希,
-#         绝不作为写路径成分——最恶意的 cwd 也只会产出一个 sanitize-hash6 目录名。
+# 铁律 2(1.2.59 起):服务写域 = CONF_DIR/drafts/ **+ 请求里那个 cwd 下的 .claude/workflows/<name>.js**
+#   (用户 2026-09-09 明确要求的"保存即分发");后者由 _project_workflow_path 单点收口——绝对路径、
+#   已存在目录、三级软链拒绝、name 白名单,路径成分里绝不出现 cwd 之外的任何东西。
+#   草稿目录那边 cwd 只进 slug 的 basename 与哈希——最恶意的 cwd 也只会产出一个 sanitize-hash6 目录名。
 STATIC = {'xyflow.system.umd.js': 'text/javascript; charset=utf-8'}
 STATIC_DIR = Path(__file__).parent / 'static'
 _NAME_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9._ -]{0,79}\Z')   # 首字符必须字母数字:天然排除 .hidden / ../ / 绝对路径 / 分隔符
@@ -67,6 +69,28 @@ def _draft_dir(cwd):
     return config.CONF_DIR / 'drafts' / slug
 
 
+def _project_workflow_path(cwd, name):
+    """项目分发落点单点(1.2.59):返回 (target, err)。
+    铁律 2 的写域在此**受控扩展**:只写 <cwd>/.claude/workflows/<name>.js,且
+    .claude / .claude/workflows / 目标文件**三级软链一律拒绝**(官方"保存为命令"的规则);
+    cwd 必须绝对且已存在——不存在就报错,绝不凭空建目录(不猜目标)。"""
+    raw = str(cwd or '').strip()
+    if not raw:
+        return None, '未选中项目(空 cwd),不写项目目录'
+    base = Path(raw)
+    if not base.is_absolute():
+        return None, f'cwd 不是绝对路径:{raw!r}'
+    if not base.is_dir():
+        return None, f'cwd 不是已存在的目录:{raw}'
+    claude, wf = base / '.claude', base / '.claude' / 'workflows'
+    if claude.is_symlink() or wf.is_symlink():
+        return None, '拒绝写入:项目下 .claude 或 .claude/workflows 是软链'
+    target = wf / (name + '.js')
+    if target.is_symlink():
+        return None, f'拒绝写入:{target.name} 是软链'
+    return target, ''
+
+
 def save_draft(data):
     """POST /api/draft/save 的实现:执行件 .js(前端生成的原文) + 图草稿 .json 成对原子落盘。
     同名不同内容默认**并存** <name>-<sha8>.*(宁并存不覆盖,用户手滑不丢工作);同内容幂等。"""
@@ -96,7 +120,22 @@ def save_draft(data):
             os.replace(tmp, p)                                   # 原子落盘:读者不会看到半份文件
     except OSError as e:
         return {'ok': False, 'msg': '写入失败:%s' % e}
-    return {'ok': True, 'msg': '已保存', 'path': str(js), 'sha': sha}
+    # 项目分发(1.2.59):执行件再写一份到 <cwd>/.claude/workflows/<name>.js,同名**直接覆盖**
+    # (项目目录是最终产物;草稿目录那边仍是"宁并存不覆盖")。分发失败不拖垮草稿——草稿是唯一真相。
+    wf_path, wf_err = '', ''
+    target, err = _project_workflow_path(draft.get('cwd'), name)
+    if err:
+        wf_err = err
+    else:
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_name(target.name + '.tmp')
+            tmp.write_text(script, encoding='utf-8')
+            os.replace(tmp, target)                      # 原子覆盖
+            wf_path = str(target)
+        except OSError as e:
+            wf_err = '项目 workflow 写入失败:%s' % e
+    return {'ok': True, 'msg': '已保存', 'path': str(js), 'sha': sha, 'wfPath': wf_path, 'wfErr': wf_err}
 
 
 def list_agent_types():

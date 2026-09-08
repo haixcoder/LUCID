@@ -389,9 +389,10 @@ function refreshFlowScript(): void {
 // 命令区重绘(保存成功/切语言时调):三种形态全部由 flowCommands 单点产出,这里只做文案与落 DOM。
 // 边界文案不是客套:用户会以为"页面能给的就是全部",所以要写明服务只写 cc-viewer/、执行在终端。
 let fRunPath = '';
+let fWfPath = '';        // 最近一次保存时服务写进项目 .claude/workflows/ 的路径(空 = 没写成功)
 function renderRunBox(): void {
   if (!fRunPath || !$<HTMLElement>('fRun')) return;
-  const c = flowCommands(fRunPath, FS.name.trim(), FS.cwd, FS.argsSpec.exampleText);
+  const c = flowCommands(fRunPath, FS.name.trim(), FS.cwd, FS.argsSpec.exampleText, !!fWfPath);
   $<HTMLElement>('fRunCmd').textContent = c.first;
   $<HTMLElement>('fCmdResume').textContent = c.resume;
   $<HTMLElement>('fCmdDist').textContent = c.dist;
@@ -447,7 +448,11 @@ async function saveFlowDraft(overwrite: boolean): Promise<void> {
   if (!r.ok) { flowNote(T('保存失败:%1', String(r.msg || '')), false); return; }
   const alt = String(r.path || '').split('/').pop() || '';
   const conflicted = alt !== FS.name.trim() + '.js';
-  flowNote(conflicted ? T('已并存为 %1(同名草稿内容不同)', alt) : T('已保存: %1', String(r.path)), true);
+  const wfPath = String(r.wfPath || ''), wfErr = String(r.wfErr || '');
+  fWfPath = wfPath;
+  const note = (conflicted ? T('已并存为 %1(同名草稿内容不同)', alt) : T('已保存: %1', String(r.path)))
+    + (wfPath ? '\n' + T('已写入项目 workflow: %1', wfPath) : wfErr ? '\n' + T('项目 workflow 未写入:%1', wfErr) : '');
+  flowNote(note, !wfErr);
   fRunPath = String(r.path || '');
   const box = $<HTMLElement>('fRun');
   if (box && fRunPath) { box.hidden = false; renderRunBox(); }
@@ -535,7 +540,7 @@ async function openFlow(cwd: string): Promise<void> {
   FS.cwd = cwd || '';
   $<HTMLElement>('fCwd').textContent = cwd || T('(未选项目)');
   $<HTMLElement>('fRun').hidden = true;
-  fRunPath = '';                                             // 命令区跟着「本次会话保存过的草稿」走,重开即清
+  fRunPath = ''; fWfPath = '';                               // 命令区跟着「本次会话保存过的草稿」走,重开即清
   $<HTMLElement>('fOver').hidden = true;
   flowErr('');
   await loadFlowDrafts(FS.cwd);

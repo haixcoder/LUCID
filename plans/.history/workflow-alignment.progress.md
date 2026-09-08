@@ -172,3 +172,17 @@
 - 未由 agent 直接调用 Workflow 工具跑夹具：计划把"真跑"定为 HITL（消耗 token 且需用户 opt-in），工具本身也要求显式授权。
 
 **补记（覆盖矩阵收口）：** #31 审批/权限、#34 前缀错峰/缓存 TTL 两条以帮助文案形式落在 `#fHelp`（「首次运行按权限模式弹审批…」「并行代理同前缀会错峰…」），Coverage Map 34 项全部有落点。
+
+## 追加需求 · 保存即分发到项目 `.claude/workflows/` — 完成（1.2.58 → 1.2.59）
+
+**用户决定（2026-09-09，三问对齐）：** ① 保存即同时写入；② 仅当前项目 `.claude/workflows/`；③ 同名直接覆盖。
+
+**实现：**
+- 后端 `web._project_workflow_path(cwd, name)` 单点：绝对路径 + 已存在目录 + `.claude`/`.claude/workflows`/目标文件**三级软链拒绝** + name 白名单；只写执行件（`.json` 图草稿仍只住 cc-viewer/drafts）；`os.replace` 原子覆盖。
+- `save_draft` 返回增 `wfPath`/`wfErr`：**分发失败不拖垮草稿**（草稿是唯一真相），错误以 `wfErr` 回给界面。
+- 前端：状态行显示「已写入项目 workflow: <路径>」或红字说明失败原因；`flowCommands(..., projectWritten)` 在项目那份已自动写好时**只留个人位置 cp**，失败则恢复两条 cp（回落手动分发）。
+- 铁律 2 写域同步改写（CLAUDE.md），计划 Out of Scope 条款标注改判。
+
+**偏离计划：** 这是计划明确列为"不做/另立提案"的项，由用户在 2026-09-09 直接改判——已按其选择实施，并把写域收口写进铁律。
+
+**测试：** `test_draft_api.py` 新增 12 断言（写入/覆盖/自动建目录/cwd 不存在/三级软链/空 cwd/只写执行件）；`test_flow_editor.ts` 新增 4 断言（成功文案、命令区收敛、失败红字、回落两条 cp）。run_all GREEN 42/42。

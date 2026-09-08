@@ -23,7 +23,7 @@
 - 可视化任意表达式编辑器（不做第二个 JS IDE；条件/items 一律文本框，PRD §4「不做」）
 - 可视化 `budget` 动态扩缩（"最详尽答案"是策略不是图）
 - 内建调试器、控制面（暂停/停止/恢复执行归终端 `/workflows`；本仓服务不做控制面，PRD §5.6.4）
-- 服务写 `.claude/workflows/`（铁律 2；分发只给复制命令；一键分发另立提案）
+- ~~服务写 `.claude/workflows/`（铁律 2；分发只给复制命令；一键分发另立提案）~~ **2026-09-09 用户改判**：保存草稿时同步写 `<cwd>/.claude/workflows/<name>.js`（同名覆盖），铁律 2 写域随之受控扩展，见 1.2.59 与 progress 日志
 - `workflow()` 多层嵌套（运行期仅一层）
 - `disallowedTools` / `bashCommandClamp` / `stallMs`（无文档化契约）、`isolation:'remote'`（本 build 不可用）
 - 运行态查看器新数据面（L2 已由 `runtime-state-deep-research.md` D20–D51 覆盖）

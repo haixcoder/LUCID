@@ -163,7 +163,7 @@ python3 scripts/server.py --stop        # 按 PID 文件优雅停止(免 lsof|ki
 | `POST /api/config/save` | 保存配置（URL 须 http(s)、端口 1-65535 且空闲、`recentDays` 1-3650 默认 14、`notifyInput` ∈ off/blocked/all（缺省不改）；改端口触发自重启） |
 | `GET /api/agents` | 编排器 agentType 下拉候选:`{types:[…]}` —— `~/.claude/agents/*.md` + 已装插件的 `<plugin>:<name>`,去重,上限 200。**只读枚举**(不新增写路径) |
 | `GET /api/drafts?proj=<cwd>` | 该项目的草稿列表(编排器"载入草稿"数据源):`{drafts:[{name, meta, mtime, js, draft}]}`;`draft` 为图草稿全文(回载再编辑)。**目录枚举本身即口径**,坏件静默跳过不炸列表,上限 200 |
-| `POST /api/draft/save` | 保存草稿:`{name, draft(v==1 的图 JSON), script, overwrite?}` → 执行件 `<name>.js` 与图草稿 `<name>.json` 成对原子落盘到 `~/.claude/cc-viewer/drafts/<sanitize>-<hash6>/`;`name` 白名单校验、`cwd` 只进目录名的哈希(永不作为写路径成分)、脚本上限 1MB、同名异内容默认**并存** `<name>-<sha8>.*`;返回 `{ok, msg, path(绝对路径), sha}` |
+| `POST /api/draft/save` | 保存草稿:`{name, draft(v∈{1,2} 的图 JSON), script, overwrite?}` → 执行件 `<name>.js` 与图草稿 `<name>.json` 成对原子落盘到 `~/.claude/cc-viewer/drafts/<sanitize>-<hash6>/`;`name` 白名单校验、`cwd` 只进目录名的哈希(永不作为草稿写路径成分)、脚本上限 1MB、同名异内容默认**并存** `<name>-<sha8>.*`。**1.2.59 起同时把执行件写进 `<cwd>/.claude/workflows/<name>.js`**(同名直接覆盖;三级软链拒绝;cwd 不存在则跳过并回 `wfErr`);返回 `{ok, msg, path(绝对路径), sha, wfPath, wfErr}` |
 | `GET /static/xyflow.system.umd.js` | 白名单静态件(编排画布用的 vendored `@xyflow/system` UMD,100KB,d3 内联,提交入库的构建产物 —— 运行时仍零依赖);**只认枚举文件名**,不放开放任意外部路径,穿越/未列名一律 404 |
 | `POST /api/config/test` | 发送测试通知验证连通；body `{"kind":"input_required"}` 则按等待型发一条 |
 
@@ -246,4 +246,4 @@ python3 scripts/server.py     # 前台启动(默认 8787,config 优先)
 - 会话转录默认只读**尾窗 256KB** 控制成本；步骤全文走**按 msg 反向深扫（1MB 块，至 16MB）**——截图附件是 MB 级 base64 时会把旧步骤挤出尾窗，深扫也定位不到则前端显式提示「该步已超出转录留存范围」；
 - 会话扫描覆盖「活跃 + 近 2h + 回看窗口内有输入的会话」（上限 200；窗口部分与 TASKS 仪表逐一对账）；run 扫描覆盖最近 N 天（近期「回看窗口」设置，默认 14）；
 - 状态推断是尾窗启发式（无权威 journal），极端时序下可能有 ±60s 的判定延迟。
-- 编排器支持有向无环图(一个节点多入边 = 汇聚等待)+ `map`/`pipeline`、`branch`/`merge`、`loop`(唯一允许成环的地方:回边连回 Loop 节点)与 `code`/`subflow` 逃生舱;但表达式(`cond`/`items`/`argsExpr`)一律是文本框,不做第二个 JS IDE —— 图表达的是**结构**,不是语法。服务端不代执行 workflow —— 执行入口始终是终端的 `Workflow({scriptPath})`(控制面不归本查看器);草稿目录是"存了就能回载"的枚举口径,没有改名/删除 UI(留待后续批次)。
+- 编排器支持有向无环图(一个节点多入边 = 汇聚等待)+ `map`/`pipeline`、`branch`/`merge`、`loop`(唯一允许成环的地方:回边连回 Loop 节点)与 `code`/`subflow` 逃生舱;但表达式(`cond`/`items`/`argsExpr`)一律是文本框,不做第二个 JS IDE —— 图表达的是**结构**,不是语法。服务端不代执行 workflow —— 执行入口始终是终端的 `Workflow({scriptPath})`(控制面不归本查看器);**`~/.claude/cc-viewer/` 之外唯一的写入**是保存时那份项目 workflow 副本(`<选中项目>/.claude/workflows/<名>.js`),`.claude`、`.claude/workflows` 或目标文件是软链时一律拒绝;草稿目录是"存了就能回载"的枚举口径,没有改名/删除 UI(留待后续批次)。

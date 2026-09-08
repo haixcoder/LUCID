@@ -663,6 +663,26 @@ const FAN = {
   ck('恢复/分发命令同样一键复制(三条各自独立按钮)',
      envC.clipboard[envC.clipboard.length - 2] === envC.$('fCmdResume').textContent
      && envC.clipboard[envC.clipboard.length - 1] === envC.$('fCmdDist').textContent);
+  // ── 保存即分发(1.2.59):后端把执行件写进项目 .claude/workflows/ 时,界面要说清楚 ──
+  saveResp = { ok: true, msg: '已保存', path: P, sha: 'abc12345', wfPath: '/work/fix/.claude/workflows/demo-research.js', wfErr: '' };
+  envC.run('saveFlowDraft(false)');
+  await envC.flush(20);
+  ck('保存即分发/成功 → 状态行写明"已写入项目 workflow"及绝对路径',
+     /已写入项目 workflow/.test(envC.$('fNote').textContent) && /\/work\/fix\/\.claude\/workflows\/demo-research\.js/.test(envC.$('fNote').textContent),
+     envC.$('fNote').textContent);
+  ck('保存即分发/命令区只剩个人位置 cp(项目那份已自动写好,不重复给命令)',
+     envC.$('fCmdDist').textContent.indexOf('/work/fix/.claude/workflows') < 0 && /\$HOME/.test(envC.$('fCmdDist').textContent),
+     envC.$('fCmdDist').textContent);
+  saveResp = { ok: true, msg: '已保存', path: P, sha: 'abc12345', wfPath: '', wfErr: '拒绝写入:项目下 .claude 或 .claude/workflows 是软链' };
+  envC.run('saveFlowDraft(false)');
+  await envC.flush(20);
+  ck('保存即分发/失败 → 红字说明原因(草稿本身仍算保存成功)',
+     /未写入|软链/.test(envC.$('fNote').textContent) && envC.$('fNote').style.color === 'var(--rd)', envC.$('fNote').textContent);
+  ck('保存即分发/失败时命令区恢复给两条 cp(回落到手动分发)', /\/work\/fix\/\.claude\/workflows/.test(envC.$('fCmdDist').textContent),
+     envC.$('fCmdDist').textContent);
+  saveResp = { ok: true, msg: '已保存', path: P, sha: 'abc12345' };
+  envC.run('saveFlowDraft(false)');
+  await envC.flush(20);
   envC.run("document.getElementById('langsel').value='en'; document.getElementById('langsel').onchange({target:{value:'en'}});");
   await envC.flush();
   ck('切语言后命令区文案同步刷新(动态拼接的标签与说明也走 T())',

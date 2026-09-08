@@ -15,6 +15,8 @@ const LOCALES: Record<Lang, string> = { zh: 'zh-CN', en: 'en-GB', es: 'es-ES', f
 const I18N: Record<Lang, Record<string, string>> = {
   zh: {},
   en: {
+    '已写入项目 workflow: %1': 'Written to project workflow: %1',
+    '项目 workflow 未写入:%1': 'Project workflow not written: %1',
     '首次运行按权限模式弹审批;可加 Workflow 权限规则放行': 'The first run asks for approval per your permission mode; add a Workflow permission rule to allow it',
     '并行代理同前缀会错峰启动以复用缓存;workflow 代理缓存默认 5 分钟': 'Parallel agents sharing a prefix stagger their start to reuse the cache; workflow agent cache defaults to 5 minutes',
     '此段不参与可视化语义(CODE 逃生舱),沙箱内执行、返回值绑定本节点': 'This段 is not part of the visual semantics (CODE escape hatch); runs in the sandbox, its return value binds to this node id.',
@@ -231,6 +233,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     '先在上方选一个具体项目,才能编排 Workflow': 'Pick a specific project above to compose a Workflow',
   },
   es: {
+    '已写入项目 workflow: %1': 'Escrito en el workflow del proyecto: %1',
+    '项目 workflow 未写入:%1': 'Workflow del proyecto no escrito: %1',
     '首次运行按权限模式弹审批;可加 Workflow 权限规则放行': 'La primera ejecución pide aprobación según tu modo de permisos; añade una regla de permiso Workflow para permitirla',
     '并行代理同前缀会错峰启动以复用缓存;workflow 代理缓存默认 5 分钟': 'Los agentes paralelos con el mismo prefijo escalonan su inicio para reutilizar la caché; la caché de agentes workflow dura 5 minutos',
     '此段不参与可视化语义(CODE 逃生舱),沙箱内执行、返回值绑定本节点': 'Este段 no forma parte de la semántica visual (escape CODE); se ejecuta en el sandbox y su valor de retorno se liga a este nodo.',
@@ -447,6 +451,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     '先在上方选一个具体项目,才能编排 Workflow': 'Elige arriba un proyecto concreto para componer un Workflow',
   },
   fr: {
+    '已写入项目 workflow: %1': 'Écrit dans le workflow du projet : %1',
+    '项目 workflow 未写入:%1': 'Workflow du projet non écrit : %1',
     '首次运行按权限模式弹审批;可加 Workflow 权限规则放行': 'La première exécution demande une approbation selon votre mode de permissions ; ajoutez une règle de permission Workflow pour l’autoriser',
     '并行代理同前缀会错峰启动以复用缓存;workflow 代理缓存默认 5 分钟': 'Les agents parallèles de même préfixe décalent leur démarrage pour réutiliser le cache ; le cache des agents workflow dure 5 minutes',
     '此段不参与可视化语义(CODE 逃生舱),沙箱内执行、返回值绑定本节点': 'Ce段 ne fait pas partie de la sémantique visuelle (échappement CODE) ; exécuté dans le bac à sable, sa valeur de retour est liée à ce nœud.',
@@ -663,6 +669,8 @@ const I18N: Record<Lang, Record<string, string>> = {
     '先在上方选一个具体项目,才能编排 Workflow': 'Choisissez un projet précis ci-dessus pour composer un Workflow',
   },
   de: {
+    '已写入项目 workflow: %1': 'In den Projekt-Workflow geschrieben: %1',
+    '项目 workflow 未写入:%1': 'Projekt-Workflow nicht geschrieben: %1',
     '首次运行按权限模式弹审批;可加 Workflow 权限规则放行': 'Der erste Lauf fragt je nach Berechtigungsmodus nach; eine Workflow-Berechtigungsregel erlaubt ihn dauerhaft',
     '并行代理同前缀会错峰启动以复用缓存;workflow 代理缓存默认 5 分钟': 'Parallele Agenten mit gleichem Präfix starten versetzt, um den Cache zu nutzen; der Workflow-Agent-Cache gilt 5 Minuten',
     '此段不参与可视化语义(CODE 逃生舱),沙箱内执行、返回值绑定本节点': 'Dieser段 gehört nicht zur visuellen Semantik (CODE-Notausgang); läuft in der Sandbox, Rückgabewert bindet an diesen Knoten.',

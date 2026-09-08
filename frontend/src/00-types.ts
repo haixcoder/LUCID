@@ -84,5 +84,9 @@ type FlowHandleBounds = { source: FlowHandleBound[]; target: FlowHandleBound[] }
 // 草稿 API(后端 web.list_drafts / save_draft 的响应契约)
 interface DraftItem { name: string; meta: { name?: string; desc?: string }; mtime: number; js: string; draft: unknown }
 interface DraftsResp { drafts: DraftItem[] }
-interface DraftSaveResp { ok?: boolean; msg?: string; path?: string; sha?: string }
+interface DraftSaveResp {
+  ok?: boolean; msg?: string; path?: string; sha?: string;
+  wfPath?: string;   // 1.2.59:执行件同步写入的项目 workflow 绝对路径(成功时非空)
+  wfErr?: string;    // 写项目失败的原因(草稿仍已保存;空 = 没写或写成功)
+}
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;

@@ -517,7 +517,8 @@ function flowMetaPhases(fs: FlowDraft): FlowPhase[] {
 // 服务从不写 .claude/workflows/;执行、恢复、停止永远在用户终端(/workflows)。
 type FlowCmds = { first: string; resume: string; dist: string };
 const flowSq = (s: string): string => "'" + String(s).replace(/'/g, "'\\''") + "'";
-function flowCommands(jsPath: string, name: string, cwd: string, example: string): FlowCmds {
+// projectWritten=true 时项目那份已由服务在保存时写好(1.2.59),分发行只留个人位置的 cp。
+function flowCommands(jsPath: string, name: string, cwd: string, example: string, projectWritten = false): FlowCmds {
   const p = String(jsPath || '');
   const nm = String(name || '').trim() || 'untitled';
   const ex = String(example || '').trim() || "'<输入>'";            // 没写示例就留占位,不假装知道参数
@@ -527,7 +528,9 @@ function flowCommands(jsPath: string, name: string, cwd: string, example: string
     first: `Workflow({ ${common} })`,
     resume: `Workflow({ ${common}, resumeFromRunId: 'wf_…' })`,
     // 个人位置必须用 "$HOME/…":单引号里的 ~ 不会被 shell 展开(项目位置是绝对路径,单引号即可)
-    dist: `cp ${flowSq(p)} ${flowSq(proj)}\ncp ${flowSq(p)} "$HOME/.claude/workflows/${nm}.js"`,
+    dist: projectWritten
+      ? `cp ${flowSq(p)} "$HOME/.claude/workflows/${nm}.js"`
+      : `cp ${flowSq(p)} ${flowSq(proj)}\ncp ${flowSq(p)} "$HOME/.claude/workflows/${nm}.js"`,
   };
 }
 
