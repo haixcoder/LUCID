@@ -222,16 +222,16 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - **Contracts produced:** `draft.v=2` 的持久化与载入契约；`meta.whenToUse`、`meta.phases[{title,detail}]` 生成契约
 
 **Acceptance criteria:**
-- [ ] 载入既有 v1 草稿（7 节点 demo）后，生成脚本与载入前逐字节一致（零改动兼容）
-- [ ] 保存后 `.json` 的 `v` 为 2，且含 `whenToUse` 与 `phases[{title,detail}]`
-- [ ] 刷新页面 → 选中草稿 → 头部 `whenToUse`、阶段带 `title`/`detail` 逐字还原
-- [ ] 阶段带留空时仍按 `phase||label` 首现去重（既有口径 `flowMetaPhases` 不变）
-- [ ] 生成脚本的 `meta.whenToUse` / `meta.phases[].detail` 与 UI 逐字一致
-- [ ] 桩替身沙箱执行：`meta` 为纯字面量、`phase()` 序列与阶段带顺序一致
-- [ ] 载入 `v:3` 草稿被拒绝并给出可读提示（不猜、不降级）
-- [ ] 后端拒绝路径覆盖：`v` 缺失/非整数/未知值各返回 `ok:false` 且不落盘
-- [ ] `python3 tests/run_all.py` 全绿；黄金快照逐字节一致
-- [ ] 安装副本 == 源码，页面 `ver` == `/api/runs` 的 `ver`（真机冒烟）
+- [x] 载入既有 v1 草稿（7 节点 demo）后，生成脚本与载入前逐字节一致（零改动兼容）
+- [x] 保存后 `.json` 的 `v` 为 2，且含 `whenToUse` 与 `phases[{title,detail}]`
+- [x] 刷新页面 → 选中草稿 → 头部 `whenToUse`、阶段带 `title`/`detail` 逐字还原
+- [x] 阶段带留空时仍按 `phase||label` 首现去重（既有口径 `flowMetaPhases` 不变）
+- [x] 生成脚本的 `meta.whenToUse` / `meta.phases[].detail` 与 UI 逐字一致
+- [x] 桩替身沙箱执行：`meta` 为纯字面量、`phase()` 序列与阶段带顺序一致
+- [x] 载入 `v:3` 草稿被拒绝并给出可读提示（不猜、不降级）
+- [x] 后端拒绝路径覆盖：`v` 缺失/非整数/未知值各返回 `ok:false` 且不落盘
+- [x] `python3 tests/run_all.py` 全绿；黄金快照逐字节一致
+- [x] 安装副本 == 源码，页面 `ver` == `/api/runs` 的 `ver`（真机冒烟）
 
 **Test plan:**
 - **L1 (Specialized):** `node tests/frontend/test_flowgen_meta.ts`（新增：v2 字段生成 + 桩替身执行）；`python3 tests/run_all.py draft`（v2 接受 / v1 兼容 / v:3 拒绝）；`node tests/frontend/test_flow_editor.ts`（阶段带显式优先 + 回载）
@@ -268,13 +268,13 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - **Contracts produced:** args 面板字段形状；schema 根形状校验规则（`agent.schema` 与 `argsSpec.schema` 共用）
 
 **Acceptance criteria:**
-- [ ] args 面板支持 Schema 文本 + 示例 JSON + 必填开关；非法 JSON 内联报错且 `flowValidate` 返回错误
-- [ ] 生成脚本含 `const ARGS = (typeof args === 'string') ? JSON.parse(args) : args`
-- [ ] 必填开启时生成前置校验块，缺失字段抛错且错误信息含**缺失字段名**
-- [ ] `schemaText` 根不是 `{type:'object', properties}` → 报错；`required ⊄ properties` → 报错
-- [ ] `argsSpec.schema` 与 `agent.schema` 走**同一**根形状校验单点（测试断言两者共用）
-- [ ] 桩替身执行：合法 args 对象与字符串化 JSON 得到相同调用序列
-- [ ] `python3 tests/run_all.py` 全绿；黄金零漂移
+- [x] args 面板支持 Schema 文本 + 示例 JSON + 必填开关；非法 JSON 内联报错且 `flowValidate` 返回错误
+- [x] 生成脚本含 `const ARGS = (typeof args === 'string') ? JSON.parse(args) : args`
+- [x] 必填开启时生成前置校验块，缺失字段抛错且错误信息含**缺失字段名**
+- [x] `schemaText` 根不是 `{type:'object', properties}` → 报错；`required ⊄ properties` → 报错
+- [x] `argsSpec.schema` 与 `agent.schema` 走**同一**根形状校验单点（测试断言两者共用）
+- [x] 桩替身执行：合法 args 对象与字符串化 JSON 得到相同调用序列
+- [x] `python3 tests/run_all.py` 全绿；黄金零漂移
 
 **Test plan:**
 - **L1:** `node tests/frontend/test_flowgen_args.ts`（新增：解析块/校验块/桩替身双向）；`node tests/frontend/test_flow_editor.ts`（面板校验 RED 用例）；`python3 tests/run_all.py draft`（载荷校验拒绝路径）
@@ -310,14 +310,14 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - **Contracts produced:** 命令区三种形态文案契约（`scriptPath` / `scriptPath+resumeFromRunId` / `cp` 分发）
 
 **Acceptance criteria:**
-- [ ] 首次命令为 `Workflow({scriptPath: '<绝对路径>', args: <示例>})`
-- [ ] 恢复命令附 `resumeFromRunId: 'wf_…'` 占位，并注明"仅同会话、恢复前先停旧 run"
-- [ ] 分发命令给出项目（`.claude/workflows/`）与个人（`~/.claude/workflows/`）两处 `cp` 目标
-- [ ] 三条命令一键复制成功（复用既有 `copyText`）
-- [ ] 文案明确：服务只写 `~/.claude/cc-viewer/`；执行/恢复/停止在终端 `/workflows`
-- [ ] 断言：三条命令串均不含任何写 `.claude/workflows/` 的自动化动作
-- [ ] 新增文案全部走 `T()`，切语言后命令区与帮助文案同步刷新（`flowRelang` 覆盖）
-- [ ] `python3 tests/run_all.py` 全绿；黄金零漂移
+- [x] 首次命令为 `Workflow({scriptPath: '<绝对路径>', args: <示例>})`
+- [x] 恢复命令附 `resumeFromRunId: 'wf_…'` 占位，并注明"仅同会话、恢复前先停旧 run"
+- [x] 分发命令给出项目（`.claude/workflows/`）与个人（`~/.claude/workflows/`）两处 `cp` 目标
+- [x] 三条命令一键复制成功（复用既有 `copyText`）
+- [x] 文案明确：服务只写 `~/.claude/cc-viewer/`；执行/恢复/停止在终端 `/workflows`
+- [x] 断言：三条命令串均不含任何写 `.claude/workflows/` 的自动化动作
+- [x] 新增文案全部走 `T()`，切语言后命令区与帮助文案同步刷新（`flowRelang` 覆盖）
+- [x] `python3 tests/run_all.py` 全绿；黄金零漂移
 
 **Test plan:**
 - **L1:** `node tests/frontend/test_flow_editor.ts`（命令区三形态 + 文案断言）；`node tests/frontend/test_i18n.ts`（新 key 五语种齐全）
@@ -354,14 +354,14 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - **Contracts produced:** 级形态判定单点（单节点级 vs 扇出级）；`parallel` 显式扇出视觉提示
 
 **Acceptance criteria:**
-- [ ] `map` 节点新增：`items` 表达式、回调 `prompt`/`label` 模板（支持 `{{item}}`/`{{index}}`）
-- [ ] 下游线性链每级生成一个回调；级内"扇出→同一 `merge`"生成 `() => parallel([…])` 回调
-- [ ] 桩替身断言**无栅栏**：条目 A 的 stage2 早于条目 B 的 stage1（带延迟桩记录到达顺序）
-- [ ] 桩替身断言某级抛错 → 该条目落 `null` 且跳过后续级，其余条目不受影响
-- [ ] 级内嵌套 `map`/`loop` → 校验报错并提示改用 `code` 节点
-- [ ] `items` 为 `ARGS.x` 时与 Phase 2 args 契约协同（传参跑通）
-- [ ] 既有"层内多 agent → `parallel` 栅栏"生成物逐字节不变
-- [ ] `python3 tests/run_all.py` 全绿；黄金零漂移；`?flowsmoke` 新增 `map-gen` 断言
+- [x] `map` 节点新增：`items` 表达式、回调 `prompt`/`label` 模板（支持 `{{item}}`/`{{index}}`）
+- [x] 下游线性链每级生成一个回调；级内"扇出→同一 `merge`"生成 `() => parallel([…])` 回调
+- [x] 桩替身断言**无栅栏**：条目 A 的 stage2 早于条目 B 的 stage1（带延迟桩记录到达顺序）
+- [x] 桩替身断言某级抛错 → 该条目落 `null` 且跳过后续级，其余条目不受影响
+- [x] 级内嵌套 `map`/`loop` → 校验报错并提示改用 `code` 节点
+- [x] `items` 为 `ARGS.x` 时与 Phase 2 args 契约协同（传参跑通）
+- [x] 既有"层内多 agent → `parallel` 栅栏"生成物逐字节不变
+- [x] `python3 tests/run_all.py` 全绿；黄金零漂移；`?flowsmoke` 新增 `map-gen` 断言
 
 **Test plan:**
 - **L1:** `node tests/frontend/test_flowgen_pipeline.ts`（新增：无栅栏到达顺序 + 失败落 null + 两种级形态）；`node tests/frontend/test_flow_editor.ts`（map 节点 DOM 契约 + 级内嵌套拒绝）
@@ -399,13 +399,13 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - **Contracts produced:** 区域分析单点（可达集计算，Phase 6 共用）
 
 **Acceptance criteria:**
-- [ ] `branch` 节点两个出 handle（`true`/`false`），`merge` 两个入 handle；DOM 契约走 `nodeHTML`/`handleHTML` 单点
-- [ ] 区域规则 2 正例通过、反例（可达集相交 / 终止点不同）报可读错误
-- [ ] 生成 `let <id>; if (cond) { … } else { … }`，条件为文本表达式
-- [ ] 桩替身：cond 真/假各跑一次，只调用对应分支的 agent，`merge` 处变量可见
-- [ ] 分支各自到 `return`（无 `merge`）的合法形态被接受
-- [ ] 真实输入冒烟：`tests/browser/test_branch_real.ts` 用 CDP 拖出 `true`/`false` 两条边并断言建边成功
-- [ ] `python3 tests/run_all.py` 全绿；黄金零漂移
+- [x] `branch` 节点两个出 handle（`true`/`false`），`merge` 两个入 handle；DOM 契约走 `nodeHTML`/`handleHTML` 单点
+- [x] 区域规则 2 正例通过、反例（可达集相交 / 终止点不同）报可读错误
+- [x] 生成 `let <id>; if (cond) { … } else { … }`，条件为文本表达式
+- [x] 桩替身：cond 真/假各跑一次，只调用对应分支的 agent，`merge` 处变量可见
+- [x] 分支各自到 `return`（无 `merge`）的合法形态被接受
+- [x] 真实输入冒烟：`tests/browser/test_branch_real.ts` 用 CDP 拖出 `true`/`false` 两条边并断言建边成功
+- [x] `python3 tests/run_all.py` 全绿；黄金零漂移
 
 **Test plan:**
 - **L1:** `node tests/frontend/test_flowgen_branch.ts`（新增：双分支执行 + 区域正反例）；`node tests/browser/test_branch_real.ts`（真实 handle 拖拽）
@@ -443,14 +443,14 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - **Contracts produced:** 代理数估算单点（`agent` 数 × 所在 loop `maxRounds`）；预算守卫生成契约
 
 **Acceptance criteria:**
-- [ ] `loop` 节点含 `cond` 表达式、`maxRounds`（必填 ≥1，缺省 1）、`budgetGuard` 开关、`back` 回边
-- [ ] 区域规则 1 正例通过、反例（多入口 / 出口不止 `back`）报可读错误
-- [ ] 非 `loop` 回边构成的环仍报错（既有环检测不放松）
-- [ ] 生成 `while (cond && round < maxRounds) { … }`；守卫开启时生成 `if (budget.total && budget.remaining() < N) { log(…); break }`
-- [ ] 桩替身两条：跑满 `maxRounds` 退出；预算桩返回不足时提前 `break` 且 `log` 文案出现
-- [ ] 成本条：`◆代理数 · 并发≤16 · 循环上界 · 预算守卫`；估算口径单点；≥25 时红条（对齐 `Large workflow` 阈值）
-- [ ] 真实输入冒烟：`tests/browser/test_loop_real.ts` 拖出回边并断言建边成功
-- [ ] `python3 tests/run_all.py` 全绿；黄金零漂移
+- [x] `loop` 节点含 `cond` 表达式、`maxRounds`（必填 ≥1，缺省 1）、`budgetGuard` 开关、`back` 回边
+- [x] 区域规则 1 正例通过、反例（多入口 / 出口不止 `back`）报可读错误
+- [x] 非 `loop` 回边构成的环仍报错（既有环检测不放松）
+- [x] 生成 `while (cond && round < maxRounds) { … }`；守卫开启时生成 `if (budget.total && budget.remaining() < N) { log(…); break }`
+- [x] 桩替身两条：跑满 `maxRounds` 退出；预算桩返回不足时提前 `break` 且 `log` 文案出现
+- [x] 成本条：`◆代理数 · 并发≤16 · 循环上界 · 预算守卫`；估算口径单点；≥25 时红条（对齐 `Large workflow` 阈值）
+- [x] 真实输入冒烟：`tests/browser/test_loop_real.ts` 拖出回边并断言建边成功
+- [x] `python3 tests/run_all.py` 全绿；黄金零漂移
 
 **Test plan:**
 - **L1:** `node tests/frontend/test_flowgen_loop.ts`（新增：跑满 / break / 区域正反例）；`node tests/browser/test_loop_real.ts`（回边真实拖拽）；`node tests/frontend/test_flow_editor.ts`（成本条口径）
@@ -488,13 +488,13 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - **Contracts produced:** agentType 枚举只读通道；`$retry` 助手生成契约（全图只生成一次）
 
 **Acceptance criteria:**
-- [ ] 检查器：effort 五档下拉（`low|medium|high|xhigh|max`）、agentType 下拉（枚举 `~/.claude/agents` + 插件 agents，允许自由文本回落）、isolation 开关（带"贵/仅并行改文件时用"提示）
-- [ ] `agent({phase})` 在单节点与并行层**都**发出（当前仅并行层）
-- [ ] model 白名单与真实模型 id 对齐（`claude-*` 正则 + 常用别名），非法值报错
-- [ ] `$retry` 助手全图只生成一次；形状与官方 `scan.js` 同构（`log` + 指数退避 `setTimeout`）
-- [ ] 桩替身：首次返回 `null` → 日志含 `retry 1/N`、退避序列 1x/2x/4x → 最终返回结果；耗尽后返回 `null`
-- [ ] `log` 节点生成 `log(\`…\`)`，`{{nX}}` 占位解析正确
-- [ ] `python3 tests/run_all.py` 全绿；黄金零漂移
+- [x] 检查器：effort 五档下拉（`low|medium|high|xhigh|max`）、agentType 下拉（枚举 `~/.claude/agents` + 插件 agents，允许自由文本回落）、isolation 开关（带"贵/仅并行改文件时用"提示）
+- [x] `agent({phase})` 在单节点与并行层**都**发出（当前仅并行层）
+- [x] model 白名单与真实模型 id 对齐（`claude-*` 正则 + 常用别名），非法值报错
+- [x] `$retry` 助手全图只生成一次；形状与官方 `scan.js` 同构（`log` + 指数退避 `setTimeout`）
+- [x] 桩替身：首次返回 `null` → 日志含 `retry 1/N`、退避序列 1x/2x/4x → 最终返回结果；耗尽后返回 `null`
+- [x] `log` 节点生成 `log(\`…\`)`，`{{nX}}` 占位解析正确
+- [x] `python3 tests/run_all.py` 全绿；黄金零漂移
 
 **Test plan:**
 - **L1:** `node tests/frontend/test_flowgen_retry.ts`（新增：重试成功/耗尽/退避序列）；`node tests/frontend/test_flow_editor.ts`（选项落 opts + phase 恒发 + agentType 枚举）
@@ -532,14 +532,14 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - **Contracts produced:** 确定性扫描器（跳过字符串/注释）；未知全局白名单；子流引用与深度校验
 
 **Acceptance criteria:**
-- [ ] `code` 节点：等宽编辑区 + `CODE` 徽章 + "不参与可视化语义"提示；返回值绑定节点 id
-- [ ] 校验：片段含 `import(` → 错误（运行前即失败）
-- [ ] 校验：`Date.now()` / `Math.random()` / `new Date()` 命中且**不在字符串/注释里** → 错误；无法判定 → 警告（降级不误杀）
-- [ ] 未知全局提示：既不在脚本白名单（`agent/parallel/pipeline/phase/log/budget/workflow/args`）也不在片段内声明/JS 内建 → 警告
-- [ ] `subflow` 节点：`ref` 支持已保存名与 `{scriptPath}`；指向不存在的草稿 → 错误；子流内再 `subflow` → 错误
-- [ ] 桩替身：code 片段返回值被下游引用；`workflow(name, args)` 参数正确
-- [ ] 生成物仍不含 `Date.now()/Math.random()`（既有沙箱禁令断言保持）
-- [ ] `python3 tests/run_all.py` 全绿；黄金零漂移
+- [x] `code` 节点：等宽编辑区 + `CODE` 徽章 + "不参与可视化语义"提示；返回值绑定节点 id
+- [x] 校验：片段含 `import(` → 错误（运行前即失败）
+- [x] 校验：`Date.now()` / `Math.random()` / `new Date()` 命中且**不在字符串/注释里** → 错误；无法判定 → 警告（降级不误杀）
+- [x] 未知全局提示：既不在脚本白名单（`agent/parallel/pipeline/phase/log/budget/workflow/args`）也不在片段内声明/JS 内建 → 警告
+- [x] `subflow` 节点：`ref` 支持已保存名与 `{scriptPath}`；指向不存在的草稿 → 错误；子流内再 `subflow` → 错误
+- [x] 桩替身：code 片段返回值被下游引用；`workflow(name, args)` 参数正确
+- [x] 生成物仍不含 `Date.now()/Math.random()`（既有沙箱禁令断言保持）
+- [x] `python3 tests/run_all.py` 全绿；黄金零漂移
 
 **Test plan:**
 - **L1:** `node tests/frontend/test_flowgen_code.ts` + `node tests/frontend/test_flowgen_subflow.ts`（新增：执行语义 + 每条校验正反例）；`node tests/frontend/test_flow_editor.ts`（CODE 徽章与节点 DOM 契约）
@@ -583,12 +583,12 @@ const n9 = await workflow('triage-issues', { issues: ARGS.ids })
 - [ ] 查看器 `/api/runs` 显示该运行，runId/阶段/代理计数与终端一致
 - [ ] `resumeFromRunId` 恢复命令实测命中缓存（全部代理 `cached:true`、`totalTokens=0`）
 - [ ] 分发命令实测：复制到 `.claude/workflows/` 后该工作流可按名调用
-- [ ] README.md 与 README.zh-CN.md 双语同步（新能力 + 命令区 + 边界说明），互链完整
-- [ ] CLAUDE.md 编排器不变量更新（新节点型单点、区域规则、成本估算单点、新 handle）
-- [ ] `docs/xyflow-editor-dev-guide.md` 补新节点型契约行与测试映射
-- [ ] `claude plugin validate .` 通过；`python3 tests/run_all.py` 全绿；`?flowsmoke=1` 全断言通过
-- [ ] 部署顺序按 dev-guide §9：杀旧 guard → 停 server → 新副本起 server → 新路径起 guard，两条 pid 路径版本一致
-- [ ] 安装副本 == 源码；页面 `ver` == `/api/runs` 的 `ver`
+- [x] README.md 与 README.zh-CN.md 双语同步（新能力 + 命令区 + 边界说明），互链完整
+- [x] CLAUDE.md 编排器不变量更新（新节点型单点、区域规则、成本估算单点、新 handle）
+- [x] `docs/xyflow-editor-dev-guide.md` 补新节点型契约行与测试映射
+- [x] `claude plugin validate .` 通过；`python3 tests/run_all.py` 全绿；`?flowsmoke=1` 全断言通过
+- [x] 部署顺序按 dev-guide §9：杀旧 guard → 停 server → 新副本起 server → 新路径起 guard，两条 pid 路径版本一致
+- [x] 安装副本 == 源码；页面 `ver` == `/api/runs` 的 `ver`
 
 **Test plan:**
 - **L1:** 真机闭环（终端 `Workflow({scriptPath, args})` + 恢复命令）；`?flowsmoke=1` 全断言；`node tests/browser/test_connect_real.ts` 与 `test_drag_real.ts` 回归
