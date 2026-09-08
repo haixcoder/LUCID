@@ -114,6 +114,11 @@ export class El {
     const sibs = this.parent.children; const i = sibs.indexOf(this);
     return i >= 0 && sibs[i + 1] ? sibs[i + 1] : null;
   }
+  get previousElementSibling(): El | null {
+    if (!this.parent) return null;
+    const sibs = this.parent.children; const i = sibs.indexOf(this);
+    return i > 0 && sibs[i - 1] ? sibs[i - 1] : null;
+  }
   get ownerDocument(): El | null { let n: El = this; while (n.parent) n = n.parent; return n._ownerDoc || null; }
   appendChild(n: ANode): ANode { if (n.parent) n.parent._detach(n); n.parent = this; this.kids.push(n); return n; }
   insertBefore(n: ANode, ref?: ANode | null): ANode {

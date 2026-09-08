@@ -111,17 +111,37 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
   <span class="num">${fmtN(s.tokIn)}/${fmtN(s.tokOut)}</span><span class="num">${s.ts ? fmtC(Date.parse(s.ts)) : '—'}</span><span class="tw"></span></summary>
   <div class="term-body${R && P ? '' : ' solo'}"><div class="pane" data-t="IN · ${T(P ? '工具入参全文' : '工具')}"><div class="rich">${P ? mdLite(wrapLong(unent(P))) : esc((s.tools || []).map(t => '● ' + t).join(' ')) || T('(本步无工具调用)')}</div></div>${R ? paneOut(T(fu.r !== undefined ? '全文' : '截断预览'), R) : ''}</div></details>`;
   };
-  // ── Workflow 内嵌块(1.2.41,真实反馈:「主 agent 的展示信息和 workflow 信息块没有在一起,根据时间进行排序」)──
-  // 完整运行卡与回合组同池、同为"一个独立展示单元",按时间升序混排(组=输入/首步时间,运行卡=startedAt);
-  // "嵌不嵌"的判定不住这里(住 30-app wfEmbedded 单点:发起会话卡可见 ∧ 运行自身过滤),本函数只渲染已判定清单。
-  type TUnit = { kind: 'g'; u: string; ts: number } | { kind: 'w'; r: Run; ts: number };
-  const units: TUnit[] = grps.map((o): TUnit => ({ kind: 'g', u: o.u, ts: o.ts }))
-    .concat(wfs.map((x): TUnit => ({ kind: 'w', r: x, ts: x.startedAt || 0 })));
-  units.sort((a, b) => a.ts - b.ts);
+  // ── Workflow 内嵌块(1.2.41 嵌入会话卡;1.2.45 落点细到步骤)──
+  // 真实反馈(1.2.41)「主 agent 的展示信息和 workflow 信息块没有在一起,根据时间进行排序」→ 运行卡嵌进发起会话卡;
+  // 真实反馈(1.2.45)「在主agent中调起的 workflow,主agent 和 itemview 和 workflow 的itemview 没有在一起」→
+  // 嵌进卡还不够近:一个回合跑十几步时,该回合启动的运行卡全被推到组尾,离发起它的那一步很远。
+  // 落点判定只此一处(与 wfEmbedded 单点分工:"嵌不嵌"住 30-app,这里只管"落哪"):
+  // 运行卡按 startedAt 归入"最后一个 ts ≤ startedAt 的回合组",组内与步骤行同池按时间混排(同刻步骤行在前);
+  // 早于全部组的运行卡保持组前独立单元。回合组无运行卡时逐字节走旧路径(黄金快照零漂移)。
   // 嵌入卡左缩进挂在发起会话下(与 .tg .tstep 同侧),用 .wfembed 包一层供 CSS 定位;
   // 内层 .card 关掉入场动画(painted 恒真时 card() 本就不加 .en,这里再兜一层防首帧重排闪动)。
+  const runsOf: Record<string, Run[]> = {}, leadW: Run[] = [];
+  for (const w of wfs) {
+    const ts = w.startedAt || 0; let host: string | null = null;
+    for (const g of grps) { if (g.ts <= ts) host = g.u; else break; }  // grps 已按 ts 升序
+    if (host === null) leadW.push(w); else (runsOf[host] = runsOf[host] || []).push(w);
+  }
+  type GItem = { k: 's'; s: Step; ts: number } | { k: 'w'; r: Run; ts: number };
+  const grpBody = (u: string): string => {
+    const ss = byTurn[u] || [], ws = runsOf[u] || [];
+    if (!ws.length) return ss.map(stepRow).join('');
+    let prev = 0;   // 无 ts 的步骤沿用前一步时间戳(稳定排序下保持原相对次序,不被甩到组首)
+    const items: GItem[] = ss.map((s): GItem => { const t = Date.parse(s.ts || '') || prev; prev = t; return { k: 's', s, ts: t }; })
+      .concat(ws.map((x): GItem => ({ k: 'w', r: x, ts: x.startedAt || 0 })));
+    items.sort((a, b) => a.ts - b.ts || (a.k === b.k ? 0 : a.k === 's' ? -1 : 1));
+    return items.map(o => o.k === 's' ? stepRow(o.s) : `<div class="wfembed">${card(o.r, 0)}</div>`).join('');
+  };
+  type TUnit = { kind: 'g'; u: string; ts: number } | { kind: 'w'; r: Run; ts: number };
+  const units: TUnit[] = grps.map((o): TUnit => ({ kind: 'g', u: o.u, ts: o.ts }))
+    .concat(leadW.map((x): TUnit => ({ kind: 'w', r: x, ts: x.startedAt || 0 })));
+  units.sort((a, b) => a.ts - b.ts);
   const unitHtml = (o: TUnit): string => o.kind === 'w' ? `<div class="wfembed">${card(o.r, 0)}</div>`
-    : `<div class="tg">${o.u ? turnHead(o.u, (byTurn[o.u] || []).length) : orphanHead((byTurn[''] || []).length)}${(byTurn[o.u] || []).map(stepRow).join('')}</div>`;
+    : `<div class="tg">${o.u ? turnHead(o.u, (byTurn[o.u] || []).length) : orphanHead((byTurn[''] || []).length)}${grpBody(o.u)}</div>`;
   const taskRegion = (st.length || ps.length || wfs.length) ? `<div class="phead"><span>${T('任务(回合)· 尾窗 %1 输入 · %2 步骤', ps.length, st.length)}${wfs.length ? ' · Workflow ' + wfs.length : ''}</span></div>
   <div class="thead"><span></span><span>${T('步骤 · 输出')}</span><span>${T('工具')}</span><span class="num">TOK in/out</span><span class="num">${T('时间')}</span><span class="num"></span><span></span></div>
   ${units.map(unitHtml).join('')}` : '';

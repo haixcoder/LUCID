@@ -22,27 +22,34 @@ function fixture() {
     pendingTools: ['Workflow'], toolCalls: 9, title: '发起会话特词Q',
     prompts: [{ u: 'uu-a', t: '跑工作流甲', ts: '2026-09-05T04:00:00.000Z' },
               { u: 'uu-b', t: '再查结果乙', ts: '2026-09-05T04:30:00.000Z' }],
-    steps: [{ msgId: 'm1', turn: 'uu-a', tools: ['Workflow'], text: '启动工作流', model: 'x', tokIn: 1, tokOut: 2, ts: '2026-09-05T04:01:00.000Z' },
-            { msgId: 'm2', turn: 'uu-b', tools: ['Bash'], text: '继续收尾', model: 'x', tokIn: 1, tokOut: 2, ts: '2026-09-05T04:31:00.000Z' }],
+    steps: [{ msgId: 'm1', turn: 'uu-a', tools: ['Workflow'], text: '启动工作流甲', model: 'x', tokIn: 1, tokOut: 2, ts: '2026-09-05T04:01:00.000Z' },
+            { msgId: 'm2', turn: 'uu-a', tools: ['Bash'], text: '等它跑的时候继续干活', model: 'x', tokIn: 1, tokOut: 2, ts: '2026-09-05T04:03:00.000Z' },
+            { msgId: 'm3', turn: 'uu-a', tools: ['Bash'], text: '再收一轮', model: 'x', tokIn: 1, tokOut: 2, ts: '2026-09-05T04:09:00.000Z' },
+            { msgId: 'm4', turn: 'uu-b', tools: ['Bash'], text: '继续收尾', model: 'x', tokIn: 1, tokOut: 2, ts: '2026-09-05T04:31:00.000Z' }],
   });
-  const wA = clone(RUN_DONE); wA.startedAt = ms('2026-09-05T04:05:00Z');
+  const wA = clone(RUN_DONE); wA.startedAt = ms('2026-09-05T04:02:00Z');
   const wB = clone(RUN_LIVE); wB.startedAt = ms('2026-09-05T04:20:00Z');
   const wOrph = clone(RUN_DONE); wOrph.runId = 'wf_orph1'; wOrph.session = 'deadbeef-0000-1111-2222-333344445555';
   return { s0, wA, wB, wOrph };
 }
 
-// 会话卡内时间线的可见顺序:回合组(.tg)与其内嵌运行卡(.wfembed > .card[data-rid])同为展示单元
+// 会话卡内时间线的可见顺序(1.2.45 起细到步骤粒度):回合组(.tg)为容器,其内步骤行(.tstep)与
+// 内嵌运行卡(.wfembed > .card[data-rid])同为展示单元——"运行卡落在发起它的那一步之后"由本函数如实读出。
 function timeline(cardEl: El): string[] {
   const out: string[] = [];
-  for (const c of cardEl.children) {
+  const walk = (c: El): void => {
     if (c.classList.contains('tg')) {
       const hd = c.children.find(x => x.classList.contains('turnhd'));
       out.push(hd && hd.dataset.k ? 'grp:' + hd.dataset.k.split(':prompt:')[1] : 'grp:—');
+      for (const x of c.children) walk(x);
     } else if (c.classList.contains('wfembed')) {
       const inner = c.querySelector('div.card[data-rid]');
       if (inner) out.push('wf:' + inner.dataset.rid);
+    } else if (c.classList.contains('tstep')) {
+      out.push('st:' + (c.dataset.k || '').split(':').pop());
     }
-  }
+  };
+  for (const c of cardEl.children) walk(c);
   return out;
 }
 
@@ -72,9 +79,19 @@ function timeline(cardEl: El): string[] {
   // 嵌入的是完整信息块(有 agents 表格行与终态徽章,不只是摘要)
   ck('嵌入块为完整运行信息(状态徽章+agent 行)', !!embA && /b-completed/.test(embA.innerHTML) && !!embA.querySelector(`details[data-k="${wA.runId}:${wA.agents[0].agentId}"]`));
 
-  // ── 2) 时间序:grp(uu-a 04:00) → wf_alpha1(04:05) → wf_live9(04:20) → grp(uu-b 04:30) ──
-  ck('时间线按时间混排(回合组与运行卡同池排序)', !!sCard &&
-     timeline(sCard).join(' ') === 'grp:uu-a wf:wf_alpha1 wf:wf_live9 grp:uu-b', sCard && timeline(sCard).join(' '));
+  // ── 2) 时间序(1.2.45 细到步骤粒度):同一回合内运行卡落在发起它的那一步之后,不被推到组尾 ──
+  // 夹具:回合 uu-a 三步 m1(04:01,Workflow)/m2(04:03)/m3(04:09);wA 04:02 启动、wB 04:20 启动。
+  ck('运行卡按时间插进步骤之间(不再整组之后)',
+     timeline(sCard).join(' ') === 'grp:uu-a st:m1 wf:wf_alpha1 st:m2 st:m3 wf:wf_live9 grp:uu-b st:m4',
+     sCard && timeline(sCard).join(' '));
+  {
+    const wrap = sCard.querySelector('.tg .wfembed');
+    ck('运行卡是回合组内的一分子(.tg 内,非组后兄弟)', !!wrap && wrap.parent === sCard.children.find(c => c.classList.contains('tg')),
+       wrap ? 'wfembed 在 ' + (wrap.parent && wrap.parent.attrs.class) : '未找到 .tg .wfembed');
+    ck('紧挨发起它的步骤行(前一个兄弟 = m1 步骤行)',
+       !!wrap && !!wrap.previousElementSibling && wrap.previousElementSibling.dataset.k === s0.sessionId + ':m1',
+       wrap && wrap.previousElementSibling ? String(wrap.previousElementSibling.dataset.k) : '无前兄弟');
+  }
 
   // ── 3) 仪表对账:RUNS 计「嵌入+独立」全集 ──
   const gs = env.$('gauges').querySelectorAll('.g');
