@@ -60,3 +60,23 @@
 **影响后续相位的发现：**
 - `#fRun` 现在依赖 `FS.argsSpec.exampleText` 作示例参数；Phase 4+ 若给 map 加 `items` 示例，仍从 argsSpec 取（示例只有一份）。
 - 测试基建新增 `harness.clipboard`（navigator.clipboard 桩）+ `El.onclick` 声明——后续复制类断言直接用。
+
+## Phase 4 · map 节点 = pipeline（含扇出级）— 完成（1.2.52 → 1.2.53）
+
+**结果：** run_all GREEN 34/34（新增 `test_flowgen_pipeline.ts` 19 断言；`test_flow_editor.ts` +5 DOM 契约）；`?flowsmoke=1` = SMOKE OK 十三项（新增 `map-gen`）；黄金零漂移。
+
+**实现：**
+- 类型:`FlowKind` 增 `map`/`merge`;`FlowNodeData.items`。
+- `flowMapChain` 单点:级 1 = **map 节点自身的 prompt/label 模板**(PRD §5.1 草稿形状),下游每级 = 单 agent 或"扇出→同一 merge";终止于 return / 多入边汇合 / 扇出级 merge(其后是消费者)。`flowMapChains`/`flowChainStageOf` 配套。
+- 生成:链内节点不再出顶层 `const`,由 `pipeExpr` 在回调里消化;签名统一 `(prev, item, i)`;`{{item}}`→item、`{{index}}`→i、`{{上一级任一节点}}`→prev;级内 agent 恒带 phase opts。
+- 校验:items 非空、至少一级、扇出必须汇于同一 merge、链内只许 agent(嵌套 map → 指向 code 节点)、`{{item}}/{{index}}` 链外报错、链内只能引用上一级、map 独占一层。
+- UI:palette 加 Map/Merge;map 卡片带 items 输入 + 回调模板 + 语义提示;merge 卡片只作汇合点。
+
+**偏离计划:**
+- AD-3 规则 4 只说"map 的下游链每级生成一个回调";PRD §5.1 的草稿形状把 `prompt` 放在 map 节点上 → 定为"级 1 = map 自身模板"。两种读法都自洽,选了与草稿形状一致的那种,并让"map 无 prompt 时下游第一级即级 1"。
+- 新增两条计划未列的校验(链内只能引用上一级 / 链内变量不得外泄):不写就会生成 ReferenceError 的脚本,属"宁可少生成,不可错生成"。
+
+**影响后续相位的发现:**
+- `flowAdj`(邻接表单点)已抽出,Phase 5/6 的区域分析复用它,别再各建一份。
+- 扇出级用 `merge` 作汇合标记;Phase 5 的 branch 也要 `merge`——**merge 的语义统一为"汇合点,自身不执行"**,分支版只是入度 2。
+- `{{item}}`/`{{index}}` 已被 FLOW_REF_RE 收录:任何新增的"占位符解析"入口都必须显式处理这两个 token(否则会被当成节点 id)。

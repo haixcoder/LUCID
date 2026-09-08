@@ -46,8 +46,11 @@ type Fu = Partial<{ p: string; r: string; m: boolean }>;
 
 // ── 编排器图契约(1.2.43;与落盘的 <name>.json 草稿 1:1 = 前后端唯一契约,见 dev-guide §3.1)──
 type FlowPos = { x: number; y: number };
-type FlowKind = 'start' | 'agent' | 'return';
-interface FlowNodeData { label?: string; phase?: string; prompt?: string; model?: string; schemaText?: string; note?: string; ret?: string }
+type FlowKind = 'start' | 'agent' | 'map' | 'merge' | 'return';
+interface FlowNodeData {
+  label?: string; phase?: string; prompt?: string; model?: string; schemaText?: string; note?: string; ret?: string;
+  items?: string;          // map 节点的 items 表达式(如 ARGS.paths)——pipeline 的输入列表
+}
 interface FlowNode { id: string; type: FlowKind; position: FlowPos; data: FlowNodeData; measured?: { width: number; height: number } }
 interface FlowConn { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }
 type FlowEdge = FlowConn & { id: string };

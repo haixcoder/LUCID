@@ -61,17 +61,24 @@ function handleHTML(n: FlowNode, type: 'source' | 'target'): string {
 }
 function nodeHTML(n: FlowNode): string {
   const d = n.data, t = n.type;
-  const label = t === 'agent' ? 'AGENT' : t === 'start' ? 'START' : 'RETURN';
+  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
   let fields = '';
   if (t === 'start') fields = `<label>${T('说明(生成 args 入口)')}</label><input class="nodrag f-note" value="${esc(d.note || '')}" placeholder="${esc(T('如:调研选题'))}">`;
   if (t === 'agent') fields =
     `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
     `<label>${T('prompt(可引用 {{nX}})')}</label><textarea class="nodrag f-prompt" rows="3">${esc(d.prompt || '')}</textarea>` +
     `<label>${T('model / schema(可空)')}</label><div class="frow"><select class="nodrag f-model"><option value="">inherit</option>${FLOW_MODELS.map(m => `<option${d.model === m ? ' selected' : ''}>${m}</option>`).join('')}</select><textarea class="nodrag f-schema" rows="1" placeholder="{JSON Schema}">${esc(d.schemaText || '')}</textarea></div>`;
+  if (t === 'map') fields =
+    `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
+    `<label>${T('items 表达式(如 ARGS.paths)')}</label><input class="nodrag f-items" value="${esc(d.items || '')}" placeholder="ARGS.paths">` +
+    `<label>${T('回调模板({{item}} / {{index}})')}</label><textarea class="nodrag f-prompt" rows="2">${esc(d.prompt || '')}</textarea>` +
+    `<div class="fnote">${T('下游每级 = pipeline 的一级(逐条目、无栅栏);要汇总请用汇合点之后的节点')}</div>`;
+  if (t === 'merge') fields = `<div class="fnote">${T('汇合点:扇出/分支在此收束,自身不执行')}</div>`;
   if (t === 'return') fields = `<label>${T('return 表达式')}</label><textarea class="nodrag f-ret" rows="2">${esc(d.ret || '')}</textarea>`;
   // 徽章 = 脚本里的变量名:下游 prompt 要敲的 {{nX}} 就是它(结构即信息,不是装饰)
+  const sub = (t === 'agent' || t === 'map') && d.label ? `<span>${esc(d.label)}</span>` : '';
   return `<div class="wfnode t-${t} ${FLOW_LIB}-flow__node nopan${FS.sel.has(n.id) ? ' sel' : ''}" data-nodeid="${n.id}" style="left:${n.position.x}px;top:${n.position.y}px">` +
-    `<div class="hd"><b>${label}</b><i>${n.id}</i>${t === 'agent' && d.label ? `<span>${esc(d.label)}</span>` : ''}<span class="tag nodrag" title="${T('删除节点')}">✕</span></div>${fields}` +
+    `<div class="hd"><b>${label}</b><i>${n.id}</i>${sub}<span class="tag nodrag" title="${T('删除节点')}">✕</span></div>${fields}` +
     (t !== 'start' ? handleHTML(n, 'target') : '') + (t !== 'return' ? handleHTML(n, 'source') : '') + `</div>`;
 }
 function fNodeEl(id: string): HTMLElement | null {
@@ -143,6 +150,7 @@ function wireNodes(): void {
     };
     bind('.f-label', 'label'); bind('.f-phase', 'phase'); bind('.f-prompt', 'prompt');
     bind('.f-model', 'model'); bind('.f-schema', 'schemaText'); bind('.f-ret', 'ret'); bind('.f-note', 'note');
+    bind('.f-items', 'items');
     el.querySelector('.tag')?.addEventListener('mousedown', e => { e.stopPropagation(); flowRemoveNode(n.id); });
     el.addEventListener('mousedown', () => { if (!FS.sel.has(n.id)) { FS.sel.clear(); FS.sel.add(n.id); refreshSel(); } });
     el.querySelectorAll('.lucid-flow__handle').forEach(h => {
@@ -246,10 +254,12 @@ function renderEdges(): void {
 
 // ── 增删 ──
 function flowAddNode(type: FlowKind, pos: FlowPos): string {
-  if (type !== 'agent' && FS.nodes.some(n => n.type === type)) { flowErr(T('每类起止节点各一个(%1 已存在)', type)); return ''; }
+  // 只有 Start / Return 是"每图一个";agent / map / merge 可任意多个(1.2.53)
+  if ((type === 'start' || type === 'return') && FS.nodes.some(n => n.type === type)) { flowErr(T('每类起止节点各一个(%1 已存在)', type)); return ''; }
   const id = 'n' + (FS.next++);
   const data: FlowNodeData = type === 'agent' ? { label: T('步骤') + id, phase: '', prompt: '', model: '', schemaText: '' }
-    : type === 'start' ? { note: '' } : { ret: '' };
+    : type === 'map' ? { label: T('逐条目') + id, phase: '', prompt: '', items: '' }
+    : type === 'start' ? { note: '' } : type === 'merge' ? {} : { ret: '' };
   FS.nodes.push({ id, type, position: { x: pos.x, y: pos.y }, data });
   flowRender();
   return id;
@@ -698,6 +708,16 @@ function flowSmoke(): void {
       check('meta-v2', !!$('fWhen') && !!bandT && bandT.value === 'S1'
         && /whenToUse: "smoke-when"/.test($<HTMLElement>('fScript').textContent || '')
         && /phases: \[\{ title: "S1", detail: "d1" \}\]/.test($<HTMLElement>('fScript').textContent || ''));
+      // 1.2.53 map 节点(Phase 4):真机里走一遍"建节点 → 连线 → 出码含 pipeline"
+      flowBlank();
+      const sm2 = sm('start', 60, 150, { note: 'q' }), mp = sm('map', 300, 150, { items: 'ARGS.paths', prompt: '审计 {{item}}', label: 'audit:{{item}}', phase: 'Scan' });
+      const ag2 = sm('agent', 540, 150, { label: '复核', phase: 'Verify', prompt: '复核 {{' + mp + '}}' }), rn2 = sm('return', 780, 150, { ret: '' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: sm2, sourceHandle: 'out', target: mp, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: mp, sourceHandle: 'out', target: ag2, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: ag2, sourceHandle: 'out', target: rn2, targetHandle: 'in' });
+      refreshFlowScript();
+      check('map-gen', new RegExp('const ' + mp + ' = await pipeline\\(ARGS\\.paths, \\(prev, item, i\\) => agent\\(`审计 \\$\\{item\\}`')
+        .test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       refreshFlowScript();
       check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');

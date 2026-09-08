@@ -448,6 +448,8 @@ body.flow-open{overflow:hidden}
     <div id="fPalette">
       <h3 data-i18n="组件 · 点或拖入">组件 · 点或拖入</h3>
       <div class="pal" data-t="agent" tabindex="0"><span data-i18n="◆ Agent 步骤">◆ Agent 步骤</span><small data-i18n="子代理执行一段指令">子代理执行一段指令</small></div>
+      <div class="pal" data-t="map" tabindex="0"><span data-i18n="⤾ Map 逐条目">⤾ Map 逐条目</span><small data-i18n="pipeline:对每个条目跑下游各级">pipeline:对每个条目跑下游各级</small></div>
+      <div class="pal" data-t="merge" tabindex="0"><span data-i18n="◇ Merge 汇合">◇ Merge 汇合</span><small data-i18n="扇出/分支在此收束">扇出/分支在此收束</small></div>
       <div class="pal" data-t="start" tabindex="0"><span data-i18n="▷ Start 输入">▷ Start 输入</span><small data-i18n="args 入口(每图一个)">args 入口(每图一个)</small></div>
       <div class="pal" data-t="return" tabindex="0"><span data-i18n="◁ Return 产出">◁ Return 产出</span><small data-i18n="return 表达式(每图一个)">return 表达式(每图一个)</small></div>
       <!-- data-i18n 换的是 textContent(不解析 HTML),所以这些行一律纯文本 -->
@@ -457,7 +459,8 @@ body.flow-open{overflow:hidden}
         <div data-i18n="删除:选中后按 Del · 点连线删边">删除:选中后按 Del · 点连线删边</div>
         <div data-i18n="保存:⌘/Ctrl + S">保存:⌘/Ctrl + S</div>
         <div data-i18n="执行:终端 Workflow({scriptPath, args})">执行:终端 Workflow({scriptPath, args})</div>
-        <div data-i18n="多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持">多入边 = 汇聚等待(栅栏);循环与条件分支暂未支持</div>
+        <div data-i18n="多入边 = 汇聚等待(栅栏);Map = 逐条目 pipeline(无栅栏)">多入边 = 汇聚等待(栅栏);Map = 逐条目 pipeline(无栅栏)</div>
+        <div data-i18n="循环与条件分支暂未支持">循环与条件分支暂未支持</div>
       </div>
     </div>
     <div id="fPane" class="lucid-flow__pane"><div id="fViewport" class="xyflow__viewport lucid-flow__viewport">

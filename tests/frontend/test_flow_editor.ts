@@ -765,5 +765,27 @@ const FAN = {
   envL.run('void tick()');
   await envL.flush();
   ck('编辑器打开期间轮询照常且无渲染异常', envL.errs.length === 0 && envL.$('list').querySelectorAll('[data-rid]').length === 1, envL.errs.join('|'));
+
+  // ── map / merge 节点 DOM 契约(1.2.53 · Phase 4)──
+  draftsResp = { drafts: [] };
+  const envD = mkEnv();
+  await envD.flush();
+  envD.run('void openFlow("/work/fix")');
+  await envD.flush(30);
+  ck('组件面板含 Map 与 Merge 两个入口',
+     !!envD.$q('#fPalette .pal[data-t="map"]') && !!envD.$q('#fPalette .pal[data-t="merge"]'));
+  const mid = String(envD.get('flowAddNode("map", { x: 10, y: 10 })'));
+  const midEl = querySelectorEl(envD.rootEl, `.wfnode[data-nodeid="${mid}"]`);
+  ck('map 卡片 = MAP 徽章 + items 输入 + 回调模板(textarea.f-prompt)',
+     /MAP/.test(midEl.querySelector('.hd b')!.textContent) && !!midEl.querySelector('input.f-items') && !!midEl.querySelector('textarea.f-prompt'),
+     midEl.textContent.slice(0, 60));
+  ck('map 的 handle 与 agent 同形(in/out),data-id 拼法不变',
+     midEl.querySelector('.lucid-flow__handle.source')!.getAttribute('data-id') === `lwf-${mid}-out-source`
+     && midEl.querySelector('.lucid-flow__handle.target')!.getAttribute('data-id') === `lwf-${mid}-in-target`);
+  const gid = String(envD.get('flowAddNode("merge", { x: 10, y: 200 })'));
+  ck('merge 可加多个且无执行字段(汇合点自身不跑代理)',
+     !!gid && !!envD.get('flowAddNode("merge", { x: 10, y: 300 })') && !querySelectorEl(envD.rootEl, `.wfnode[data-nodeid="${gid}"]`).querySelector('textarea.f-prompt'));
+  ck('map 卡片写明"下游每级 = pipeline 的一级"这条语义(不撒谎)',
+     /pipeline/.test(visibleText(midEl)), visibleText(midEl).slice(0, 120));
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });
