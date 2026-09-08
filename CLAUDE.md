@@ -124,9 +124,10 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 - **`XYFlowSystem` 只许在函数体内取**（顶层解构会在无 vendor 的环境——无头桩——直接 ReferenceError 打断整块产物；一律走 `xy()`）。喂给 vendor 的**每个回调**必须经 `safely()`：vendor 对包装层回调不做 try/catch，抛出即静默打断它自己的监听注册（症状"拖出虚线后松手什么都没发生"）；`XYPanZoom` 的六个回调（含 `onTransformChange`）一个不许省（内部无空值防护直调）。`handleBounds` 由 `measureFlow()` 手写测量并**除以 zoom** 后注入 `internals`（不引 ResizeObserver；漏除=非 1 倍缩放下吸附与边端点全错）。
 - **生成器三口径各一个函数**：`flowValidate`（错误清单，空=可生成）/ `flowMetaPhases`（phase 首现去重——顶部 PHASES 条与脚本 `meta.phases` 共用它）/ `flowGenerate`（出码，只有内部 bug 才抛）。UI 与测试只调这三个，禁止另数 phase 或自己判分层；产物不许含 `Date.now()/Math.random()`（沙箱禁用且破 resume）。
 - **入口只在选中具体项目时存在**(1.2.44,真实反馈「选择全部项目时不应该有编排入口,只有选择具体项目时才支持通过拖拽的方式创建 workflow」)——判定只住 `flowCanCompose(cwd)` 一个函数,三个消费者共用:`syncFlowEntry()`(按钮显隐 + tooltip;由 `render()` 每轮与启动时各调一次,故 localStorage 恢复值失效回落、切项目都自动跟上)、`btnFlow.onclick`(不满足就不打开)、`openFlow()` 首行守卫(绕开入口也写不出无项目的草稿)。理由不是 UI 偏好而是数据口径:草稿目录 slug、提示词上下文、终端 `cd` 执行目录都要一个确定 cwd。**新增按项目的功能入口请照抄这个形状**(判定单点 + 展示面只调用 + 按钮默认 `hidden` 由 JS 决定显隐),别在按钮上写第二份 if。
+- **坐标系换算单点 `paneToFlow`**(1.2.46,真实反馈「选中节点连线时,链接节点的虚线会漂移」)——屏幕(pane 相对像素)→ 流坐标只住这一个函数,三消费者共用:`drawConn` 的**未悬停**分支、拖放落点、`flowCenter`。为什么必须有:节点/边/临时虚线都住被 `translate+scale` 变换的 `#fViewport`,只有流坐标能在里面直接画;而 vendor 的 `connection.pointer` 是 **pane 相对屏幕像素**(`XYHandle` 内 `q(e,domNode)=clientX-paneRect.left`)——漏换算的偏移量 = `view.x + px·(zoom-1)`(平移多少偏多少)。**悬停到 handle 的分支坐标系数不同,别混**:那里用 `handlePoint()` 的流坐标。测:`test_flow_editor` 三档参数化(恒等/缩放/平移+缩放,判据是"在屏幕上钉住光标")+ `paneToFlow` 直测 + 冒烟 `connPath-anchored`。
 - **草稿的落盘与枚举住后端单点**（`web.save_draft / list_drafts / _draft_dir`），前端只发请求、服务端不重编译（执行件由 `45-flowgen` 产出并随请求带上，单一真相）；铁律 2：草稿只写 `CONF_DIR/drafts/`，**执行永远在用户终端**（`Workflow({scriptPath})`），服务不碰控制面。
 - **语言**：静态壳走 `data-i18n`，但节点卡、草稿下拉 `<option>`、状态行是**动态拼的** → `setLang()` 必须调 `flowRelang()`（重刷下拉 + 清一次性状态行 + 重绘），漏了就是"切语言后编辑器留着旧文案"；空画布提示故意**不用** `.idle` 类（`setLang` 会把它 `.remove()` 掉）。
-- **真机冒烟**：`?flowsmoke=1` 把九条断言写进 `document.title`(新增 `drag-add`:真实 HTML5 `DataTransfer` 拖拽建节点,桩里给不了)（无头桩给不出真实布局，连线吸附/拖拽阈值/滚轮缩放只能浏览器实证）。两个已踩的**假失败**：① 用自适应缩放的 7 卡起手图会把 handle 推到窗口外（`elementFromPoint` 拿不到）；② 拿图里已存在的节点对测"加边"，会被自己的去重单点静默吃掉。
+- **真机冒烟**：`?flowsmoke=1` 把十条断言写进 `document.title`(1.2.46 新增 `connPath-anchored`:虚线自由端在**屏幕上**钉住光标——桩算得出流坐标、算不出"屏幕上钉不钉";`drag-add`:真实 HTML5 `DataTransfer` 拖拽建节点)（无头桩给不出真实布局，连线吸附/拖拽阈值/滚轮缩放只能浏览器实证）。三个已踩的**假失败/假挂死**：① 用自适应缩放的 7 卡起手图会把 handle 推到窗口外（`elementFromPoint` 拿不到）；② 拿图里已存在的节点对测"加边"，会被自己的去重单点静默吃掉；③ `#fConn` 常驻无限 CSS 动画 → 无头虚拟时钟永不空闲 → `--dump-dom` **挂死**（冒烟入口自带禁用动画的 `<style>`，1.2.46）。
 
 ## 开发/验证速查
 
@@ -145,7 +146,7 @@ HOME=$T nohup python3 scripts/server.py --port 8923 >/dev/null 2>&1 &      # 临
 '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --disable-gpu \
   --window-size=1600,1000 --user-data-dir=/tmp/ch-flow --proxy-server=http://127.0.0.1:1 \
   --virtual-time-budget=15000 --timeout=20000 --dump-dom 'http://127.0.0.1:8923/?flowsmoke=1' | grep -oE '<title>[^<]*'
-#   期望 SMOKE OK ✓nodes ✓contract-C3C4C5 ✓connect+1 ✓connPath-drawn ✓connPath-cleared ✓drag-move ✓zoom ✓drag-add ✓gen
+#   期望 SMOKE OK ✓nodes ✓contract-C3C4C5 ✓connPath-anchored ✓connect+1 ✓connPath-drawn ✓connPath-cleared ✓drag-move ✓zoom ✓drag-add ✓gen
 #   （--proxy-server 让外网字体请求快速失败，否则 load 事件挂住 --dump-dom；localhost 默认不走代理）
 python3 scripts/guard.py --once          # 看护:确保服务在跑(不跑则 setsid 拉起)并退出,调试用
 python3 scripts/guard.py --detach        # 会话开始入口(函数自身):确保常驻循环在跑(无则 setsid 拉起)并退出

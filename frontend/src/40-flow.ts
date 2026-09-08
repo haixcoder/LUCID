@@ -77,6 +77,15 @@ function nodeHTML(n: FlowNode): string {
 function fNodeEl(id: string): HTMLElement | null {
   return fVp().querySelector<HTMLElement>(`.wfnode[data-nodeid="${id}"]`);
 }
+// 坐标系换算**唯一实现**:屏幕(pane 相对像素)→ 流坐标。
+// 为什么必须有它:节点/边/临时虚线都住 #fViewport,而 #fViewport 被 translate+scale 变换过 —— 只有
+// **流坐标**能在里面直接画;凡是从"鼠标/元素"来的像素(vendor 的 connection.pointer、拖放落点、pane 中心)
+// 都得先过这里。实测漏换算的后果(1.2.46,真实反馈「选中节点连线时虚线会漂移」):虚线自由端比光标偏
+// 一个 (view.x + px·(zoom-1), view.y + py·(zoom-1)) —— 平移多少偏多少,缩放越大偏得越狠。
+function paneToFlow(x: number, y: number): FlowPos {
+  const v = FS.view;
+  return { x: (x - v.x) / v.zoom, y: (y - v.y) / v.zoom };
+}
 // C10:vendor 的 dimensions 测量挂在 ResizeObserver 上(本仓零 bundler 不引),handleBounds 由我们手写测量注入。
 // 不注入的实录后果:isValid 找不到 handle(连不上)、边端点随缩放漂移。口径 = 节点内相对坐标 ÷ zoom(缩放不变)。
 function measureFlow(): void {
@@ -205,8 +214,10 @@ function drawConn(st: FlowConnState): void {
   const from = st.fromHandle && handlePoint(st.fromHandle.nodeId, st.fromHandle.id, st.fromHandle.type);
   if (!from) return;
   const to = st.toHandle ? handlePoint(st.toHandle.nodeId, st.toHandle.id, st.toHandle.type) : null;
-  const dst = to || { x: st.pointer?.x ?? 0, y: st.pointer?.y ?? 0, pos: 'left' };
-  const [d] = xy().getBezierPath({ sourceX: from.x, sourceY: from.y, sourcePosition: from.pos, targetX: dst.x, targetY: dst.y, targetPosition: dst.pos });
+  // 两个终点分支的坐标系不同,别混:悬停到 handle → 我们自己的流坐标;未悬停 → vendor 的 pane 相对
+  // 屏幕像素,**必须过 paneToFlow**(不过 = 虚线自由端随平移/缩放漂移,1.2.46)。
+  const pt = to || { ...paneToFlow(st.pointer?.x ?? 0, st.pointer?.y ?? 0), pos: 'left' };
+  const [d] = xy().getBezierPath({ sourceX: from.x, sourceY: from.y, sourcePosition: from.pos, targetX: pt.x, targetY: pt.y, targetPosition: pt.pos });
   fConnEl().setAttribute('d', d);
 }
 function renderEdges(): void {
@@ -240,8 +251,8 @@ function flowRemoveNode(id: string): void {
   flowRender();
 }
 function flowCenter(): FlowPos {
-  const p = fPane();
-  return { x: (p.clientWidth / 2 - FS.view.x) / FS.view.zoom - 125, y: (p.clientHeight / 2 - FS.view.y) / FS.view.zoom - 40 };
+  const p = fPane(), c = paneToFlow(p.clientWidth / 2, p.clientHeight / 2);
+  return { x: c.x - 125, y: c.y - 40 };                    // 减半卡宽/一截卡高:新节点落在画布正中偏上
 }
 
 // ── 脚本预览 + 校验(铁律 7:错误清单不裁,定高滚动)+ 两块读数 ──
@@ -452,8 +463,8 @@ function wireShell(): void {
   pane.addEventListener('drop', e => {
     e.preventDefault();
     const t = (e as DragEvent).dataTransfer?.getData('text/plain'); if (!t) return;
-    const r = pane.getBoundingClientRect(), v = FS.view;
-    flowAddNode(t as FlowKind, { x: (e.clientX - r.left - v.x) / v.zoom, y: (e.clientY - r.top - v.y) / v.zoom });
+    const r = pane.getBoundingClientRect();
+    flowAddNode(t as FlowKind, paneToFlow((e as DragEvent).clientX - r.left, (e as DragEvent).clientY - r.top));
   });
   document.addEventListener('keydown', flowKeydown);
 }
@@ -521,6 +532,11 @@ function flowSmoke(): void {
   void (async () => {
     try {
       document.title = 'SMOKE running';
+      // 无头 dump 的虚拟时钟遇**无限 CSS 动画**永不空闲 → --dump-dom 挂死(实测:#fConn 常驻 fdash)。
+      // 冒烟是测试通道,关掉动画不动任何断言,却让文档里那条命令真的能跑完。
+      const noanim = document.createElement('style');
+      noanim.textContent = '#flow,#fConn,.wfnode,.pal{animation:none!important}';
+      document.head.appendChild(noanim);
       await openFlow('/smoke-proj');
       // 固定四节点链(不受既有草稿/自动存影响;横向 ~1030px,保证 1600×1000 视口内 elementFromPoint 拿得到 ——
       // 用 7 卡起手图 + 自适应缩放会把 handle 推到窗口外,正是 PoC 800×600 那个假失败)
@@ -546,9 +562,20 @@ function flowSmoke(): void {
       fDbg = { connect: 0, cancel: 0, start: 0 };
       if (src && dst) {
         const sp = src.getBoundingClientRect(), dp = dst.getBoundingClientRect();
+        const mx = (sp.x + dp.x) / 2, my = (sp.y + dp.y) / 2 + 20;
         fire(src, 'pointerdown', sp.x + 5, sp.y + 5);
-        await frames(2); fire(document, 'mousemove', (sp.x + dp.x) / 2, (sp.y + dp.y) / 2 + 20);
+        await frames(2); fire(document, 'mousemove', mx, my);
         await frames(2); const dmid = fConnEl().getAttribute('d');
+        // 虚线自由端必须钉在光标上(1.2.46,真实反馈「连线时虚线会漂移」):#fConn 画在被 translate+scale
+        // 变换的 #fViewport 内,而 vendor 的 connection.pointer 是 pane 相对屏幕像素 → 终点必须换算回流坐标。
+        const pr = fPane().getBoundingClientRect(), vv = FS.view;
+        const dn = String(dmid || '').match(/-?\d+(?:\.\d+)?/g) || [];
+        const tx = Number(dn[dn.length - 2]), ty = Number(dn[dn.length - 1]);   // getBezierPath 末两数 = targetX,targetY
+        const anchored = dn.length >= 2 && Math.abs(vv.x + tx * vv.zoom - (mx - pr.left)) < 2
+          && Math.abs(vv.y + ty * vv.zoom - (my - pr.top)) < 2;
+        if (!anchored) res.push('[anchor d=' + String(dmid).slice(0, 44) + ' v=' + JSON.stringify(vv)
+          + ' m=' + Math.round(mx - pr.left) + ',' + Math.round(my - pr.top) + ']');
+        check('connPath-anchored', anchored);
         await frames(2); fire(document, 'mousemove', dp.x + 5, dp.y + 5);
         await frames(2); fire(document, 'mouseup', dp.x + 5, dp.y + 5);
         await frames(6);

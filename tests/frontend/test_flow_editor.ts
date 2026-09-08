@@ -172,8 +172,34 @@ const FAN = {
   ck('坑⑤ onConnectStart 之后必须回吐非空(vendor 每帧拿它当守卫,空则立即取消连接)', !!rec.handle.getFromHandle(), JSON.stringify(rec.handle.getFromHandle()));
   rec.handle.updateConnection({ fromHandle: { nodeId: 'n2', id: 'out', type: 'source' }, toHandle: null, pointer: { x: 400, y: 300 } });
   ck('updateConnection 画出临时连线(d 非空)', !!env.$('fConn').attrs.d, String(env.$('fConn').attrs.d));
-  ck('连线终点取 state.pointer(读成 pointerPos 即恒 (0,0),PoC 坑③)',
-     rec.bezier[rec.bezier.length - 1].targetX === 400 && rec.bezier[rec.bezier.length - 1].targetY === 300, JSON.stringify(rec.bezier.slice(-1)));
+  // ── 坐标系口径(1.2.46,真实反馈「选中节点连线时虚线会漂移」)──
+  // vendor 的 connection.pointer 是 **pane 相对屏幕像素**(XYHandle 内 q(e,domNode) = clientX - paneRect.left),
+  // 而 #fConn 画在被 translate+scale 变换的 #fViewport 里 → 终点必须换算成流坐标,否则随平移/缩放漂移。
+  // 判据不看中间量,看**屏幕上钉不钉在光标**:视口怎么变,虚线自由端都得落在 pointer 那个屏幕点上。
+  const anchor = (vp: any, label: string): void => {
+    env.run(`FS.view = ${JSON.stringify(vp)}`);
+    rec.handle.updateConnection({ fromHandle: { nodeId: 'n2', id: 'out', type: 'source' }, toHandle: null, pointer: { x: 400, y: 300 } });
+    const b = rec.bezier[rec.bezier.length - 1];
+    const sx = vp.x + b.targetX * vp.zoom, sy = vp.y + b.targetY * vp.zoom;
+    ck(`虚线自由端在屏幕上钉住 pointer(${label} zoom=${vp.zoom} 平移=${vp.x},${vp.y})`,
+       Math.abs(sx - 400) < 0.01 && Math.abs(sy - 300) < 0.01, `屏幕(${sx},${sy}) ← 流(${b.targetX},${b.targetY})`);
+  };
+  anchor({ x: 0, y: 0, zoom: 1 }, '恒等');
+  anchor({ x: 0, y: 0, zoom: 2 }, '缩放');
+  anchor({ x: -120, y: 45, zoom: 1.5 }, '平移+缩放');
+  const hp = JSON.parse(env.get('JSON.stringify(handlePoint("n2","out","source"))'));
+  const bLast = rec.bezier[rec.bezier.length - 1];
+  ck('虚线起点 = handle 流坐标(与 renderEdges 同口径;视口变换只作用于终点,起点再除一次 zoom 就是二次变换)',
+     bLast.sourceX === hp.x && bLast.sourceY === hp.y, JSON.stringify([bLast.sourceX, bLast.sourceY, hp]));
+  rec.handle.updateConnection({ fromHandle: { nodeId: 'n2', id: 'out', type: 'source' },
+    toHandle: { nodeId: 'n3', id: 'in', type: 'target' }, pointer: { x: 9999, y: 9999 } });
+  const b3 = rec.bezier[rec.bezier.length - 1], h3 = JSON.parse(env.get('JSON.stringify(handlePoint("n3","in","target"))'));
+  ck('悬停目标 handle:虚线终点吸附 handle 流坐标(pointer 此时仍是屏幕坐标,不许漏进来)',
+     b3.targetX === h3.x && b3.targetY === h3.y && b3.targetX !== 9999, JSON.stringify([b3.targetX, b3.targetY, h3]));
+  // 换算本身(单点直测):FS.view 此时是上面最后一档 { x:-120, y:45, zoom:1.5 }
+  const pf = JSON.parse(env.get('JSON.stringify(paneToFlow(300, 150))'));
+  ck('paneToFlow 单点:屏幕(pane 相对)→ 流坐标 = ((300+120)/1.5, (150-45)/1.5)',
+     Math.abs(pf.x - 280) < 0.01 && Math.abs(pf.y - 70) < 0.01, JSON.stringify(pf));
   ck('isValidConnection 拒自连、放行正常连',
      rec.handle.isValidConnection({ source: 'n2', target: 'n2', sourceHandle: 'out', targetHandle: 'in' }) === false
      && rec.handle.isValidConnection({ source: 'n2', target: 'n7', sourceHandle: 'out', targetHandle: 'in' }) === true);
