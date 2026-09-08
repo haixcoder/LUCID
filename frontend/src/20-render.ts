@@ -37,6 +37,8 @@ function card(r: Run, i: number): string {
   </div>`;
 }
 
+// 数据源硬上限的统一文案(铁律7):「该步」这一条由 waitline / stepRow 共用(提示词行是「该条输入」,另一条)。
+const MISS_STEP_TXT = '⚠ 该步已超出转录留存范围，无法回取全文';
 // IN/OUT 抽屉面板的单点构造(1.2.18):tag=「全文/截断预览/工具」等态标签,txt=正文。
 // 统一过 unent——修此前 workflow 卡"预览不解实体、展开后才解"的口径不一(同内容展开前后渲染不一致)。
 const paneIn = (tag: string, txt: string): string => `<div class="pane" data-t="IN · ${tag}"><div class="rich">${mdLite(wrapLong(unent(txt)))}</div></div>`;
@@ -69,7 +71,7 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
   // 与步骤行/子代理行同一契约;无 mid 的老转录回落到 300 字摘要+指引文案。
   const wkey = r.sessionId + ':wait', wf: Fu = FULL[wkey] || {}, wmid = r.lastTextMid || '';
   const wsrc = wmid && r.lastText ? ` data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(wmid)}"` : '';
-  const wbody = wf.r ? mdLite(wrapLong(unent(wf.r))) : wf.m ? `<i style="opacity:.7">${esc(T('⚠ 该步已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(r.lastText || '')));
+  const wbody = wf.r ? mdLite(wrapLong(unent(wf.r))) : wf.m ? `<i style="opacity:.7">${esc(T(MISS_STEP_TXT))}</i>` : mdLite(wrapLong(unent(r.lastText || '')));
   const wtag = wf.r ? T('全文') : wf.m ? T('不可回取') : T('最后输出');
   const whint = (wf.r || wf.m) ? '' : `<div class="hint">${wmid ? T('展开后自动拉取该步所在回合的全部输出(超出转录留存范围会显式提示)') : T('转录留存字段有上限；整步全文请展开下方对应步骤行(超出留存范围会显式提示)')}</div>`;
   // ── 回合分组(1.2.20):一次真人输入 = 一个任务 = 一个独立展示单元,不再把所有步骤平铺一锅端。──
@@ -103,13 +105,17 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
   const lastMid = st.length ? st[st.length - 1].msgId : '';
   const stepRow = (s: Step): string => {
     const last = s.msgId === lastMid, g = (last && r.status === 'running' && r.pendingTools.length > 0) ? 'running' : 'done', k = r.sessionId + ':' + s.msgId, fu: Fu = FULL[k] || {}, P = fu.p || '', R = fu.r !== undefined ? fu.r : (s.text || '');
+    // miss 必须**渲染出来**(与 turnHead/waitline 同一口径):1.2.60 前这里只认 fu.p/fu.r,而 miss 时
+    // FULL[k].r='' → R 恒空 → OUT 面板整块消失,onToggle 写进 pane 的 ⚠ 又在下一轮轮询重建时被冲掉 ——
+    // 用户看到的是"点击展开详情后，不显示内容"(既无全文也无提示,静默空白)。
+    const miss = !!fu.m, hasIn = !!P || miss, hasOut = !!R || miss;
     return `<details class="term tstep" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(s.msgId)}">
   <summary class="arow">
   <span class="glyph s-${g}" ${g === 'running' ? `style="${AD(1.5)}"` : ''} title="${esc(s.model || '')}">${g === 'running' ? '◈' : '▸'}</span>
   <span class="lbl" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((s.text || '').replace(/\s+/g, ' ').slice(0, 110)) || `<i style="opacity:.45">${T('(工具调用步)')}</i>`}</span>
   <span class="tool">${esc((s.tools || []).join(' '))}</span>
   <span class="num">${fmtN(s.tokIn)}/${fmtN(s.tokOut)}</span><span class="num">${s.ts ? fmtC(Date.parse(s.ts)) : '—'}</span><span class="tw"></span></summary>
-  <div class="term-body${R && P ? '' : ' solo'}"><div class="pane" data-t="IN · ${T(P ? '工具入参全文' : '工具')}"><div class="rich">${P ? mdLite(wrapLong(unent(P))) : esc((s.tools || []).map(t => '● ' + t).join(' ')) || T('(本步无工具调用)')}</div></div>${R ? paneOut(T(fu.r !== undefined ? '全文' : '截断预览'), R) : ''}</div></details>`;
+  <div class="term-body${hasIn && hasOut ? '' : ' solo'}"><div class="pane" data-t="IN · ${T(P ? '工具入参全文' : miss ? '不可回取' : '工具')}"><div class="rich">${P ? mdLite(wrapLong(unent(P))) : miss ? `<i style="opacity:.7">${esc(T(MISS_STEP_TXT))}</i>` : esc((s.tools || []).map(t => '● ' + t).join(' ')) || T('(本步无工具调用)')}</div></div>${R ? paneOut(T(fu.r !== undefined ? '全文' : '截断预览'), R) : miss ? paneOut(T('不可回取'), MISS_STEP_TXT) : ''}</div></details>`;
   };
   // ── Workflow 内嵌块(1.2.41 嵌入会话卡;1.2.45 落点细到步骤)──
   // 真实反馈(1.2.41)「主 agent 的展示信息和 workflow 信息块没有在一起,根据时间进行排序」→ 运行卡嵌进发起会话卡;

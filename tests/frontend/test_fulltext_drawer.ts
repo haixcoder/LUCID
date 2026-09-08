@@ -18,6 +18,7 @@ const FULL_TEXT = { prompt: 'FULL-IN 全文注入段落', result: 'FULL-OUT 回�
       if (url.indexOf('/api/agent') === 0) return FULL_TEXT;
       if (url.indexOf('/api/subagent') === 0) {
         if (url.indexOf('msg=uu-miss') >= 0) return { prompt: '', result: '', miss: true };
+        if (url.indexOf('msg=msg-miss-step') >= 0) return { prompt: '', result: '', miss: true };   // 步骤行 miss(1.2.61)
         return FULL_TEXT;
       }
       return undefined;
@@ -93,6 +94,29 @@ const FULL_TEXT = { prompt: 'FULL-IN 全文注入段落', result: 'FULL-OUT 回�
   ck('请求确实发出', env.fetchCalls.length > c4 && env.fetchCalls[env.fetchCalls.length - 1].includes('msg=uu-miss'));
   ck('miss:pane 显式「超出转录留存范围」不留白', pd2.textContent.includes('超出转录留存范围'), pd2.textContent.slice(0, 200));
   ck('miss:加载态已摘(不留 .q 永挂)', pd2.querySelectorAll('.pane').every((p) => !p.classList.contains('q')));
+
+  // ── 步骤行的 miss(1.2.61 修;真实反馈「点击展开详情后，不显示内容」)──
+  // stepRow 是唯一**不读**缓存 miss 标志的行:miss 时 FULL[k].r='' → R 恒空 → OUT 面板整块消失,
+  // onToggle 写进 pane 的 ⚠ 又在下一轮轮询重建时被冲掉。展开后既无全文也无提示 = 静默空白。
+  sessions[0].steps[0].msgId = 'msg-miss-step';
+  sessions[0].steps[0].text = 'STEP-PREVIEW 截断预览';
+  env.run('void tick()');
+  await env.flush();
+  const sk = SESSION_FIX.sessionId + ':msg-miss-step';
+  const sd = env.$('sess').querySelector(`details[data-k="${sk}"]`)!;
+  ck('步骤行 miss 前提:展开前有 OUT 截断预览', !!sd && sd.textContent.includes('STEP-PREVIEW'), sd && sd.textContent.slice(0, 160));
+  sd.open = true;
+  sd.fire('toggle');
+  await env.flush();
+  ck('步骤行 miss:pane 显式「超出转录留存范围」,OUT 面板不消失',
+     /超出转录留存范围/.test(sd.textContent) && [...sd.querySelectorAll('.pane')].some((p) => (p.dataset.t || '').startsWith('OUT')),
+     sd.textContent.slice(0, 240));
+  env.run('void tick()');                       // 轮询重建(实况页面每 2s 一次)
+  await env.flush();
+  const sd2 = env.$('sess').querySelector(`details[data-k="${sk}"]`)!;
+  ck('步骤行 miss:轮询重建后 ⚠ 与 OUT 面板都还在(不被截断预览顶掉)',
+     !!sd2 && /超出转录留存范围/.test(sd2.textContent) && [...sd2.querySelectorAll('.pane')].some((p) => (p.dataset.t || '').startsWith('OUT')),
+     sd2 && sd2.textContent.slice(0, 240));
 
   ck('全程无渲染异常', env.errs.length === 0, env.errs.join('|'));
   done();
