@@ -117,3 +117,20 @@
 **影响后续相位的发现：**
 - `flowWalkStages` 现有 4 个调用点（map ×1、branch ×2、loop ×1）；Phase 7/8 若再加区域（不该有）必须先想清楚是否复用。
 - 成本条是"视图口径"：`flowAgentEstimate` 只此一处，Phase 9 真机验收要对照 `/workflows` 实际代理数（估算是上界，不是承诺）。
+
+## Phase 7 · agent 选项 + retry + log — 完成（1.2.55 → 1.2.56）
+
+**结果：** run_all GREEN 39/39（新增 `test_flowgen_retry.ts` 21 断言；`test_flow_editor.ts` +6；`test_draft_api.py` +5）；`?flowsmoke=1` = SMOKE OK 十五项；**`flowgen_demo.js` 黄金按口径变更重录**（仅 2 行:`phase` 恒发）。
+
+**实现：**
+- `opt()` 增 effort/agentType/isolation；`phase` 恒发（单节点层也发）——这是计划 AC 明列的口径变更，重录黄金并注明。
+- `retryN>0` → `$retry(prompt, opts, n, backoffMs)`；助手全图一次；退避 100/200 由沙箱断言钉死；耗尽返回 null。
+- `log` 节点出 `log(\`…\`)`；`{{nX}}` 走同一 `flowLiteral`。
+- 校验：effort 五档白名单、retryN/retryMs ≥0 整数。
+- 后端 `GET /api/agents` = `list_agent_types()`（本机 + 插件 agents，带 `<plugin>:` 前缀，去重，cap 200，纯读取）；前端 `<datalist>` + 自由文本。
+
+**偏离计划：** 无（agentType 枚举按 AC 落成后端只读路由）。
+
+**影响后续相位的发现：**
+- `phase` 恒发后，`phase()` 全局调用与 opts.phase 并存——运行期以后者为准；阶段带与 agent.phase 不一致的老问题（Phase 1 记录）现在多了一层冗余信息，Phase 9 真机验收要观察 `/workflows` 分组是否如预期。
+- `/api/agents` 是**新增只读路由**（铁律 2 只约束写盘；已加"CONF_DIR 之外一字未改"的反向断言）。

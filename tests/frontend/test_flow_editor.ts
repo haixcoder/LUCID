@@ -351,7 +351,8 @@ const FAN = {
      && /\(\) => agent\(`b1 \$\{n2\}`, \{ label: "B1", phase: "P2" \}\),/.test(fan)
      && /\(\) => agent\(`b2 \$\{n2\}`, \{ label: "B2", phase: "P2", model: "sonnet", schema: SCHEMA_n4 \}\),/.test(fan), fan);
   ck('gen/schemaText → 顶部 SCHEMA 常量(在 async 体外,合法 JS)', /^const SCHEMA_n4 = \{"type":"object"/m.test(fan), fan.split('\n').slice(7, 9).join('\n'));
-  ck('gen/汇聚节点在下一层单 await(多入边 = 栅栏而非流水线)', /const n5 = await agent\(`汇 \$\{n3\} \$\{n4\}`, \{ label: "C" \}\)/.test(fan), fan);
+  ck('gen/汇聚节点在下一层单 await(多入边 = 栅栏而非流水线)',
+     /const n5 = await agent\(`汇 \$\{n3\} \$\{n4\}`, \{ label: "C", phase: "P3" \}\)/.test(fan), fan);
   ck('gen/return 空 → 兜底"最后一个含 agent 的层"(末层是 Return 时不得输出空 results)',
      fan.includes('return { results: [n5].filter(Boolean) }'), fan.slice(-60));
   ck('gen/兜底对链式图同样取末个 agent 层',
@@ -367,7 +368,7 @@ const FAN = {
   ck('gen/转义集 \\ ` ${ 全覆盖:求值 round-trip 等于原文(含未转义的 ${literal})',
      lit(tjs, { Q: 'Q' }) === tricky.replace('{{n1}}', 'Q'), JSON.stringify(lit(tjs, { Q: 'Q' })));
   ck('gen/单行无引用 → JSON 字符串;含换行 → 模板字面量',
-     /agent\("第二步", \{ label: "B" \}\)/.test(chain) && /agent\(`a\nb`/.test(G([N('n1', 'start', 0, 0), N('n2', 'agent', 1, 0, { label: 'A', prompt: 'a\nb' }), N('n3', 'return', 2, 0)], [E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3')])));
+     /agent\("第二步", \{ label: "B", phase: "P2" \}\)/.test(chain) && /agent\(`a\nb`/.test(G([N('n1', 'start', 0, 0), N('n2', 'agent', 1, 0, { label: 'A', prompt: 'a\nb' }), N('n3', 'return', 2, 0)], [E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3')])));
   ck('gen/flowMetaPhases 与脚本内 meta.phases 同一单点(预览与产物不漂移)',
      env.get('JSON.stringify(flowMetaPhases(' + JSON.stringify(dft(FAN.nodes, FAN.edges)) + '))') === '[{"title":"P1"},{"title":"P2"},{"title":"P3"}]'
      && fan.includes('phases: [{ title: "P1" }, { title: "P2" }, { title: "P3" }],'),
@@ -721,16 +722,17 @@ const FAN = {
   const r1b = await runJs(chain, '   ');
   ck('run/args 空串 → 回落 Start 说明作默认输入', r1b.calls[0].prompt === '第一步 输入', r1b.calls[0].prompt);
   const r2 = await runJs(fan, 'Q');
-  ck('run/扇出:4 个 agent,parallel 的两个各带自己的 phase(防全局 phase 竞争)',
+  ck('run/每个 agent 都带自己的 phase(1.2.56 起单节点层也发;并行层更要发——防全局 phase 竞争)',
      r2.calls.length === 4 && r2.calls[1].opts.phase === 'P2' && r2.calls[2].opts.phase === 'P2'
-     && r2.calls[0].opts.phase === undefined && r2.calls[3].opts.phase === undefined,
+     && r2.calls[0].opts.phase === 'P1' && r2.calls[3].opts.phase === 'P3',
      JSON.stringify(r2.calls.map(c => [c.opts.label, c.opts.phase])));
   ck('run/汇聚步拿到的是两个并行分支的返回值', /R\(B1\)[\s\S]*R\(B2\)/.test(r2.calls[3].prompt), r2.calls[3].prompt);
   ck('run/schema 传入对象(非字符串),model 生效', typeof r2.calls[2].opts.schema === 'object' && r2.calls[2].opts.model === 'sonnet',
      JSON.stringify(r2.calls[2].opts));
   ck('run/兜底 return 给出末层结果数组(agent 可能返回 null → filter(Boolean))',
      JSON.stringify(r2.ret) === '{"results":["R(C)"]}', JSON.stringify(r2.ret));
-  ck('run/顺序阶段不被 parallel 污染:n5 无 opts.phase(单节点层直接 await)', !('phase' in r2.calls[3].opts));
+  ck('run/顺序阶段的 agent 也带 phase(1.2.56 口径变更:phase 恒发,不再只靠全局 phase())',
+     r2.calls[3].opts.phase === 'P3');
   // 末层两条并行分支 + 空 return → 兜底必须 filter(Boolean)(技能明训:被跳过/挂掉的 agent 返回 null)
   const PAIR = {
     nodes: [N('n1', 'start', 0, 0, { note: 'q' }), N('n2', 'agent', 200, -60, { label: 'A', phase: 'P', prompt: 'a' }),
@@ -823,5 +825,52 @@ const FAN = {
   ck('≥25 个代理 → 成本条变红(.over)且写清"官方会告警"(估算不撒谎)',
      /◆25/.test(envD.$('fCost').textContent) && /over/.test(String(envD.$('fCost').attrs.class))
      && /Large workflow/.test(envD.$('fCost').title), envD.$('fCost').textContent + ' | ' + envD.$('fCost').title.slice(0, 80));
+
+  // ── agent 选项 / retry / log(1.2.56 · Phase 7)──
+  const envR = mkEnv();
+  await envR.flush();
+  envR.run('void openFlow("/work/fix")');
+  await envR.flush(30);
+  const agEl = querySelectorEl(envR.rootEl, '.wfnode.t-agent');
+  ck('agent 卡片 = effort 五档下拉 + agentType(带 datalist) + retry 两框 + isolation 开关',
+     agEl.querySelectorAll('select.f-effort option').length === 6
+     && agEl.querySelector('input.f-atype')!.getAttribute('list') === 'fATypes'
+     && !!agEl.querySelector('input.f-rn') && !!agEl.querySelector('input.f-rms') && !!agEl.querySelector('input.f-iso'));
+  ck('effort 下拉选项 = inherit + low/medium/high/xhigh/max(与生成器白名单同源)',
+     agEl.querySelectorAll('select.f-effort option').map(o => o.value || o.textContent).join(',') === 'inherit,low,medium,high,xhigh,max',
+     agEl.querySelectorAll('select.f-effort option').map(o => o.textContent).join(','));
+  const eSel = agEl.querySelector('select.f-effort')!;
+  eSel.value = 'low';
+  eSel.fire('input', { target: eSel });
+  const atIn = agEl.querySelector('input.f-atype')!;
+  atIn.value = 'code-reviewer';
+  atIn.fire('input', { target: atIn });
+  const rnIn = agEl.querySelector('input.f-rn')!;
+  rnIn.value = '2';
+  rnIn.fire('input', { target: rnIn });
+  await envR.flush(4);
+  ck('选项编辑落到脚本(opts + $retry 助手一次生成)',
+     /effort: "low"/.test(envR.$('fScript').textContent) && /agentType: "code-reviewer"/.test(envR.$('fScript').textContent)
+     && /async function \$retry\(/.test(envR.$('fScript').textContent)
+     && (envR.$('fScript').textContent.match(/async function \$retry\(/g) || []).length === 1,
+     envR.$('fScript').textContent.slice(0, 200));
+  ck('agentType 候选来自 /api/agents(取不到就空,不挡自由文本)', envR.fetchCalls.some(u => u.indexOf('/api/agents') === 0));
+  // 把 log 接进链路(孤立节点会被校验拦下):末个 agent → log → return
+  const lid2 = String(envR.run(`(function(){
+    const id = flowAddNode("log", { x: 10, y: 600 });
+    const last = FS.nodes.filter(n => n.type === "agent").pop().id;
+    const ret = FS.nodes.find(n => n.type === "return").id;
+    FS.edges = FS.edges.filter(e => !(e.source === last && e.target === ret));
+    FS.edges.push({ id: 'e' + (FS.next++), source: last, sourceHandle: 'out', target: id, targetHandle: 'in' });
+    FS.edges.push({ id: 'e' + (FS.next++), source: id, sourceHandle: 'out', target: ret, targetHandle: 'in' });
+    flowRender(); return id;
+  })()`));
+  const lidEl2 = querySelectorEl(envR.rootEl, `.wfnode[data-nodeid="${lid2}"]`);
+  ck('log 卡片 = LOG 徽章 + 文本域', /LOG/.test(lidEl2.querySelector('.hd b')!.textContent) && !!lidEl2.querySelector('textarea.f-text'));
+  const lt = lidEl2.querySelector('textarea.f-text')!;
+  lt.value = '已确认 {{n2}} 条';
+  lt.fire('input', { target: lt });
+  await envR.flush(4);
+  ck('log 文本 {{nX}} 在生成物里解析成模板插值', /log\(`已确认 \$\{n2\} 条`\)/.test(envR.$('fScript').textContent), envR.$('fScript').textContent.slice(0, 200));
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

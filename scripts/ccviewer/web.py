@@ -35,6 +35,7 @@ _NO_CWD = '__no_cwd__'   # 空 cwd 的确定落点——realpath('') 会回落�
 SCRIPT_CAP = 1_000_000
 DRAFT_LIMIT = 200
 DRAFT_VERS = (1, 2)      # 1.2.50:v2 = 纯加宽(whenToUse/phases[].detail/argsSpec),v1 原样兼容;未知版本仍拒绝,不猜
+AGENT_TYPE_CAP = 200     # agentType 下拉候选上限(枚举只为"给个起点",自由文本永远可用)
 
 
 def draft_ver_ok(v):
@@ -98,6 +99,43 @@ def save_draft(data):
     return {'ok': True, 'msg': '已保存', 'path': str(js), 'sha': sha}
 
 
+def list_agent_types():
+    """GET /api/agents 的实现:只读枚举 agentType 候选——本机 ~/.claude/agents/*.md 的 stem
+    + 已安装插件 cache/<market>/<plugin>/<ver>/agents/*.md 的 `<plugin>:<name>`(命名空间前缀与
+    Agent 工具注册表一致)。铁律 2:纯读取,不写盘;目录缺失/不可读静默跳过(列表不被单个坏目录炸掉)。"""
+    root = config.PROJ.parent                     # ~/.claude(与 projects 同一根,不新增配置项)
+    out = []
+    try:
+        for p in sorted((root / 'agents').glob('*.md')):
+            if p.is_file():
+                out.append(p.stem)
+    except OSError:
+        pass
+    try:
+        cache = root / 'plugins' / 'cache'
+        for market in sorted(cache.iterdir()):
+            if not market.is_dir():
+                continue
+            for plugin in sorted(market.iterdir()):
+                if not plugin.is_dir():
+                    continue
+                for ver in sorted(plugin.iterdir()):
+                    ad = ver / 'agents'
+                    if not ad.is_dir():
+                        continue
+                    for p in sorted(ad.glob('*.md')):
+                        if p.is_file():
+                            out.append(f'{plugin.name}:{p.stem}')
+    except OSError:
+        pass
+    seen, uniq = set(), []
+    for x in out:
+        if x and x not in seen:
+            seen.add(x)
+            uniq.append(x)
+    return {'types': uniq[:AGENT_TYPE_CAP]}
+
+
 def list_drafts(cwd):
     """GET /api/drafts 的实现:目录枚举本身即口径(无第二判定);坏件跳过不炸整张列表。"""
     d = _draft_dir(cwd)
@@ -153,6 +191,8 @@ class H(BaseHTTPRequestHandler):
         elif u.path == '/api/drafts':
             q = parse_qs(u.query)
             self._json(list_drafts((q.get('proj') or [''])[0]))
+        elif u.path == '/api/agents':
+            self._json(list_agent_types())
         elif u.path.startswith('/static/'):
             name = u.path.rsplit('/', 1)[-1]                      # 只取末段:../ 天然失效
             p = static_path(name)

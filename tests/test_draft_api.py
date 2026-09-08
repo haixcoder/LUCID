@@ -184,3 +184,24 @@ finally:
 ck('static/测试未在别处留文件', keep == ['victim.js'], str(keep))
 
 done()
+
+# ── 7) agentType 候选枚举(1.2.56):只读本机 agents + 插件 agents;铁律 2 反向证据 ──
+# 判定:目录缺失/不可读静默跳过(空列表),重复去重,插件带 <plugin>: 前缀(与 Agent 工具注册表同形)。
+guard2 = outside()
+(home_agents := HOME / '.claude' / 'agents').mkdir(parents=True, exist_ok=True)
+(home_agents / 'code-reviewer.md').write_text('---\nname: code-reviewer\n---\n', encoding='utf-8')
+(home_agents / 'dup.md').write_text('x', encoding='utf-8')
+plug = HOME / '.claude' / 'plugins' / 'cache' / 'mkt' / 'plug' / '1.0.0' / 'agents'
+plug.mkdir(parents=True, exist_ok=True)
+(plug / 'legacy-analyst.md').write_text('x', encoding='utf-8')
+(plug / 'code-reviewer.md').write_text('x', encoding='utf-8')          # 与本机同名:带前缀后不撞
+types = web.list_agent_types()['types']
+ck('agents/枚举本机 ~/.claude/agents/*.md', 'code-reviewer' in types and 'dup' in types, str(types))
+ck('agents/插件 agents 带 <plugin>: 前缀(与注册表命名空间同形)', 'plug:legacy-analyst' in types and 'plug:code-reviewer' in types, str(types))
+ck('agents/去重且不含重复项', len(types) == len(set(types)), str(types))
+_old_proj = config.PROJ
+config.PROJ = HOME / 'nope' / 'projects'          # 重定向到不存在的根(测试手法同 config.PROJ 其它用例)
+ck('agents/根目录缺失 → 空列表不抛(列表不被坏目录炸掉)', web.list_agent_types() == {'types': []})
+config.PROJ = _old_proj
+ck('agents/枚举是纯读取:CONF_DIR 之外一字未改(铁律 2)', outside() == guard2,
+   str(sorted(set(outside()) ^ set(guard2)))[:200])

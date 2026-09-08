@@ -10,7 +10,9 @@ const FLOW_MODEL_OK = ['sonnet', 'opus', 'haiku', 'fable', 'mythos'];   // agent
 const FLOW_REF_PROBE = /\{\{(n\d+|start|item|index)\}\}/;
 const FLOW_REF_RE = /\{\{(n\d+|start|item|index)\}\}/g;
 const FLOW_SANDBOX_BANNED = /Date\.now\(\)|Math\.random\(\)|new Date\(\)/;   // 沙箱禁用且破坏 resume
-const FLOW_BUDGET_FLOOR = 50000;       // loop 预算守卫阈值(AD-4):剩余预算低于它就提前收束并 log
+const FLOW_BUDGET_FLOOR = 50000;
+const FLOW_EFFORT_OK = ['low', 'medium', 'high', 'xhigh', 'max'];   // agent(opts.effort) 五档(官方技能)
+const FLOW_RETRY_BASE = 1000;          // 退避基数默认值(ms)       // loop 预算守卫阈值(AD-4):剩余预算低于它就提前收束并 log
 
 // ── 邻接表单点(链/区域分析共用;环由 flowValidate 报,这里只给结构)──
 function flowAdj(fs: FlowDraft): { out: Map<string, string[]>; inn: Map<string, string[]> } {
@@ -375,6 +377,12 @@ function flowValidate(fs: FlowDraft): string[] {
   for (const n of agents) {
     const md = String(n.data.model || '');
     if (md && !FLOW_MODEL_OK.includes(md) && !/^claude-[a-z0-9.:-]+$/i.test(md)) errs.push(`节点 ${n.id} 的 model「${md}」不在白名单`);
+    const ef = String(n.data.effort || '');
+    if (ef && !FLOW_EFFORT_OK.includes(ef)) errs.push(`节点 ${n.id} 的 effort「${ef}」不在白名单(${FLOW_EFFORT_OK.join('/')})`);
+    for (const [k, v, min] of [['retryN', n.data.retryN, 0], ['retryMs', n.data.retryMs, 0]] as [string, unknown, number][]) {
+      if (v === undefined || v === null || String(v).trim() === '') continue;
+      if (!Number.isInteger(Number(v)) || Number(v) < min) errs.push(`节点 ${n.id} 的 ${k} 必须是 ≥${min} 的整数(收到 ${JSON.stringify(v)})`);
+    }
   }
   return errs;
 }
@@ -476,6 +484,19 @@ function flowGenerate(fs: FlowDraft): string {
     const n = byId(id);
     if (n?.type === 'agent' && String(n.data.schemaText || '').trim()) lines.push(`const SCHEMA_${id} = ${String(n.data.schemaText).trim()}`);
   }
+  // $retry 助手(全图只生成一次;形状与官方 scan.js 同构:失败 → log 旁白 → 指数退避 → 再试)
+  if (fs.nodes.some(n => Number(n.data.retryN || 0) > 0)) {
+    lines.push('async function $retry(prompt, opts, n, backoffMs) {');
+    lines.push('  let r = await agent(prompt, opts)');
+    lines.push('  for (let k = 0; k < n && !r; k++) {');
+    lines.push("    const label = (opts.label || 'agent') + ':retry' + (k + 1)");
+    lines.push('    log(`${label} 失败,${backoffMs * 2 ** k}ms 后重试`)');
+    lines.push('    await new Promise(res => setTimeout(res, backoffMs * 2 ** k))');
+    lines.push('    r = await agent(prompt, { ...opts, label })');
+    lines.push('  }');
+    lines.push('  return r');
+    lines.push('}');
+  }
   // args 契约(PRD §5.3):有声明才出解析块;勾了必填才出前置校验。**解析块必须早于任何 agent 调用**
   // (参数不合法就别开始烧 token)。Q 从 ARGS 派生 → 对象 args 与字符串化 JSON args 落到同一个入口。
   const aspec = flowArgsSpec(fs);
@@ -504,11 +525,18 @@ function flowGenerate(fs: FlowDraft): string {
     const o = [`label: ${flowLiteral(fs, String(n.data.label || n.id), ctx)}`];
     if (usePhase && n.data.phase) o.push(`phase: ${JSON.stringify(n.data.phase)}`);
     if (n.data.model) o.push(`model: ${JSON.stringify(String(n.data.model))}`);
+    if (n.data.effort) o.push(`effort: ${JSON.stringify(String(n.data.effort))}`);
+    if (n.data.agentType) o.push(`agentType: ${JSON.stringify(String(n.data.agentType))}`);
+    if (n.data.isolation) o.push(`isolation: "worktree"`);      // 官方只有这一个合法值
     if (String(n.data.schemaText || '').trim()) o.push(`schema: SCHEMA_${n.id}`);
     return `{ ${o.join(', ')} }`;
   };
-  const call = (n: FlowNode, usePhase: boolean, ctx?: { prev?: Set<string> }): string =>
-    `agent(${flowLiteral(fs, String(n.data.prompt || ''), ctx)}, ${opt(n, usePhase, ctx)})`;
+  const call = (n: FlowNode, usePhase: boolean, ctx?: { prev?: Set<string> }): string => {
+    const args = `${flowLiteral(fs, String(n.data.prompt || ''), ctx)}, ${opt(n, usePhase, ctx)}`;
+    const rn = Number(n.data.retryN || 0);
+    if (!(rn > 0)) return `agent(${args})`;
+    return `$retry(${args}, ${rn}, ${Number(n.data.retryMs === undefined || n.data.retryMs === '' ? FLOW_RETRY_BASE : n.data.retryMs)})`;
+  };
   // pipeline 表达式(官方范式):每级一个回调,签名统一 (prev, item, i);扇出级返回 parallel([…])
   const pipeExpr = (c: MapChain): string => {
     const parts = c.stages.map((lv, i) => {
@@ -538,6 +566,7 @@ function flowGenerate(fs: FlowDraft): string {
     const live = g.filter(id => !innerAll.has(id));
     if (!live.length) continue;
     for (const id of live) if (byId(id)?.type === 'map') lines.push(`const ${id} = await ${pipeExpr(chains.get(id)!)}`);
+    for (const id of live) if (byId(id)?.type === 'log') lines.push(`log(${flowLiteral(fs, String(byId(id)!.data.text || ''))})`);
     for (const id of live) {
       const lp = loops.get(id);
       if (!lp) continue;
@@ -565,7 +594,7 @@ function flowGenerate(fs: FlowDraft): string {
     if (!ags.length) continue;                                        // start / return / map 层不再出 agent 代码
     const ph = ags[0].data.phase || ags[0].data.label || '';
     if (ph && ph !== curPhase) { lines.push(`phase(${JSON.stringify(ph)})`); curPhase = ph; }
-    if (ags.length === 1) lines.push(`const ${ags[0].id} = await ${call(ags[0], false)}`);
+    if (ags.length === 1) lines.push(`const ${ags[0].id} = await ${call(ags[0], true)}`);   // phase 恒发(1.2.56)
     else {
       lines.push(`const [${ags.map(n => n.id).join(', ')}] = await parallel([`);
       lines.push(...ags.map(n => `  () => ${call(n, true)},`));

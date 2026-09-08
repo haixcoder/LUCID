@@ -7,7 +7,7 @@ export const meta = {
 }
 phase("Scope")
 const Q = (typeof args === 'string' && args.trim()) || "调研选题"
-const n2 = await agent(`把选题 ${Q} 拆成 3 个互补的调研角度,每角度一行。`, { label: "拆解" })
+const n2 = await agent(`把选题 ${Q} 拆成 3 个互补的调研角度,每角度一行。`, { label: "拆解", phase: "Scope" })
 phase("Search")
 const [n3, n4, n5] = await parallel([
   () => agent(`角度1:${n2} —— 检索并汇总要点。`, { label: "检索A", phase: "Search" }),
@@ -15,5 +15,5 @@ const [n3, n4, n5] = await parallel([
   () => agent(`角度3:${n2} —— 检索并汇总要点。`, { label: "检索C", phase: "Search" }),
 ])
 phase("Verify")
-const n6 = await agent(`对 ${n3} / ${n4} / ${n5} 交叉核对,标注矛盾点。`, { label: "交叉验证" })
+const n6 = await agent(`对 ${n3} / ${n4} / ${n5} 交叉核对,标注矛盾点。`, { label: "交叉验证", phase: "Verify" })
 return { report: n6, angles: [n3, n4, n5] }

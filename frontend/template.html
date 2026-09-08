@@ -459,6 +459,7 @@ body.flow-open{overflow:hidden}
       <h3 data-i18n="组件 · 点或拖入">组件 · 点或拖入</h3>
       <div class="pal" data-t="agent" tabindex="0"><span data-i18n="◆ Agent 步骤">◆ Agent 步骤</span><small data-i18n="子代理执行一段指令">子代理执行一段指令</small></div>
       <div class="pal" data-t="map" tabindex="0"><span data-i18n="⤾ Map 逐条目">⤾ Map 逐条目</span><small data-i18n="pipeline:对每个条目跑下游各级">pipeline:对每个条目跑下游各级</small></div>
+      <div class="pal" data-t="log" tabindex="0"><span data-i18n="▪ Log 旁白">▪ Log 旁白</span><small data-i18n="进度树上的 log() 行">进度树上的 log() 行</small></div>
       <div class="pal" data-t="loop" tabindex="0"><span data-i18n="⧉ Loop 循环">⧉ Loop 循环</span><small data-i18n="while:跑到条件不成立或到上界">while:跑到条件不成立或到上界</small></div>
       <div class="pal" data-t="branch" tabindex="0"><span data-i18n="⋔ Branch 分支">⋔ Branch 分支</span><small data-i18n="if/else:true/false 各走一条">if/else:true/false 各走一条</small></div>
       <div class="pal" data-t="merge" tabindex="0"><span data-i18n="◇ Merge 汇合">◇ Merge 汇合</span><small data-i18n="扇出/分支在此收束">扇出/分支在此收束</small></div>
@@ -475,6 +476,7 @@ body.flow-open{overflow:hidden}
         <div data-i18n="循环与条件分支暂未支持">循环与条件分支暂未支持</div>
       </div>
     </div>
+    <datalist id="fATypes"></datalist>
     <div id="fPane" class="lucid-flow__pane"><div id="fViewport" class="xyflow__viewport lucid-flow__viewport">
       <svg id="fEdges"><defs><marker id="fArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
         <path d="M1,1 L6,4 L1,7" fill="none" stroke="var(--ln2)" stroke-width="1.4"></path></marker></defs><path id="fConn"></path></svg>

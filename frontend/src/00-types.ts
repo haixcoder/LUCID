@@ -46,13 +46,19 @@ type Fu = Partial<{ p: string; r: string; m: boolean }>;
 
 // ── 编排器图契约(1.2.43;与落盘的 <name>.json 草稿 1:1 = 前后端唯一契约,见 dev-guide §3.1)──
 type FlowPos = { x: number; y: number };
-type FlowKind = 'start' | 'agent' | 'map' | 'branch' | 'loop' | 'merge' | 'return';
+type FlowKind = 'start' | 'agent' | 'map' | 'branch' | 'loop' | 'log' | 'merge' | 'return';
 interface FlowNodeData {
   label?: string; phase?: string; prompt?: string; model?: string; schemaText?: string; note?: string; ret?: string;
   items?: string;          // map 节点的 items 表达式(如 ARGS.paths)——pipeline 的输入列表
   cond?: string;           // branch/loop 的条件表达式(原生 JS,引用已生成的变量名)
   maxRounds?: number | string;   // loop 上界(≥1 的整数;空 = 1)
   budgetGuard?: boolean;   // loop 是否生成 budget 守卫断点
+  text?: string;           // log 节点的模板文本(支持 {{nX}})
+  effort?: string;         // agent 推理档位(low|medium|high|xhigh|max;空 = 继承)
+  agentType?: string;      // agent 子代理类型(自由文本,下拉给枚举候选)
+  isolation?: boolean;     // agent 是否在独立 git worktree 里跑(贵)
+  retryN?: number | string;    // 重试次数(0/空 = 不重试)
+  retryMs?: number | string;   // 退避基数毫秒(空 = 1000)
 }
 interface FlowNode { id: string; type: FlowKind; position: FlowPos; data: FlowNodeData; measured?: { width: number; height: number } }
 interface FlowConn { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }

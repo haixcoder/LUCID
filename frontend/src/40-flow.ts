@@ -13,6 +13,7 @@ const FLOW_DRAG_TH = 3;                // 拖拽阈值:小于此位移算点击,
 const FLOW_EXTENT: number[][] = [[-1e5, -1e5], [1e5, 1e5]];
 const FLOW_LS = 'wfo-flow-autosave-';  // 防误关丢失(按项目 slug 存;显式保存才走 /api/draft/save)
 const FLOW_MODELS = ['sonnet', 'opus', 'haiku', 'fable', 'mythos'];
+const FLOW_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];   // agent(opts.effort) 五档(官方技能)
 
 interface FlowStore { name: string; desc: string; cwd: string; whenToUse: string; phases: FlowPhase[]; argsSpec: FlowArgsSpec; nodes: FlowNode[]; edges: FlowEdge[]; next: number; sel: Set<string>; view: FlowView }
 let FS: FlowStore = { name: '', desc: '', cwd: '', whenToUse: '', phases: [], argsSpec: { schemaText: '', exampleText: '', required: false }, nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
@@ -63,13 +64,16 @@ function handleHTML(n: FlowNode, type: 'source' | 'target', hid?: string, pos?: 
 }
 function nodeHTML(n: FlowNode): string {
   const d = n.data, t = n.type;
-  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'loop' ? 'LOOP' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
+  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'loop' ? 'LOOP' : t === 'log' ? 'LOG' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
   let fields = '';
   if (t === 'start') fields = `<label>${T('说明(生成 args 入口)')}</label><input class="nodrag f-note" value="${esc(d.note || '')}" placeholder="${esc(T('如:调研选题'))}">`;
   if (t === 'agent') fields =
     `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
     `<label>${T('prompt(可引用 {{nX}})')}</label><textarea class="nodrag f-prompt" rows="3">${esc(d.prompt || '')}</textarea>` +
-    `<label>${T('model / schema(可空)')}</label><div class="frow"><select class="nodrag f-model"><option value="">inherit</option>${FLOW_MODELS.map(m => `<option${d.model === m ? ' selected' : ''}>${m}</option>`).join('')}</select><textarea class="nodrag f-schema" rows="1" placeholder="{JSON Schema}">${esc(d.schemaText || '')}</textarea></div>`;
+    `<label>${T('model / schema(可空)')}</label><div class="frow"><select class="nodrag f-model"><option value="">inherit</option>${FLOW_MODELS.map(m => `<option${d.model === m ? ' selected' : ''}>${m}</option>`).join('')}</select><textarea class="nodrag f-schema" rows="1" placeholder="{JSON Schema}">${esc(d.schemaText || '')}</textarea></div>` +
+    `<label>${T('effort / agentType(可空)')}</label><div class="frow"><select class="nodrag f-effort"><option value="">inherit</option>${FLOW_EFFORTS.map(e => `<option${d.effort === e ? ' selected' : ''}>${e}</option>`).join('')}</select><input class="nodrag f-atype" list="fATypes" value="${esc(d.agentType || '')}" placeholder="agentType"></div>` +
+    `<label>${T('retry(n / 退避 ms;0 = 不重试)')}</label><div class="frow"><input class="nodrag f-rn" type="number" min="0" value="${esc(String(d.retryN === undefined || d.retryN === '' ? 0 : d.retryN))}"><input class="nodrag f-rms" type="number" min="0" value="${esc(String(d.retryMs === undefined || d.retryMs === '' ? 1000 : d.retryMs))}"></div>` +
+    `<label class="ck"><input type="checkbox" class="nodrag f-iso"${d.isolation ? ' checked' : ''}><span>${T('isolation:worktree(贵;仅并行改文件时用)')}</span></label>`;
   if (t === 'map') fields =
     `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
     `<label>${T('items 表达式(如 ARGS.paths)')}</label><input class="nodrag f-items" value="${esc(d.items || '')}" placeholder="ARGS.paths">` +
@@ -85,6 +89,7 @@ function nodeHTML(n: FlowNode): string {
     `<label>${T('循环上界 maxRounds')}</label><input class="nodrag f-rounds" type="number" min="1" value="${esc(String(d.maxRounds === undefined || d.maxRounds === '' ? 1 : d.maxRounds))}">` +
     `<label class="ck"><input type="checkbox" class="nodrag f-guard"${d.budgetGuard ? ' checked' : ''}><span>${T('预算守卫(剩余不足时提前收束)')}</span></label>` +
     `<div class="fnote">${T('循环体:body 出把接进去,体末连回本节点;out 接循环之后的步骤')}</div>`;
+  if (t === 'log') fields = `<label>${T('log 文本(可引用 {{nX}})')}</label><textarea class="nodrag f-text" rows="2">${esc(d.text || '')}</textarea>`;
   if (t === 'merge') fields = `<div class="fnote">${T('汇合点:扇出/分支在此收束,自身不执行')}</div>`;
   if (t === 'return') fields = `<label>${T('return 表达式')}</label><textarea class="nodrag f-ret" rows="2">${esc(d.ret || '')}</textarea>`;
   // 徽章 = 脚本里的变量名:下游 prompt 要敲的 {{nX}} 就是它(结构即信息,不是装饰)
@@ -166,6 +171,9 @@ function wireNodes(): void {
     bind('.f-label', 'label'); bind('.f-phase', 'phase'); bind('.f-prompt', 'prompt');
     bind('.f-model', 'model'); bind('.f-schema', 'schemaText'); bind('.f-ret', 'ret'); bind('.f-note', 'note');
     bind('.f-items', 'items'); bind('.f-cond', 'cond'); bind('.f-rounds', 'maxRounds');
+    bind('.f-effort', 'effort'); bind('.f-atype', 'agentType'); bind('.f-rn', 'retryN'); bind('.f-rms', 'retryMs'); bind('.f-text', 'text');
+    const iso = el.querySelector<HTMLInputElement>('.f-iso');
+    if (iso) iso.addEventListener('change', () => { n.data.isolation = iso.checked; refreshFlowScript(); autosaveFlow(); });
     const guard = el.querySelector<HTMLInputElement>('.f-guard');
     if (guard) guard.addEventListener('change', () => { n.data.budgetGuard = guard.checked; refreshFlowScript(); autosaveFlow(); });
     el.querySelector('.tag')?.addEventListener('mousedown', e => { e.stopPropagation(); flowRemoveNode(n.id); });
@@ -278,6 +286,7 @@ function flowAddNode(type: FlowKind, pos: FlowPos): string {
     : type === 'map' ? { label: T('逐条目') + id, phase: '', prompt: '', items: '' }
     : type === 'branch' ? { label: T('分支') + id, cond: '' }
     : type === 'loop' ? { label: T('循环') + id, cond: '', maxRounds: 1, budgetGuard: false }
+    : type === 'log' ? { text: '' }
     : type === 'start' ? { note: '' } : type === 'merge' ? {} : { ret: '' };
   FS.nodes.push({ id, type, position: { x: pos.x, y: pos.y }, data });
   flowRender();
@@ -433,6 +442,17 @@ function renderDraftOptions(): void {
   sel.innerHTML = `<option value="">${esc(T('载入草稿…'))}</option>` +
     fDrafts.map(x => `<option value="${esc(x.name)}">${esc(String(x.meta?.name || x.name))}</option>`).join('');
 }
+// agentType 候选(1.2.56):后端只读枚举本机 + 插件 agents;取不到就静默回落自由文本(下拉只是起点,不是约束)
+let fATypes: string[] = [];
+function renderATypes(): void {
+  const dl = $<HTMLElement>('fATypes');
+  if (dl) dl.innerHTML = fATypes.map(t => `<option value="${esc(t)}"></option>`).join('');
+}
+async function loadAgentTypes(): Promise<void> {
+  try { fATypes = ((await (await fetch('/api/agents')).json() as { types?: string[] }).types) || []; }
+  catch { fATypes = []; }
+  renderATypes();
+}
 async function loadFlowDrafts(cwd: string): Promise<void> {
   const sel = $<HTMLSelectElement>('fDraft');
   try { fDrafts = ((await (await fetch('/api/drafts?proj=' + encodeURIComponent(cwd || ''))).json() as DraftsResp).drafts) || []; }
@@ -496,6 +516,7 @@ async function openFlow(cwd: string): Promise<void> {
   $<HTMLElement>('fOver').hidden = true;
   flowErr('');
   await loadFlowDrafts(FS.cwd);
+  void loadAgentTypes();
   const saved = autosavePeek(FS.cwd);
   if (saved) {
     // 上次未显式保存的编辑:先问再恢复(不静默覆盖用户刚存的版本),拒绝则回到"有草稿载入/无草稿示例"的正常态
