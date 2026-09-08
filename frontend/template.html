@@ -343,6 +343,11 @@ body.flow-open{overflow:hidden}
 .flow-side{width:min(44ch,38%);flex:0 0 auto;border-left:1px solid var(--ln);background:var(--pnl);display:flex;flex-direction:column;min-width:0}
 .flow-bar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--ln);flex-wrap:wrap}
 #fStat{margin-left:auto;font:500 9px var(--mono);letter-spacing:.14em;color:var(--dim2);font-variant-numeric:tabular-nums}
+/* 成本/上限预估条(1.2.55):估算值,超阈值变红(对齐官方 Large workflow 告警) */
+.flow-cost{padding:4px 12px;border-bottom:1px dashed var(--ln2);font:600 10px var(--mono);letter-spacing:.08em;
+ color:var(--cy);background:var(--pnl2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flow-cost.over{color:var(--rd);background:color-mix(in srgb,var(--rd) 12%,var(--pnl2))}
+.flow-cost:empty{display:none}
 /* args 契约面板(1.2.51):schema 文本 + 示例 JSON + 必填开关;错误走 #fErr(紧挨其下) */
 .flow-args{padding:6px 10px;border-top:1px dashed var(--ln2);background:var(--pnl2)}
 .flow-args label{display:block;font:600 9px var(--mono);letter-spacing:.16em;color:var(--dim2);margin-bottom:3px}
@@ -454,6 +459,7 @@ body.flow-open{overflow:hidden}
       <h3 data-i18n="组件 · 点或拖入">组件 · 点或拖入</h3>
       <div class="pal" data-t="agent" tabindex="0"><span data-i18n="◆ Agent 步骤">◆ Agent 步骤</span><small data-i18n="子代理执行一段指令">子代理执行一段指令</small></div>
       <div class="pal" data-t="map" tabindex="0"><span data-i18n="⤾ Map 逐条目">⤾ Map 逐条目</span><small data-i18n="pipeline:对每个条目跑下游各级">pipeline:对每个条目跑下游各级</small></div>
+      <div class="pal" data-t="loop" tabindex="0"><span data-i18n="⧉ Loop 循环">⧉ Loop 循环</span><small data-i18n="while:跑到条件不成立或到上界">while:跑到条件不成立或到上界</small></div>
       <div class="pal" data-t="branch" tabindex="0"><span data-i18n="⋔ Branch 分支">⋔ Branch 分支</span><small data-i18n="if/else:true/false 各走一条">if/else:true/false 各走一条</small></div>
       <div class="pal" data-t="merge" tabindex="0"><span data-i18n="◇ Merge 汇合">◇ Merge 汇合</span><small data-i18n="扇出/分支在此收束">扇出/分支在此收束</small></div>
       <div class="pal" data-t="start" tabindex="0"><span data-i18n="▷ Start 输入">▷ Start 输入</span><small data-i18n="args 入口(每图一个)">args 入口(每图一个)</small></div>
@@ -476,6 +482,7 @@ body.flow-open{overflow:hidden}
     </div></div>
     <div class="flow-side">
       <div class="flow-bar"><button id="fCopy" data-i18n="复制脚本">复制脚本</button><button id="fClear" data-i18n="清空画布">清空画布</button><span id="fStat"></span></div>
+      <div id="fCost" class="flow-cost"></div>
       <div class="pane flow-out" id="fOut" data-t="OUT"><pre id="fScript"></pre></div>
       <div class="flow-args" id="fArgs">
         <label data-i18n="args 契约(JSON Schema)">args 契约(JSON Schema)</label>

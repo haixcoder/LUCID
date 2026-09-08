@@ -46,11 +46,13 @@ type Fu = Partial<{ p: string; r: string; m: boolean }>;
 
 // ── 编排器图契约(1.2.43;与落盘的 <name>.json 草稿 1:1 = 前后端唯一契约,见 dev-guide §3.1)──
 type FlowPos = { x: number; y: number };
-type FlowKind = 'start' | 'agent' | 'map' | 'branch' | 'merge' | 'return';
+type FlowKind = 'start' | 'agent' | 'map' | 'branch' | 'loop' | 'merge' | 'return';
 interface FlowNodeData {
   label?: string; phase?: string; prompt?: string; model?: string; schemaText?: string; note?: string; ret?: string;
   items?: string;          // map 节点的 items 表达式(如 ARGS.paths)——pipeline 的输入列表
-  cond?: string;           // branch 节点的条件表达式(原生 JS,引用已生成的变量名)
+  cond?: string;           // branch/loop 的条件表达式(原生 JS,引用已生成的变量名)
+  maxRounds?: number | string;   // loop 上界(≥1 的整数;空 = 1)
+  budgetGuard?: boolean;   // loop 是否生成 budget 守卫断点
 }
 interface FlowNode { id: string; type: FlowKind; position: FlowPos; data: FlowNodeData; measured?: { width: number; height: number } }
 interface FlowConn { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }

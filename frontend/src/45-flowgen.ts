@@ -10,6 +10,7 @@ const FLOW_MODEL_OK = ['sonnet', 'opus', 'haiku', 'fable', 'mythos'];   // agent
 const FLOW_REF_PROBE = /\{\{(n\d+|start|item|index)\}\}/;
 const FLOW_REF_RE = /\{\{(n\d+|start|item|index)\}\}/g;
 const FLOW_SANDBOX_BANNED = /Date\.now\(\)|Math\.random\(\)|new Date\(\)/;   // 沙箱禁用且破坏 resume
+const FLOW_BUDGET_FLOOR = 50000;       // loop 预算守卫阈值(AD-4):剩余预算低于它就提前收束并 log
 
 // ── 邻接表单点(链/区域分析共用;环由 flowValidate 报,这里只给结构)──
 function flowAdj(fs: FlowDraft): { out: Map<string, string[]>; inn: Map<string, string[]> } {
@@ -24,8 +25,9 @@ function flowAdj(fs: FlowDraft): { out: Map<string, string[]>; inn: Map<string, 
 //   ② 后继多入边 / 是 return → 消费者(exit = 它,区域到此为止);
 //   ③ 后继非 agent → 报错(嵌套组合请走 code 节点)。
 interface FlowWalk { stages: string[][]; inner: Set<string>; exits: string[]; errs: string[] }
-// firstIsStage:start 本身算不算一级。map 链传 false(map 是出码者,不是级);分支区域传 true(区域首节点就是一级)。
-function flowWalkStages(fs: FlowDraft, start: string, where: string, firstIsStage = false): FlowWalk {
+// firstIsStage:start 本身算不算一级。map 链传 false(map 是出码者,不是级);分支/循环体传 true。
+// stopAt:走到这些节点即停(循环体用它停在 loop 节点上)。
+function flowWalkStages(fs: FlowDraft, start: string, where: string, firstIsStage = false, stopAt?: Set<string>): FlowWalk {
   const { out, inn } = flowAdj(fs);
   const byId = new Map(fs.nodes.map(n => [n.id, n]));
   const stages: string[][] = [], inner = new Set<string>(), exits: string[] = [], errs: string[] = [];
@@ -45,6 +47,7 @@ function flowWalkStages(fs: FlowDraft, start: string, where: string, firstIsStag
     if (!succ.length) { exits.push(cur); break; }
     if (succ.length === 1) {
       const s = succ[0], node = byId.get(s)!;
+      if (stopAt && stopAt.has(s)) { exits.push(s); break; }
       if (seen.has(s)) { errs.push(`${where} 出现环`); break; }
       if (node.type === 'return' || (inn.get(s) || []).length > 1) { exits.push(s); break; }
       if (node.type !== 'agent') { errs.push(`${where} 内只允许 agent 级(遇到 ${node.type});嵌套组合请改用 code 节点`); break; }
@@ -64,7 +67,10 @@ function flowWalkStages(fs: FlowDraft, start: string, where: string, firstIsStag
       break;
     }
     for (const s of succ) { inner.add(s); seen.add(s); }
-    stages.push(succ); inner.add(m); seen.add(m); exits.push(m); break;
+    stages.push(succ); inner.add(m); seen.add(m);
+    const mOut = (out.get(m) || []).filter(id => byId.has(id));
+    if (stopAt && mOut.length === 1 && stopAt.has(mOut[0])) { exits.push(mOut[0]); break; }   // 扇出级后直接回到 loop
+    exits.push(m); break;
   }
   return { stages, inner, exits, errs };
 }
@@ -116,11 +122,81 @@ function flowBranchRegions(fs: FlowDraft): Map<string, BranchRegion> {
   for (const n of fs.nodes) if (n.type === 'branch') m.set(n.id, flowBranchRegion(fs, n.id));
   return m;
 }
-// 区域归属单点(引用校验用):节点 → 它所属的区域(map 链 / 分支区域)。map 自己不入表(它持有整条 pipeline 的结果)。
-function flowRegionOf(chains: Map<string, MapChain>, branches: Map<string, BranchRegion>): Map<string, { kind: 'map' | 'branch'; id: string }> {
-  const m = new Map<string, { kind: 'map' | 'branch'; id: string }>();
+// ── 循环区域单点(Phase 6,PRD §5.2 规则 1)────────────────────────────────
+// 回边 = 指向 loop 节点、且来源在它体内的边。**环检测必须放行它**(否则合法循环被当成环报错),
+// 而"不在任何 loop 体内的环"照旧报错——判定靠 flowBackEdgeIds 一处。
+function flowLoopBody(fs: FlowDraft, loopId: string): { entry: string | null; inner: Set<string> } {
+  const { out } = flowAdj(fs);
+  const be = fs.edges.filter(e => e.source === loopId && e.sourceHandle === 'body');
+  const entry = be.length === 1 ? be[0].target : null;
+  const inner = new Set<string>();
+  if (!entry) return { entry, inner };
+  const stack = [entry];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (id === loopId || inner.has(id)) continue;
+    inner.add(id);
+    for (const s of out.get(id) || []) if (s !== loopId) stack.push(s);
+  }
+  return { entry, inner };
+}
+function flowBackEdgeIds(fs: FlowDraft): Set<string> {
+  const back = new Set<string>();
+  for (const n of fs.nodes) {
+    if (n.type !== 'loop') continue;
+    const { inner } = flowLoopBody(fs, n.id);
+    for (const e of fs.edges) if (e.target === n.id && inner.has(e.source)) back.add(e.id);
+  }
+  return back;
+}
+interface LoopRegion { loopId: string; cond: string; maxRounds: number; budgetGuard: boolean; stages: string[][]; inner: Set<string>; errs: string[] }
+function flowLoopRegion(fs: FlowDraft, loopId: string): LoopRegion {
+  const byId = new Map(fs.nodes.map(n => [n.id, n]));
+  const d = byId.get(loopId)?.data || {};
+  const cond = String(d.cond || '').trim();
+  const raw = d.maxRounds;
+  const maxRounds = (raw === undefined || raw === null || String(raw).trim() === '') ? 1 : Number(raw);
+  const errs: string[] = [];
+  if (!cond) errs.push(`节点 ${loopId} 的 loop 缺少 cond 条件表达式`);
+  if (!Number.isInteger(maxRounds) || maxRounds < 1) errs.push(`节点 ${loopId} 的 maxRounds 必须是 ≥1 的整数(收到 ${JSON.stringify(raw)})`);
+  const { entry } = flowLoopBody(fs, loopId);
+  if (!entry) { errs.push(`节点 ${loopId} 的 loop 必须有一条 body 出边(循环体入口)`); return { loopId, cond, maxRounds, budgetGuard: !!d.budgetGuard, stages: [], inner: new Set(), errs }; }
+  const { out, inn } = flowAdj(fs);
+  const entryIn = (inn.get(entry) || []).filter(id => id !== loopId);
+  if (entryIn.length) errs.push(`节点 ${loopId} 的循环体不是单入口(体首 ${entry} 还有来自 ${entryIn.join(', ')} 的入边)`);
+  const w = flowWalkStages(fs, entry, `节点 ${loopId} 的循环体`, true, new Set([loopId]));
+  errs.push(...w.errs);
+  if (!(w.exits.length === 1 && w.exits[0] === loopId)) errs.push(`节点 ${loopId} 的循环体不是单出口(体末必须回到 loop 节点)`);
+  for (const id of w.inner) {
+    const bad = (out.get(id) || []).filter(x => x !== loopId && !w.inner.has(x));
+    if (bad.length) errs.push(`节点 ${loopId} 的循环体不是单出口(${id} 还连到体外的 ${bad.join(', ')})`);
+  }
+  return { loopId, cond, maxRounds, budgetGuard: !!d.budgetGuard, stages: w.stages, inner: w.inner, errs };
+}
+function flowLoopRegions(fs: FlowDraft): Map<string, LoopRegion> {
+  const m = new Map<string, LoopRegion>();
+  for (const n of fs.nodes) if (n.type === 'loop') m.set(n.id, flowLoopRegion(fs, n.id));
+  return m;
+}
+// 代理数估算单点(成本条口径,PRD §5.4 规则 7):每个 agent 计 1 × 它所在**全部** loop 的 maxRounds 之积。
+// 这是估算值——并发上限 16、单次运行代理总数上限 1000 由界面写明,不假装精确。
+function flowAgentEstimate(fs: FlowDraft): number {
+  const loops = flowLoopRegions(fs);
+  let total = 0;
+  for (const n of fs.nodes) {
+    if (n.type !== 'agent') continue;
+    let mult = 1;
+    for (const lp of loops.values()) if (lp.inner.has(n.id)) mult *= lp.maxRounds;
+    total += mult;
+  }
+  return total;
+}
+// 区域归属单点(引用校验用):节点 → 它所属的区域(map 链 / 分支区域 / 循环体)。map/loop 自己不入表(它们持有结果)。
+function flowRegionOf(chains: Map<string, MapChain>, branches: Map<string, BranchRegion>, loops: Map<string, LoopRegion>): Map<string, { kind: 'map' | 'branch' | 'loop'; id: string }> {
+  const m = new Map<string, { kind: 'map' | 'branch' | 'loop'; id: string }>();
   for (const c of chains.values()) for (const id of c.inner) m.set(id, { kind: 'map', id: c.mapId });
   for (const b of branches.values()) for (const id of b.inner) m.set(id, { kind: 'branch', id: b.branchId });
+  for (const l of loops.values()) for (const id of l.inner) m.set(id, { kind: 'loop', id: l.loopId });
   return m;
 }
 
@@ -150,7 +226,8 @@ function flowUpstream(fs: FlowDraft): Map<string, Set<string>> {
 // 拓扑分层 + 结构诊断(环 / 自环 / 孤立 / Start 空转)。groups=每层的节点 id;诊断非空时调用方不得出码。
 function flowLevels(fs: FlowDraft): { groups: string[][]; orphan: string[]; cycle: string[]; dangling: string[]; selfEdge: string[] } {
   const ids = fs.nodes.map(n => n.id), known = new Set(ids);
-  const es = fs.edges.filter(e => known.has(e.source) && known.has(e.target) && e.source !== e.target);
+  const back = flowBackEdgeIds(fs);        // 回边不参与分层:合法循环不该被当成环
+  const es = fs.edges.filter(e => known.has(e.source) && known.has(e.target) && e.source !== e.target && !back.has(e.id));
   const indeg = new Map<string, number>(ids.map(i => [i, 0]));
   const out = new Map<string, string[]>(ids.map(i => [i, []]));
   const deg = new Map<string, number>(ids.map(i => [i, 0]));
@@ -182,11 +259,11 @@ function flowLevels(fs: FlowDraft): { groups: string[][]; orphan: string[]; cycl
   return { groups, orphan, cycle, dangling, selfEdge };
 }
 
-function flowRefErrs(fs: FlowDraft, chains: Map<string, MapChain>, branches: Map<string, BranchRegion>): string[] {
+function flowRefErrs(fs: FlowDraft, chains: Map<string, MapChain>, branches: Map<string, BranchRegion>, loops: Map<string, LoopRegion>): string[] {
   const byId = new Map(fs.nodes.map(n => [n.id, n]));
   const up = flowUpstream(fs);
   const startId = fs.nodes.find(n => n.type === 'start')?.id;
-  const regionOf = flowRegionOf(chains, branches);
+  const regionOf = flowRegionOf(chains, branches, loops);
   const errs: string[] = [];
   for (const n of fs.nodes) {
     if (n.type !== 'agent' && n.type !== 'map') continue;
@@ -218,7 +295,9 @@ function flowRefErrs(fs: FlowDraft, chains: Map<string, MapChain>, branches: Map
         // 区域外引用:map 链内变量只活在回调闭包,pipeline 自身的结果也要等它算完
         errs.push(tgtRegion.kind === 'map'
           ? `节点 ${n.id} 引用了 map 链内的节点 {{${ref}}}(链内变量只在 pipeline 回调里存在)`
-          : `节点 ${n.id} 引用了分支区域内的节点 {{${ref}}}(块作用域变量在分支外不可见,请用 merge 汇合)`);
+          : tgtRegion.kind === 'loop'
+            ? `节点 ${n.id} 引用了循环体内的节点 {{${ref}}}(循环体变量在循环外不可见,请引用 loop 节点自身)`
+            : `节点 ${n.id} 引用了分支区域内的节点 {{${ref}}}(块作用域变量在分支外不可见,请用 merge 汇合)`);
         continue;
       }
       if (!(up.get(n.id)?.has(target))) errs.push(`节点 ${n.id} 的 {{${ref}}} 不是它的上游(连不到 = 拿不到结果)`);
@@ -273,16 +352,18 @@ function flowValidate(fs: FlowDraft): string[] {
     if (!String(byId.get(c.mapId)?.data.items || '').trim()) errs.push(`节点 ${c.mapId} 的 map 缺少 items 表达式`);
     if (!c.stages.length) errs.push(`节点 ${c.mapId} 的 map 至少要接一级 agent(它自身是 pipeline 入口,不是级)`);
   }
-  // ── 区域:分支(Phase 5)──
+  // ── 区域:分支(Phase 5)+ 循环(Phase 6)──
   const branches = flowBranchRegions(fs);
   for (const b of branches.values()) errs.push(...b.errs);
-  // map / branch 会独占一个 await 点(if/else 或 pipeline 不能塞进 parallel thunk):与别的步骤同层没法表达
+  const loops = flowLoopRegions(fs);
+  for (const l of loops.values()) errs.push(...l.errs);
+  // map / branch / loop 会独占一个 await 点(if/else、pipeline、while 都不能塞进 parallel thunk):与别的步骤同层没法表达
   for (const g of groups) {
     if (!g) continue;
-    const solo = g.filter(id => { const t = byId.get(id)?.type; return t === 'map' || t === 'branch'; });
-    if (solo.length && g.length > 1) errs.push(`节点 ${solo.join(', ')}(map/branch)不能与其他步骤同层(它会独占一个 await 点)`);
+    const solo = g.filter(id => { const t = byId.get(id)?.type; return t === 'map' || t === 'branch' || t === 'loop'; });
+    if (solo.length && g.length > 1) errs.push(`节点 ${solo.join(', ')}(map/branch/loop)不能与其他步骤同层(它会独占一个 await 点)`);
   }
-  errs.push(...flowRefErrs(fs, chains, branches));
+  errs.push(...flowRefErrs(fs, chains, branches, loops));
   for (const n of fs.nodes) if (n.type === 'agent') errs.push(...flowSchemaErrs(`节点 ${n.id} 的 schema`, String(n.data.schemaText || '')));
   const aspec = flowArgsSpec(fs);
   errs.push(...flowSchemaErrs('args 的 schema', aspec.schemaText));
@@ -375,9 +456,11 @@ function flowGenerate(fs: FlowDraft): string {
   // map 链 / 分支区域:区域内节点由 pipeline 回调或 if/else 块内部消化,不再作为顶层语句出现
   const chains = flowMapChains(fs);
   const branches = flowBranchRegions(fs);
+  const loops = flowLoopRegions(fs);
   const innerAll = new Set<string>();
   for (const c of chains.values()) c.inner.forEach(id => innerAll.add(id));
   for (const b of branches.values()) b.inner.forEach(id => innerAll.add(id));
+  for (const l of loops.values()) l.inner.forEach(id => innerAll.add(id));
   const lines: string[] = [];
   lines.push(`// 由 Lucid 编排器生成 —— 目标项目: ${fs.cwd || '(未填)'}`);
   lines.push(`// 用法: cd 目标项目 && Workflow({ scriptPath: '<本文件路径>', args: '<输入>' })`);
@@ -455,6 +538,19 @@ function flowGenerate(fs: FlowDraft): string {
     const live = g.filter(id => !innerAll.has(id));
     if (!live.length) continue;
     for (const id of live) if (byId(id)?.type === 'map') lines.push(`const ${id} = await ${pipeExpr(chains.get(id)!)}`);
+    for (const id of live) {
+      const lp = loops.get(id);
+      if (!lp) continue;
+      lines.push(`let ${id};`);
+      lines.push('{');                                        // 块作用域:多个循环各自的 round 不打架
+      lines.push('  let round = 0;');
+      lines.push(`  while ((${lp.cond}) && round < ${lp.maxRounds}) {`);
+      if (lp.budgetGuard) lines.push(`    if (budget.total && budget.remaining() < ${FLOW_BUDGET_FLOOR}) { log('预算将尽,提前收束'); break }`);
+      lines.push('    round++;');
+      emitRegion(lp.stages, id, '    ');
+      lines.push('  }');
+      lines.push('}');
+    }
     for (const id of live) {
       const b = branches.get(id);
       if (!b) continue;

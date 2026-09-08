@@ -63,7 +63,7 @@ function handleHTML(n: FlowNode, type: 'source' | 'target', hid?: string, pos?: 
 }
 function nodeHTML(n: FlowNode): string {
   const d = n.data, t = n.type;
-  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
+  const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'loop' ? 'LOOP' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
   let fields = '';
   if (t === 'start') fields = `<label>${T('说明(生成 args 入口)')}</label><input class="nodrag f-note" value="${esc(d.note || '')}" placeholder="${esc(T('如:调研选题'))}">`;
   if (t === 'agent') fields =
@@ -79,11 +79,18 @@ function nodeHTML(n: FlowNode): string {
     `<label>${T('label')}</label><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label">` +
     `<label>${T('条件表达式')}</label><input class="nodrag f-cond" value="${esc(d.cond || '')}" placeholder="n2.length === 0">` +
     `<div class="fnote">${T('true / false 各接一条分支,必须汇于同一个 merge(或同一个 return)')}</div>`;
+  if (t === 'loop') fields =
+    `<label>${T('label')}</label><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label">` +
+    `<label>${T('条件表达式')}</label><input class="nodrag f-cond" value="${esc(d.cond || '')}" placeholder="dry < 2">` +
+    `<label>${T('循环上界 maxRounds')}</label><input class="nodrag f-rounds" type="number" min="1" value="${esc(String(d.maxRounds === undefined || d.maxRounds === '' ? 1 : d.maxRounds))}">` +
+    `<label class="ck"><input type="checkbox" class="nodrag f-guard"${d.budgetGuard ? ' checked' : ''}><span>${T('预算守卫(剩余不足时提前收束)')}</span></label>` +
+    `<div class="fnote">${T('循环体:body 出把接进去,体末连回本节点;out 接循环之后的步骤')}</div>`;
   if (t === 'merge') fields = `<div class="fnote">${T('汇合点:扇出/分支在此收束,自身不执行')}</div>`;
   if (t === 'return') fields = `<label>${T('return 表达式')}</label><textarea class="nodrag f-ret" rows="2">${esc(d.ret || '')}</textarea>`;
   // 徽章 = 脚本里的变量名:下游 prompt 要敲的 {{nX}} 就是它(结构即信息,不是装饰)
-  const sub = (t === 'agent' || t === 'map' || t === 'branch') && d.label ? `<span>${esc(d.label)}</span>` : '';
+  const sub = (t === 'agent' || t === 'map' || t === 'branch' || t === 'loop') && d.label ? `<span>${esc(d.label)}</span>` : '';
   const hs = t === 'branch' ? handleHTML(n, 'target') + handleHTML(n, 'source', 'true', 'right') + handleHTML(n, 'source', 'false', 'right')
+    : t === 'loop' ? handleHTML(n, 'target') + handleHTML(n, 'source', 'body', 'right') + handleHTML(n, 'source', 'out', 'right')
     : t === 'merge' ? handleHTML(n, 'target', 'in', 'left') + handleHTML(n, 'target', 'in2', 'left') + handleHTML(n, 'source')
     : (t !== 'start' ? handleHTML(n, 'target') : '') + (t !== 'return' ? handleHTML(n, 'source') : '');
   return `<div class="wfnode t-${t} ${FLOW_LIB}-flow__node nopan${FS.sel.has(n.id) ? ' sel' : ''}" data-nodeid="${n.id}" style="left:${n.position.x}px;top:${n.position.y}px">` +
@@ -151,14 +158,16 @@ function wireNodes(): void {
     const bind = (sel: string, key: keyof FlowNodeData): void => {
       const f = el.querySelector<HTMLInputElement>(sel);
       if (f) f.addEventListener('input', () => {
-        n.data[key] = f.value;
+        (n.data as Record<string, unknown>)[key] = f.value;   // maxRounds 存原文(number|string 联合),解析在校验器一处
         if (key === 'label') { const sp = el.querySelector('.hd span'); if (sp) sp.textContent = String(n.data.label || ''); }
         refreshFlowScript(); autosaveFlow();
       });
     };
     bind('.f-label', 'label'); bind('.f-phase', 'phase'); bind('.f-prompt', 'prompt');
     bind('.f-model', 'model'); bind('.f-schema', 'schemaText'); bind('.f-ret', 'ret'); bind('.f-note', 'note');
-    bind('.f-items', 'items'); bind('.f-cond', 'cond');
+    bind('.f-items', 'items'); bind('.f-cond', 'cond'); bind('.f-rounds', 'maxRounds');
+    const guard = el.querySelector<HTMLInputElement>('.f-guard');
+    if (guard) guard.addEventListener('change', () => { n.data.budgetGuard = guard.checked; refreshFlowScript(); autosaveFlow(); });
     el.querySelector('.tag')?.addEventListener('mousedown', e => { e.stopPropagation(); flowRemoveNode(n.id); });
     el.addEventListener('mousedown', () => { if (!FS.sel.has(n.id)) { FS.sel.clear(); FS.sel.add(n.id); refreshSel(); } });
     el.querySelectorAll('.lucid-flow__handle').forEach(h => {
@@ -268,6 +277,7 @@ function flowAddNode(type: FlowKind, pos: FlowPos): string {
   const data: FlowNodeData = type === 'agent' ? { label: T('步骤') + id, phase: '', prompt: '', model: '', schemaText: '' }
     : type === 'map' ? { label: T('逐条目') + id, phase: '', prompt: '', items: '' }
     : type === 'branch' ? { label: T('分支') + id, cond: '' }
+    : type === 'loop' ? { label: T('循环') + id, cond: '', maxRounds: 1, budgetGuard: false }
     : type === 'start' ? { note: '' } : type === 'merge' ? {} : { ret: '' };
   FS.nodes.push({ id, type, position: { x: pos.x, y: pos.y }, data });
   flowRender();
@@ -314,9 +324,25 @@ function renderPhaseBand(force = false): void {
 // ── 脚本预览 + 校验(铁律 7:错误清单不裁,定高滚动)+ 两块读数 ──
 // 阶段条数据只读 flowMetaPhases 单点(与生成脚本用的是同一个函数:编排时看到的 == 跑起来看到的);
 // 读数全用数字与符号(行数/字节/段数),不新增文案。
+// 成本/上限预估条(1.2.55):估算值来自 flowAgentEstimate 单点;阈值 25 对齐官方 `Large workflow` 告警。
+const FLOW_LARGE_AGENTS = 25;
+function renderCost(d: FlowDraft): void {
+  const el = $<HTMLElement>('fCost'); if (!el) return;
+  const n = flowAgentEstimate(d);
+  const loops = [...flowLoopRegions(d).values()];
+  const maxR = loops.reduce((m, l) => Math.max(m, l.maxRounds), 0);
+  const parts = [`◆${n}`, T('并发≤16')];
+  if (maxR) parts.push(T('循环上界≤%1', maxR));
+  if (loops.some(l => l.budgetGuard)) parts.push(T('预算守卫'));
+  el.textContent = parts.join(' · ');
+  el.classList.toggle('over', n >= FLOW_LARGE_AGENTS);
+  el.title = n >= FLOW_LARGE_AGENTS
+    ? T('预计代理数 ≥%1:官方在 >25 个代理时会给 Large workflow 告警(建议性,不拦)', FLOW_LARGE_AGENTS)
+    : T('估算值:agent 数 × 所在循环的 maxRounds;并发上限 16、单次运行代理总数上限 1000');
+}
 function refreshFlowScript(): void {
   const out = $<HTMLElement>('fScript'), d = flowDraft(), errs = flowValidate(d);
-  renderPhaseBand();
+  renderPhaseBand(); renderCost(d);
   const stat = $<HTMLElement>('fStat'), label = $<HTMLElement>('fOut');
   if (label) label.setAttribute('data-t', 'OUT · ' + T('运行产物'));
   let js = '';
@@ -741,6 +767,18 @@ function flowSmoke(): void {
       refreshFlowScript();
       const bs = $<HTMLElement>('fScript').textContent || '';
       check('branch-gen', new RegExp('let ' + bM + ';').test(bs) && /if \(args === 1\) \{/.test(bs) && /\} else \{/.test(bs) && $<HTMLElement>('fErr').hidden);
+      // 1.2.55 loop(Phase 6):建图(含回边)→ 出码含 while + 成本条
+      flowBlank();
+      const lSt = sm('start', 60, 150, { note: 'q' }), lLp = sm('loop', 300, 150, { label: 'L', cond: 'true', maxRounds: 3, budgetGuard: true });
+      const lAg = sm('agent', 560, 150, { label: 'A', phase: 'P', prompt: 'a' }), lRt = sm('return', 820, 150, { ret: '' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: lSt, sourceHandle: 'out', target: lLp, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: lLp, sourceHandle: 'body', target: lAg, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: lAg, sourceHandle: 'out', target: lLp, targetHandle: 'in' });
+      FS.edges.push({ id: 'e' + (FS.next++), source: lLp, sourceHandle: 'out', target: lRt, targetHandle: 'in' });
+      refreshFlowScript();
+      const ls = $<HTMLElement>('fScript').textContent || '';
+      check('loop-gen', /while \(\(true\) && round < 3\) \{/.test(ls) && /budget\.remaining\(\)/.test(ls)
+        && /◆3/.test($<HTMLElement>('fCost').textContent || '') && $<HTMLElement>('fErr').hidden);
       refreshFlowScript();
       check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');

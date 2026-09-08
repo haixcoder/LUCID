@@ -98,3 +98,22 @@
 **影响后续相位的发现：**
 - `flowWalkStages` 现在有三个调用点（map 链 ×1、branch ×2）；Phase 6 的 loop 区域（单入口单出口）应复用同一走链器，别再写第四份。
 - `merge` 的语义已统一：**汇合点，自身不执行**；map 扇出级、branch 汇合、Phase 6 loop 出口都可用它（入把 in/in2，允许 1 入 = 显式"区域结束"标记）。
+
+## Phase 6 · loop + budget 守卫 + 成本/上限预估条 — 完成（1.2.54 → 1.2.55）
+
+**结果：** run_all GREEN 38/38（新增 `test_flowgen_loop.ts` 16 断言、`tests/browser/test_loop_real.ts` 4 断言真实输入）；`?flowsmoke=1` = SMOKE OK 十五项（新增 `loop-gen`）。
+
+**实现：**
+- 回边 = 指向 loop 节点、来源在其体内的边（不新增 handle，用户把体末连回 loop 即得）；`flowBackEdgeIds` 让 `flowLevels` 忽略回边 → 合法循环不再被当环报错，非 loop 环照旧报错。
+- `flowLoopRegion` 单点：单入口（体首入边只许来自 loop）、单出口（体末必须且只能回到 loop）、cond 非空、maxRounds 为 ≥1 整数（空=1）。
+- 生成 `let <loop>; { let round = 0; while ((cond) && round < N) { [预算守卫] round++; 体 } }`；预算守卫阈值 `FLOW_BUDGET_FLOOR=50000`。
+- `flowAgentEstimate` 单点 + `#fCost` 成本条（`◆N · 并发≤16 · 循环上界≤M · 预算守卫`，≥25 变红并挂 title 说明"估算值/上限"）。
+- UI：loop 卡片（label/cond/maxRounds/预算守卫开关/语义提示）、body+out 双出把（CSS 上下错位）、palette 加 Loop。
+
+**偏离计划：**
+- 计划/AD-1 的草稿示例把回边写成 `sourceHandle:'back'`；实际**不新增 handle**——回边靠"目标 = loop 节点"判定。理由：让用户多记一个把手不值当，且 `handleHTML` 的 data-id 契约不必扩。
+- AD-4 的 loop 示例用 `let n7 = [], round = 0, dry = 0`（用户自管累积变量）；实际只发 `let <loop>` + 块内 `round`，cond 由用户写原生 JS（引用外层变量/loop 结果）。这样不会凭空发明用户没写过的变量。
+
+**影响后续相位的发现：**
+- `flowWalkStages` 现有 4 个调用点（map ×1、branch ×2、loop ×1）；Phase 7/8 若再加区域（不该有）必须先想清楚是否复用。
+- 成本条是"视图口径"：`flowAgentEstimate` 只此一处，Phase 9 真机验收要对照 `/workflows` 实际代理数（估算是上界，不是承诺）。

@@ -803,5 +803,25 @@ const FAN = {
      && gEl.querySelector('.h-in2')!.getAttribute('data-id') === `lwf-${gid}-in2-target`);
   ck('map 卡片写明"下游每级 = pipeline 的一级"这条语义(不撒谎)',
      /pipeline/.test(visibleText(midEl)), visibleText(midEl).slice(0, 120));
+  // ── loop 卡片与成本条(1.2.55 · Phase 6)──
+  const lid = String(envD.get('flowAddNode("loop", { x: 10, y: 500 })'));
+  const lidEl = querySelectorEl(envD.rootEl, `.wfnode[data-nodeid="${lid}"]`);
+  ck('loop 卡片 = LOOP 徽章 + cond + maxRounds + 预算守卫开关',
+     /LOOP/.test(lidEl.querySelector('.hd b')!.textContent) && !!lidEl.querySelector('input.f-cond')
+     && !!lidEl.querySelector('input.f-rounds') && !!lidEl.querySelector('input.f-guard'),
+     lidEl.textContent.slice(0, 60));
+  ck('loop 的 body/out 两个出把 data-id 拼法不变',
+     lidEl.querySelector('.h-body')!.getAttribute('data-id') === `lwf-${lid}-body-source`
+     && lidEl.querySelector('.h-out')!.getAttribute('data-id') === `lwf-${lid}-out-source`);
+  ck('maxRounds 输入框默认 1 且 type=number(min=1)', lidEl.querySelector('input.f-rounds')!.value === '1'
+     && lidEl.querySelector('input.f-rounds')!.getAttribute('min') === '1');
+  ck('成本条显示代理数估算与并发上限(口径来自 flowAgentEstimate 单点)',
+     /◆\d+/.test(envD.$('fCost').textContent) && /16/.test(envD.$('fCost').textContent), envD.$('fCost').textContent);
+  envD.run('FS.nodes = [{id:"n1",type:"start",position:{x:0,y:0},data:{note:"q"}},'
+    + '...Array.from({length:25},(_,i)=>({id:"a"+i,type:"agent",position:{x:0,y:0},data:{label:"a",prompt:"x"}})),'
+    + '{id:"n9",type:"return",position:{x:0,y:0},data:{ret:""}}]; FS.edges = []; refreshFlowScript()');
+  ck('≥25 个代理 → 成本条变红(.over)且写清"官方会告警"(估算不撒谎)',
+     /◆25/.test(envD.$('fCost').textContent) && /over/.test(String(envD.$('fCost').attrs.class))
+     && /Large workflow/.test(envD.$('fCost').title), envD.$('fCost').textContent + ' | ' + envD.$('fCost').title.slice(0, 80));
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });
