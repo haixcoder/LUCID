@@ -51,8 +51,10 @@ const ALL = {
   ck('出码/meta 的 phases 与显式阶段带逐字一致',
      /phases: \[\{ title: "Scan", detail: "逐条目审计" \}, \{ title: "Judge" \}, \{ title: "Iterate" \}\]/.test(js), js.slice(0, 300));
   ck('出码/产物不含沙箱禁用调用', !/Date\.now\(\)|Math\.random\(\)/.test(js));
-  ck('出码/成本条口径 = 代理数 × 循环上界(map 链 2 + 分支 1 + 循环 1×2 = 5)',
-     (env.get('flowAgentEstimate(' + JSON.stringify(ALL) + ')') as number) === 5, String(env.get('flowAgentEstimate(' + JSON.stringify(ALL) + ')')));
+  // 1.2.64 口径变更:分支双臂只跑一条 → 按 max 计(n6/n7 各 1 → 计 1,旧实现求和会给出 2);
+  // map 节点自身的级 1 是**逐条目**的 agent 调用,基数静态不可知 → 不计(成本条 title 已明写)。
+  ck('出码/成本条口径 = 代理数 × 循环上界(map 级 2 的 1 + 分支 max(1,1)=1 + 循环 1×2 = 4)',
+     (env.get('flowAgentEstimate(' + JSON.stringify(ALL) + ')') as number) === 4, String(env.get('flowAgentEstimate(' + JSON.stringify(ALL) + ')')));
 
   // ── 沙箱真跑:每种节点型都被执行到 ──
   const order: string[] = [];

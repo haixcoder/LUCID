@@ -75,6 +75,7 @@ type FlowPhase = { title: string; detail?: string; model?: string };   // meta.p
 type FlowArgsSpec = { schemaText: string; exampleText: string; required: boolean };
 interface FlowDraft {
   v: 1 | 2; name: string; desc: string; cwd: string;
+  title?: string;   // 1.2.64:meta.title(二进制 E() 归一化保留的可选字段;空则不落码)
   whenToUse?: string; phases?: FlowPhase[]; argsSpec?: FlowArgsSpec;   // v2 加宽字段(v1 草稿缺省为空 = 与旧行为逐字节一致)
   nodes: FlowNode[]; edges: FlowEdge[]; next: number; view: FlowView;
 }

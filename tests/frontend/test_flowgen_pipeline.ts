@@ -109,5 +109,26 @@ const MAPFAN = {
   ck('校验/合法 map 图零错误', V(dft(MAP2.nodes, MAP2.edges)).length === 0 && V(dft(MAPFAN.nodes, MAPFAN.edges)).length === 0,
      JSON.stringify([V(dft(MAP2.nodes, MAP2.edges)), V(dft(MAPFAN.nodes, MAPFAN.edges))]));
 
+  // ── map 节点自身 = 级 1 的 agent 调用(1.2.64):它的 model/effort/agentType/isolation/schema/retry 必须同样生效 ──
+  const MAPOPT = dft(JSON.parse(JSON.stringify(MAP2.nodes)), JSON.parse(JSON.stringify(MAP2.edges)));
+  MAPOPT.nodes[1].data = Object.assign({}, MAPOPT.nodes[1].data,
+    { model: 'haiku', effort: 'low', agentType: 'code-reviewer', isolation: true, retryN: 2,
+      schemaText: '{"type":"object","properties":{"ok":{"type":"boolean"}}}' });
+  const rOpt = await runFlowScript(G(MAPOPT), { paths: ['a.ts'] });
+  ck('map/级 1 的 model/effort/agentType/isolation 落到 opts',
+     rOpt.calls[0].opts.model === 'haiku' && rOpt.calls[0].opts.effort === 'low'
+     && rOpt.calls[0].opts.agentType === 'code-reviewer' && rOpt.calls[0].opts.isolation === 'worktree',
+     JSON.stringify(rOpt.calls[0].opts));
+  ck('map/级 1 的 schema 常量已声明且 opts.schema 是真对象(旧实现只给 agent 节点出 SCHEMA_,map 会引用未定义变量)',
+     !!rOpt.calls[0].opts.schema && rOpt.calls[0].opts.schema.type === 'object' && /const SCHEMA_n2 = \{/.test(G(MAPOPT)),
+     JSON.stringify(rOpt.calls[0].opts.schema));
+  ck('map/级 1 的 retry 也生效($retry 包裹该级回调)', /\(prev, item, i\) => \$retry\(/.test(G(MAPOPT)),
+     G(MAPOPT).split('\n').filter(l => l.includes('pipeline'))[0]);
+  const BADOPT = JSON.parse(JSON.stringify(MAPOPT)); BADOPT.nodes[1].data.model = 'gpt-4';
+  ck('map/非法 model → 校验报错(与 agent 节点同口径,map 的级 1 也是 agent 调用)',
+     V(BADOPT).some(e => e.includes('n2') && e.includes('model')), JSON.stringify(V(BADOPT)));
+  ck('map/未设选项时 opts 里不出现这些键(空字段不落码)',
+     !/model:|effort:|agentType:|isolation:/.test(G(MAP2)), G(MAP2).split('\n').filter(l => l.includes('pipeline'))[0]);
+
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

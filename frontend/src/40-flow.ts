@@ -15,8 +15,8 @@ const FLOW_LS = 'wfo-flow-autosave-';  // 防误关丢失(按项目 slug 存;显
 const FLOW_MODELS = ['sonnet', 'opus', 'haiku', 'fable', 'mythos'];
 const FLOW_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];   // agent(opts.effort) 五档(官方技能)
 
-interface FlowStore { name: string; desc: string; cwd: string; whenToUse: string; phases: FlowPhase[]; argsSpec: FlowArgsSpec; nodes: FlowNode[]; edges: FlowEdge[]; next: number; sel: Set<string>; view: FlowView }
-let FS: FlowStore = { name: '', desc: '', cwd: '', whenToUse: '', phases: [], argsSpec: { schemaText: '', exampleText: '', required: false }, nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
+interface FlowStore { name: string; desc: string; title: string; cwd: string; whenToUse: string; phases: FlowPhase[]; argsSpec: FlowArgsSpec; nodes: FlowNode[]; edges: FlowEdge[]; next: number; sel: Set<string>; view: FlowView }
+let FS: FlowStore = { name: '', desc: '', title: '', cwd: '', whenToUse: '', phases: [], argsSpec: { schemaText: '', exampleText: '', required: false }, nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
 let flowVisible = false, flowWired = false;
 let fpz: FlowPanZoom | null = null;
 const flookup = new Map<string, FlowIntern>();       // adoptUserNodes 的产物(XYDrag/XYHandle 都读它)
@@ -96,6 +96,18 @@ function chipsHTML(n: FlowNode): string {
   return `<span class="fh-k">${T('字段选择')}</span>` + chips.map(c =>
     `<button type="button" class="chip nodrag" data-ins="${esc(c.ins)}" title="${esc(c.title + ' · ' + T('点击插入到光标处'))}">${esc(c.text)}</button>`).join('');
 }
+// agent 选项字段的**唯一 HTML 实现**(1.2.64):agent 与 map 共用——map 的级 1 就是 map 节点自身发出的
+// agent() 调用(走同一个 opt()/call()),所以它同样要能配 model/effort/agentType/isolation/schema/retry。
+// 两份手写必然漂移(新增选项只改一处),故抽成单点。自定义 claude-* 全 id 必须补进选项——
+// 校验器放行它,而固定 5 档 select 会把草稿里的值显示成 inherit、一碰就覆盖丢失(1.2.64 修)。
+function optFieldsHTML(d: FlowNodeData): string {
+  const cur = String(d.model || '');
+  const extra = cur && !FLOW_MODELS.includes(cur) ? `<option selected>${esc(cur)}</option>` : '';
+  return `<label>${T('model / schema(可空)')}</label><div class="frow"><select class="nodrag f-model"><option value="">inherit</option>${extra}${FLOW_MODELS.map(m => `<option${cur === m ? ' selected' : ''}>${m}</option>`).join('')}</select><textarea class="nodrag f-schema" rows="1" placeholder="{JSON Schema}">${esc(d.schemaText || '')}</textarea></div>` +
+    `<label>${T('effort / agentType(可空)')}</label><div class="frow"><select class="nodrag f-effort"><option value="">inherit</option>${FLOW_EFFORTS.map(e => `<option${d.effort === e ? ' selected' : ''}>${e}</option>`).join('')}</select><input class="nodrag f-atype" list="fATypes" value="${esc(d.agentType || '')}" placeholder="agentType"></div>` +
+    `<label>${T('retry(n / 退避 ms;0 = 不重试)')}</label><div class="frow"><input class="nodrag f-rn" type="number" min="0" value="${esc(String(d.retryN === undefined || d.retryN === '' ? 0 : d.retryN))}"><input class="nodrag f-rms" type="number" min="0" value="${esc(String(d.retryMs === undefined || d.retryMs === '' ? 1000 : d.retryMs))}"></div>` +
+    `<label class="ck"><input type="checkbox" class="nodrag f-iso"${d.isolation ? ' checked' : ''}><span>${T('isolation:worktree(贵;仅并行改文件时用)')}</span></label>`;
+}
 function nodeHTML(n: FlowNode): string {
   const d = n.data, t = n.type;
   const label = t === 'agent' ? 'AGENT' : t === 'map' ? 'MAP' : t === 'branch' ? 'BRANCH' : t === 'loop' ? 'LOOP' : t === 'log' ? 'LOG' : t === 'code' ? 'CODE' : t === 'subflow' ? 'SUBFLOW' : t === 'merge' ? 'MERGE' : t === 'start' ? 'START' : 'RETURN';
@@ -105,15 +117,14 @@ function nodeHTML(n: FlowNode): string {
     `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
     `<label>${T('prompt(可引用 {{nX}} 或 {{nX.字段}})')}</label><textarea class="nodrag f-prompt" rows="3">${esc(d.prompt || '')}</textarea>` +
     `<div class="fchips">${chipsHTML(n)}</div>` +
-    `<label>${T('model / schema(可空)')}</label><div class="frow"><select class="nodrag f-model"><option value="">inherit</option>${FLOW_MODELS.map(m => `<option${d.model === m ? ' selected' : ''}>${m}</option>`).join('')}</select><textarea class="nodrag f-schema" rows="1" placeholder="{JSON Schema}">${esc(d.schemaText || '')}</textarea></div>` +
-    `<label>${T('effort / agentType(可空)')}</label><div class="frow"><select class="nodrag f-effort"><option value="">inherit</option>${FLOW_EFFORTS.map(e => `<option${d.effort === e ? ' selected' : ''}>${e}</option>`).join('')}</select><input class="nodrag f-atype" list="fATypes" value="${esc(d.agentType || '')}" placeholder="agentType"></div>` +
-    `<label>${T('retry(n / 退避 ms;0 = 不重试)')}</label><div class="frow"><input class="nodrag f-rn" type="number" min="0" value="${esc(String(d.retryN === undefined || d.retryN === '' ? 0 : d.retryN))}"><input class="nodrag f-rms" type="number" min="0" value="${esc(String(d.retryMs === undefined || d.retryMs === '' ? 1000 : d.retryMs))}"></div>` +
-    `<label class="ck"><input type="checkbox" class="nodrag f-iso"${d.isolation ? ' checked' : ''}><span>${T('isolation:worktree(贵;仅并行改文件时用)')}</span></label>`;
+    optFieldsHTML(d);
   if (t === 'map') fields =
     `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
     `<label>${T('items 表达式(如 ARGS.paths)')}</label><input class="nodrag f-items" value="${esc(d.items || '')}" placeholder="ARGS.paths">` +
     `<label>${T('回调模板({{item}} / {{index}})')}</label><textarea class="nodrag f-prompt" rows="2">${esc(d.prompt || '')}</textarea>` +
     `<div class="fchips">${chipsHTML(n)}</div>` +
+    optFieldsHTML(d) +
+    `<div class="fnote">${T('级 1 = 本节点自身的模板;下面的选项作用于它(1.2.64)')}</div>` +
     `<div class="fnote">${T('下游每级 = pipeline 的一级(逐条目、无栅栏);要汇总请用汇合点之后的节点')}</div>`;
   if (t === 'branch') fields =
     `<label>${T('label')}</label><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label">` +
@@ -443,7 +454,7 @@ function renderCost(d: FlowDraft): void {
   el.classList.toggle('over', n >= FLOW_LARGE_AGENTS);
   el.title = n >= FLOW_LARGE_AGENTS
     ? T('预计代理数 ≥%1:官方在 >25 个代理时会给 Large workflow 告警(建议性,不拦)', FLOW_LARGE_AGENTS)
-    : T('估算值:agent 数 × 所在循环的 maxRounds;并发上限 16、单次运行代理总数上限 1000');
+    : T('估算值:agent 数 × 所在循环的 maxRounds(分支双臂按较多的一臂计);不计 Map 的条目基数、子流内部代理与重试的额外尝试;并发上限 16、单次运行代理总数上限 1000');
 }
 function refreshFlowScript(): void {
   const out = $<HTMLElement>('fScript'), d = flowDraft(), ctx = flowCtx(), errs = flowValidate(d, ctx);
@@ -489,7 +500,7 @@ function flowCtx(): FlowCtx {
 function flowDraft(): FlowDraft {
   // v=2(1.2.50):纯加宽——whenToUse/phases/argsSpec 为空时产物与 v1 逐字节一致(黄金钉死),不空时才有码
   return { v: 2, name: FS.name.trim() || 'untitled', desc: FS.desc, cwd: FS.cwd,
-    whenToUse: FS.whenToUse, phases: FS.phases.map(p => ({ ...p })), argsSpec: { ...FS.argsSpec },
+    title: FS.title, whenToUse: FS.whenToUse, phases: FS.phases.map(p => ({ ...p })), argsSpec: { ...FS.argsSpec },
     nodes: FS.nodes, edges: FS.edges, next: FS.next, view: FS.view };
 }
 
@@ -505,6 +516,7 @@ function autosavePeek(cwd: string): FlowDraft | null {
 }
 function flowApply(d: FlowDraft): void {
   FS.name = String(d.name || ''); FS.desc = String(d.desc || ''); FS.cwd = String(d.cwd || '');
+  FS.title = String(d.title || '');
   FS.whenToUse = String(d.whenToUse || '');
   // v1 草稿没有这两项 → 缺省空(不猜不塞默认值;空 = 沿用推导,与旧行为逐字节一致)
   FS.phases = (Array.isArray(d.phases) ? d.phases : []).map(flowPhaseRow);
@@ -645,12 +657,13 @@ async function openFlow(cwd: string): Promise<void> {
   nextFrame(() => { flowRender(); fitFlowView(); });     // 二次测量(字体/布局稳定后)+ 适配视图
 }
 function flowBlank(): void {
-  FS = { name: '', desc: '', cwd: FS.cwd, whenToUse: '', phases: [], argsSpec: { schemaText: '', exampleText: '', required: false },
+  FS = { name: '', desc: '', title: '', cwd: FS.cwd, whenToUse: '', phases: [], argsSpec: { schemaText: '', exampleText: '', required: false },
     nodes: [], edges: [], next: 1, sel: new Set(), view: { x: 20, y: 10, zoom: 1 } };
 }
 function syncHeadInputs(): void {
   $<HTMLInputElement>('fName').value = FS.name;
   $<HTMLInputElement>('fDesc').value = FS.desc;
+  $<HTMLInputElement>('fTitle').value = FS.title;
   $<HTMLInputElement>('fWhen').value = FS.whenToUse;
   $<HTMLTextAreaElement>('fArgS').value = FS.argsSpec.schemaText;
   $<HTMLTextAreaElement>('fArgE').value = FS.argsSpec.exampleText;
@@ -693,6 +706,7 @@ function wireShell(): void {
   $<HTMLElement>('fCopyDist').onclick = () => { void copyText($<HTMLElement>('fCmdDist').textContent || '', T('分发命令已复制')); };
   $<HTMLInputElement>('fName').oninput = e => { FS.name = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLInputElement>('fDesc').oninput = e => { FS.desc = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
+  $<HTMLInputElement>('fTitle').oninput = e => { FS.title = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLInputElement>('fWhen').oninput = e => { FS.whenToUse = (e.target as HTMLInputElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLTextAreaElement>('fArgS').oninput = e => { FS.argsSpec.schemaText = (e.target as HTMLTextAreaElement).value; refreshFlowScript(); autosaveFlow(); };
   $<HTMLTextAreaElement>('fArgE').oninput = e => { FS.argsSpec.exampleText = (e.target as HTMLTextAreaElement).value; refreshFlowScript(); autosaveFlow(); };
@@ -873,12 +887,13 @@ function flowSmoke(): void {
         await frames(4);
       } else { res.push('✗drag-add(no-palette)'); }
       // 1.2.50 草稿 v2:whenToUse 头部输入 + 可编辑阶段带——真实 DOM 里才验得到"输入框真的在、值真的回填"
-      FS.whenToUse = 'smoke-when'; FS.phases = [{ title: 'S1', detail: 'd1', model: 'haiku' }];
+      FS.whenToUse = 'smoke-when'; FS.title = 'smoke-title'; FS.phases = [{ title: 'S1', detail: 'd1', model: 'haiku' }];
       refreshFlowScript();
       const bandT = $<HTMLElement>('fPhases').querySelector<HTMLInputElement>('input.ph-t');
       const bandM = $<HTMLElement>('fPhases').querySelector<HTMLInputElement>('input.ph-m');
-      check('meta-v2', !!$('fWhen') && !!bandT && bandT.value === 'S1' && !!bandM && bandM.value === 'haiku'
+      check('meta-v2', !!$('fWhen') && !!$('fTitle') && !!bandT && bandT.value === 'S1' && !!bandM && bandM.value === 'haiku'
         && /whenToUse: "smoke-when"/.test($<HTMLElement>('fScript').textContent || '')
+        && /^ {2}title: "smoke-title",$/m.test($<HTMLElement>('fScript').textContent || '')
         && /phases: \[\{ title: "S1", detail: "d1", model: "haiku" \}\]/.test($<HTMLElement>('fScript').textContent || ''));
       // 1.2.53 map 节点(Phase 4):真机里走一遍"建节点 → 连线 → 出码含 pipeline"
       flowBlank();

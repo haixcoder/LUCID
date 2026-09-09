@@ -97,5 +97,20 @@ const BRT = {
   ck('校验/branch 不能与其他步骤同层(它会独占 if/else)', /同层|独占/.test(V(dft(sameLevel.nodes, sameLevel.edges)).join('|')),
      JSON.stringify(V(dft(sameLevel.nodes, sameLevel.edges))));
 
+  // ── 成本估算:分支双臂只跑一条 → 按 max 计,不是求和(1.2.64) ──
+  const est = (d: any): number => env.get('flowAgentEstimate(' + JSON.stringify(d) + ')') as number;
+  ck('estimate/双臂各 1 个 agent → 计 1(旧实现求和会给出 2)',
+     est(dft(BR.nodes, BR.edges)) === 1, String(est(dft(BR.nodes, BR.edges))));
+  ck('estimate/各自到 return 的分支同样按 max 计', est(dft(BRT.nodes, BRT.edges)) === 1, String(est(dft(BRT.nodes, BRT.edges))));
+  const BR3 = JSON.parse(JSON.stringify(BR));
+  BR3.nodes.push(N('n7', 'agent', 500, -140, { label: '是2', phase: 'A', prompt: '是2 {{n3}}' }));
+  BR3.edges = BR3.edges.filter((e: any) => e.id !== 'e4').concat([E('e7', 'n3', 'n7'), E('e8', 'n7', 'n5')]);
+  ck('estimate/臂内多级先按该臂求和,再取两臂 max(2 vs 1 → 2)',
+     est(dft(BR3.nodes, BR3.edges)) === 2, String(est(dft(BR3.nodes, BR3.edges))));
+  const CH = { nodes: [N('n1', 'start', 0, 0, { note: 'q' }), N('n2', 'agent', 200, 0, { label: 'A', phase: 'P', prompt: 'a' }),
+      N('n3', 'agent', 400, 0, { label: 'B', phase: 'P', prompt: 'b' }), N('n4', 'return', 600, 0, { ret: '' })],
+    edges: [E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3'), E('e3', 'n3', 'n4')] };
+  ck('estimate/无分支时照旧求和(顺序链 2 个 agent → 2)', est(dft(CH.nodes, CH.edges)) === 2, String(est(dft(CH.nodes, CH.edges))));
+
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

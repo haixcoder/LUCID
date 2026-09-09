@@ -1013,6 +1013,41 @@ const FAN = {
   await envM.flush(4);
   const mChips = querySelectorEl(envM.rootEl, '.wfnode[data-nodeid="n2"]').querySelectorAll('.fchips .chip').map(c => c.getAttribute('data-ins')).join(',');
   ck('字段选择/map 节点的回调模板先给 {{item}} / {{index}} 芯片', mChips.indexOf('{{item}},{{index}},') === 0, mChips);
+  // ── 1.2.64:meta.title 头部输入 + map 级 1 选项 + 自定义 model id 不丢值 ──
+  draftsResp = { drafts: [] };                              // 前面的用例把草稿列表设成非空,这里要"无草稿 → 起手图"
+  const envT64 = mkEnv();
+  await envT64.flush();
+  envT64.run('void openFlow("/work/fix")');
+  await envT64.flush(10);
+  ck('title/头部第四输入 #fTitle 存在(meta.title)', !!envT64.$('fTitle'));
+  const tIn = envT64.$('fTitle') as unknown as { value: string };
+  tIn.value = '路由审计';
+  (tIn as unknown as { fire: (t: string, o: unknown) => void }).fire('input', { target: tIn });
+  await envT64.flush(4);
+  ck('title/编辑 → 落到 FS.title 与脚本 meta.title', envT64.get('FS.title') === '路由审计'
+     && /^\s{2}title: "路由审计",$/m.test(envT64.$('fScript').textContent),
+     'FS.title=' + String(envT64.get('FS.title')) + ' | ' + envT64.$('fScript').textContent.split('\n').slice(0, 7).join(' / '));
+  // map 检查器带 agent 选项(级 1 就是它自己发出的 agent() 调用)
+  envT64.run('FS.nodes = ' + JSON.stringify([N('n1', 'start', 0, 0, { note: 'q' }), N('n2', 'map', 200, 0, { items: 'ARGS.paths', prompt: '审计 {{item}}', label: 'm' }), N('n3', 'return', 400, 0, { ret: '' })]) +
+    '; FS.edges = ' + JSON.stringify([E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3')]) + '; flowRender(); FS.sel.add("n2"); refreshSel()');
+  await envT64.flush(4);
+  const mEl = querySelectorEl(envT64.rootEl, '.wfnode[data-nodeid="n2"]');
+  ck('map/检查器有 model/effort/agentType/schema/retry/isolation(与 agent 节点同一份字段实现)',
+     !!mEl.querySelector('.f-model') && !!mEl.querySelector('.f-effort') && !!mEl.querySelector('.f-atype')
+     && !!mEl.querySelector('.f-schema') && !!mEl.querySelector('.f-rn') && !!mEl.querySelector('.f-iso'));
+  // 自定义 claude-* 全 id:固定 5 档 select 必须补出当前值,否则回载显示 inherit、一碰就覆盖
+  const envC64 = mkEnv();
+  await envC64.flush();
+  envC64.run('void openFlow("/work/fix")');
+  await envC64.flush(10);
+  envC64.run('FS.nodes = ' + JSON.stringify([N('n1', 'start', 0, 0, { note: 'q' }), N('n2', 'agent', 200, 0, { label: 'A', phase: 'P', prompt: 'a', model: 'claude-opus-4-5-20251101' }), N('n3', 'return', 400, 0, { ret: '' })]) +
+    '; FS.edges = ' + JSON.stringify([E('e1', 'n1', 'n2'), E('e2', 'n2', 'n3')]) + '; flowRender(); FS.sel.add("n2"); refreshSel()');
+  await envC64.flush(4);
+  const selC = querySelectorEl(envC64.rootEl, '.wfnode[data-nodeid="n2"]').querySelector('select.f-model')!;
+  ck('model/自定义 claude-* id 不被 5 档 select 吞掉(补出该选项且选中)',
+     selC.querySelector('option[selected]')?.textContent === 'claude-opus-4-5-20251101'
+     && envC64.get('FS.nodes[1].data.model') === 'claude-opus-4-5-20251101',
+     [...selC.querySelectorAll('option')].map(o => (o.getAttribute('selected') ? '*' : '') + o.textContent).join(','));
   draftsResp = { drafts: [] };
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

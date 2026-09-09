@@ -10,6 +10,7 @@ await env.flush();
 
 const G = (d: unknown): string => env.get('flowGenerate(' + JSON.stringify(d) + ')') as string;
 const V = (d: unknown): string[] => env.get('flowValidate(' + JSON.stringify(d) + ')') as string[];
+const W = (d: unknown): string[] => env.get('flowWarnings(' + JSON.stringify(d) + ')') as string[];
 const metaBlock = (js: string): string => (/export const meta = \{[\s\S]*?\n\}/.exec(js) || [''])[0];
 // 7 节点 demo 的 v1 产物黄金(1.2.49 录制,纯加宽的唯一硬证据:字段留空 → 产物逐字节不变)
 const GOLD = fs.readFileSync(path.join(HERE, 'golden', 'flowgen_demo.js'), 'utf8');
@@ -96,6 +97,28 @@ const demo = (extra: Record<string, unknown> = {}): any =>
      JSON.stringify(r3.meta.phases) === JSON.stringify(bandM), JSON.stringify(r3.meta.phases));
   ck('sandbox/model 只进 meta.phases,不进 agent opts(它是阶段标注,不是执行参数)',
      r3.calls.every(c => !/model/.test(JSON.stringify(c.opts || {}))), JSON.stringify(r3.calls[0]?.opts));
+
+  // ── meta.title(1.2.64):二进制归一化 E() 实证 meta 读 5 键 {name,description,title,whenToUse,phases} ──
+  ck('title/非空 → meta 顶层逐字出现',
+     /^\s{2}title: "路由审计",$/m.test(metaBlock(G(demo({ title: '路由审计' })))),
+     metaBlock(G(demo({ title: '路由审计' }))));
+  ck('title/空 → 顶层不含该键(与 whenToUse 同规矩,v1 产物零 diff)',
+     !/^\s{2}title:/m.test(metaBlock(G(demo()))) && G(demo()) === GOLD);
+  const r4 = await runFlowScript(G(demo({ v: 2, title: '路由审计' })), '我的题');
+  ck('sandbox/title 落到运行期 meta', r4.meta.title === '路由审计', JSON.stringify(r4.meta));
+
+  // ── 阶段带 ↔ phase() 同名性(1.2.64):不同名时运行期会多出一个空进度组(官方:声明了的 title 照样出组) ──
+  const bandW = (d: unknown): string[] => W(d).filter(w => w.includes('进度组') || w.includes('阶段带'));
+  ck('warn/显式阶段带标题没有对应的 agent 分组 → 警告',
+     bandW(demo({ phases: [{ title: '扫描' }, { title: 'Search' }, { title: 'Verify' }] })).some(w => w.includes('扫描')),
+     JSON.stringify(bandW(demo({ phases: [{ title: '扫描' }, { title: 'Search' }, { title: 'Verify' }] }))));
+  ck('warn/agent 的 phase 不在显式阶段带里 → 警告',
+     bandW(demo({ phases: [{ title: 'Scope' }] })).some(w => w.includes('Search') || w.includes('Verify')),
+     JSON.stringify(bandW(demo({ phases: [{ title: 'Scope' }] }))));
+  ck('warn/阶段带与分组完全同名 → 无此类警告',
+     bandW(demo({ phases: [{ title: 'Scope' }, { title: 'Search' }, { title: 'Verify' }] })).length === 0,
+     JSON.stringify(bandW(demo({ phases: [{ title: 'Scope' }, { title: 'Search' }, { title: 'Verify' }] }))));
+  ck('warn/推导阶段带(留空)天然不产生此类警告', bandW(demo()).length === 0, JSON.stringify(bandW(demo())));
 
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

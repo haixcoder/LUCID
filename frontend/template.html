@@ -263,7 +263,7 @@ body.flow-open{overflow:hidden}
 .flow-head input:focus{outline:none;border-bottom-color:var(--am);box-shadow:0 1px 0 var(--am)}
 .flow-head select{background:var(--pnl2);border:1px solid var(--ln2);color:var(--tx);padding:4px 7px;font:11px var(--mono)}
 .flow-head select:focus{outline:none;border-color:var(--am)}
-#fName{width:146px}#fDesc{flex:1 1 170px;min-width:120px}#fWhen{flex:0 1 160px;min-width:110px}
+#fName{width:146px}#fDesc{flex:1 1 170px;min-width:120px}#fTitle{flex:0 1 140px;min-width:100px}#fWhen{flex:0 1 160px;min-width:110px}
 #fCwd{font-size:10px;color:var(--dim2);letter-spacing:.04em;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #fCwd::before{content:'▚ ';color:var(--ln2)}
 /* —— 招牌件:阶段条(= 这张图会生成哪几段),数据只读 flowBandPhases/flowMetaPhases 单点 —— */
@@ -457,6 +457,7 @@ body.flow-open{overflow:hidden}
     <b class="flow-title" data-i18n="✦ 编排 Workflow">✦ 编排 Workflow</b>
     <input id="fName" placeholder="workflow 名" data-i18n-ph="workflow 名" autocomplete="off" spellcheck="false">
     <input id="fDesc" placeholder="一句话描述(meta.description)" data-i18n-ph="一句话描述(meta.description)" autocomplete="off" spellcheck="false">
+    <input id="fTitle" placeholder="标题(meta.title,可空)" data-i18n-ph="标题(meta.title,可空)" autocomplete="off" spellcheck="false">
     <input id="fWhen" placeholder="何时用(meta.whenToUse)" data-i18n-ph="何时用(meta.whenToUse)" autocomplete="off" spellcheck="false">
     <span id="fPhases"><span class="fh-k">PHASES</span></span>
     <span id="fCwd"></span>
@@ -489,6 +490,8 @@ body.flow-open{overflow:hidden}
         <div data-i18n="多入边 = 汇聚等待(栅栏);Map = 逐条目 pipeline(无栅栏)">多入边 = 汇聚等待(栅栏);Map = 逐条目 pipeline(无栅栏)</div>
         <div data-i18n="首次运行按权限模式弹审批;可加 Workflow 权限规则放行">首次运行按权限模式弹审批;可加 Workflow 权限规则放行</div>
         <div data-i18n="并行代理同前缀会错峰启动以复用缓存;workflow 代理缓存默认 5 分钟">并行代理同前缀会错峰启动以复用缓存;workflow 代理缓存默认 5 分钟</div>
+        <div data-i18n="脚本只负责编排:沙箱内无文件系统/Node API,读写交给代理">脚本只负责编排:沙箱内无文件系统/Node API,读写交给代理</div>
+        <div data-i18n="保存后也可按名调用:Workflow({name:'…'})">保存后也可按名调用:Workflow({name:'…'})</div>
       </div>
     </div>
     <datalist id="fATypes"></datalist>

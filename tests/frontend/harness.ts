@@ -167,7 +167,14 @@ export class El {
   fire(type: string, extra?: Record<string, unknown>): Record<string, any> {
     const ev = Object.assign({ type, target: this }, extra || {});
     let n: El | null = this;
-    while (n) { ((n._l && n._l[type]) || []).slice().forEach((f) => f(ev)); n = n.parent; }
+    // 浏览器语义:`el.onclick = fn` 与 addEventListener 两条路都算监听者。只认后者会让
+    // "用 .oninput = 绑的输入框"在桩里永远点不动(编排器头部输入就是这种写法,1.2.64 实际踩到)。
+    while (n) {
+      ((n._l && n._l[type]) || []).slice().forEach((f) => f(ev));
+      const prop = (n as unknown as Record<string, unknown>)['on' + type];
+      if (typeof prop === 'function') (prop as (e: unknown) => void).call(n, ev);
+      n = n.parent;
+    }
     return ev;
   }
   querySelectorAll(sel: string): El[] { const out: El[] = []; walk(this, (n) => { if (n !== this && matchSel(n, sel, this)) out.push(n); }); return out; }

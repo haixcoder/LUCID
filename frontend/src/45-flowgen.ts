@@ -11,6 +11,12 @@ function flowModelBad(md: unknown): string {
   const m = String(md ?? '').trim();
   return (m && !FLOW_MODEL_OK.includes(m) && !/^claude-[a-z0-9.:-]+$/i.test(m)) ? m : '';
 }
+// 会产出 `agent()` 调用的节点型(1.2.64):agent 节点 + **map 节点自身**(map 链的级 1 就是它,
+// 走同一个 opt()/call())。SCHEMA_ 常量、schema/model/effort/retry 校验、字段芯片三处共用这一个判定——
+// 旧实现只认 type==='agent',导致"map 带 schema"会生成引用未定义 SCHEMA_<id> 的脚本。
+function flowIsAgentNode(n: FlowNode | undefined): boolean {
+  return !!n && (n.type === 'agent' || n.type === 'map');
+}
 // ⚠ 共享带 /g 的正则做 .test()/.exec() 会留下 lastIndex 状态(同一正则被两个调用方交错使用即漏判)——
 // 因此探测用无 g 的 FLOW_REF_PROBE,枚举用 matchAll(自带独立迭代状态),替换用带 g 的 replace(结束时自复位)。
 // 1.2.60 起占位符带**可选字段路径**(字段选择):{{n2.title}} / {{n2.tags[0]}} / {{item.name}}。
@@ -202,13 +208,18 @@ function flowLoopRegions(fs: FlowDraft): Map<string, LoopRegion> {
 // 这是估算值——并发上限 16、单次运行代理总数上限 1000 由界面写明,不假装精确。
 function flowAgentEstimate(fs: FlowDraft): number {
   const loops = flowLoopRegions(fs);
+  const branches = flowBranchRegions(fs);
+  const mult = (id: string): number => { let m = 1; for (const lp of loops.values()) if (lp.inner.has(id)) m *= lp.maxRounds; return m; };
+  const armSum = (stages: string[][]): number => {
+    let s = 0;
+    for (const st of stages) for (const id of st) { const n = fs.nodes.find(x => x.id === id); if (n?.type === 'agent') s += mult(id); }
+    return s;
+  };
+  // 分支区域按臂取 max(1.2.64):if/else 只跑一条臂,求和会系统高估
+  const inBranch = new Set<string>();
   let total = 0;
-  for (const n of fs.nodes) {
-    if (n.type !== 'agent') continue;
-    let mult = 1;
-    for (const lp of loops.values()) if (lp.inner.has(n.id)) mult *= lp.maxRounds;
-    total += mult;
-  }
+  for (const b of branches.values()) { b.inner.forEach(id => inBranch.add(id)); total += Math.max(armSum(b.tStages), armSum(b.fStages)); }
+  for (const n of fs.nodes) { if (n.type !== 'agent' || inBranch.has(n.id)) continue; total += mult(n.id); }
   return total;
 }
 // 区域归属单点(引用校验用):节点 → 它所属的区域(map 链 / 分支区域 / 循环体)。map/loop 自己不入表(它们持有结果)。
@@ -294,6 +305,7 @@ function flowWarnings(fs: FlowDraft): string[] {
   const out: string[] = [];
   for (const n of fs.nodes) if (n.type === 'code') out.push(...flowCodeWarns(fs, n.id, String(n.data.code || '')));
   out.push(...flowRefIssues(fs, flowMapChains(fs), flowBranchRegions(fs), flowLoopRegions(fs)).warns);
+  out.push(...flowPhaseBandWarns(fs));                       // 1.2.64:阶段带与 phase() 失配
   return out;
 }
 // subflow 引用校验(Phase 8):ref 必填;按名引用时查草稿列表 + 嵌套深度;路径引用不做存在性检查。
@@ -524,7 +536,7 @@ function flowValidate(fs: FlowDraft, ctx?: FlowCtx): string[] {
   // ── 载荷:code / subflow(Phase 8)──
   for (const n of fs.nodes) if (n.type === 'code') errs.push(...flowCodeErrs(n.id, String(n.data.code || '')));
   errs.push(...flowSubflowErrs(fs, ctx));
-  for (const n of fs.nodes) if (n.type === 'agent') errs.push(...flowSchemaErrs(`节点 ${n.id} 的 schema`, String(n.data.schemaText || '')));
+  for (const n of fs.nodes) if (flowIsAgentNode(n)) errs.push(...flowSchemaErrs(`节点 ${n.id} 的 schema`, String(n.data.schemaText || '')));
   const aspec = flowArgsSpec(fs);
   errs.push(...flowSchemaErrs('args 的 schema', aspec.schemaText));
   const ex = aspec.exampleText.trim();
@@ -537,7 +549,7 @@ function flowValidate(fs: FlowDraft, ctx?: FlowCtx): string[] {
     const bad = flowModelBad(p?.model);
     if (bad) errs.push(`阶段「${String(p?.title ?? '').trim() || '未命名'}」的 model「${bad}」不在白名单`);
   }
-  for (const n of agents) {
+  for (const n of fs.nodes.filter(flowIsAgentNode)) {         // 1.2.64:map 的级 1 也是 agent 调用,选项同样受校验
     const md = flowModelBad(n.data.model);
     if (md) errs.push(`节点 ${n.id} 的 model「${md}」不在白名单`);
     const ef = String(n.data.effort || '');
@@ -550,16 +562,38 @@ function flowValidate(fs: FlowDraft, ctx?: FlowCtx): string[] {
   return errs;
 }
 
-// 推导口径(阶段带留空时用它):agent 的 phase||label 按分层顺序首现去重(1.2.43 起不变)
-function flowDerivedPhases(fs: FlowDraft): FlowPhase[] {
+// 生成物里**实际会出现的进度组名**(单点,1.2.64;阶段带推导与"阶段带失配"警告共用):
+// ① 每个含 agent 的层发一条 phase(<该层首个 agent 的 phase||label>)——生成器的 phase() 就是这么发的;
+// ② agent/map 的显式 opts.phase **恒发**(1.2.56,不依赖全局 phase() 状态),故每个显式 phase 也算一组
+//    (map 节点的级 1 是 agent 调用,它的 phase 同样成立——旧实现只数 type==='agent',会漏掉 map 的组)。
+// 顺序 = 层序 → 层内序,与生成物里 phase 首次出现的顺序一致(阶段带留空时的推导顺序依赖它)。
+function flowPhaseGroups(fs: FlowDraft): string[] {
   const { groups } = flowLevels(fs);
+  const byId = new Map(fs.nodes.map(n => [n.id, n]));
   const seen: string[] = [];
-  for (const g of groups) for (const id of g) {
-    const n = fs.nodes.find(x => x.id === id); if (!n) continue;
-    const ph = (n.type === 'agent' && (n.data.phase || n.data.label)) || '';
-    if (ph && !seen.includes(ph)) seen.push(ph);
+  const add = (s: unknown): void => { const t = String(s ?? '').trim(); if (t && !seen.includes(t)) seen.push(t); };
+  for (const g of groups) {
+    const ags = g.map(id => byId.get(id)).filter((n): n is FlowNode => !!n && n.type === 'agent');
+    if (ags.length) add(ags[0].data.phase || ags[0].data.label);
+    for (const id of g) { const n = byId.get(id); if (n && (n.type === 'agent' || n.type === 'map')) add(n.data.phase); }
   }
-  return seen.map(title => ({ title }));
+  return seen;
+}
+// 推导口径(阶段带留空时用它):= 生成物会出现的组名(1.2.43 起不变;1.2.64 起住 flowPhaseGroups 单点)
+function flowDerivedPhases(fs: FlowDraft): FlowPhase[] {
+  return flowPhaseGroups(fs).map(title => ({ title }));
+}
+// 阶段带 ↔ phase() 同名性(1.2.64):phase()/opts.phase 由 agent 的 phase||label 推导,而 meta.phases 来自
+// 阶段带——两边不同名时,运行期会多出一个空进度组(官方语义:声明了的 title 照样出组,不匹配的 phase() 自成一组)。
+// 只对**显式**阶段带判定(推导清单天然同名);双向各一条,不拦生成(阶段带本来就允许先行命名)。
+function flowPhaseBandWarns(fs: FlowDraft): string[] {
+  if (!fs.phases || !fs.phases.length) return [];
+  const titles = fs.phases.map(p => String(p?.title ?? '').trim()).filter(Boolean);
+  const groups = flowPhaseGroups(fs);
+  const warns: string[] = [];
+  for (const t of titles) if (!groups.includes(t)) warns.push(`阶段带标题「${t}」没有任何 agent/map 的 phase 与它同名——运行期会多出一个空进度组`);
+  for (const g of groups) if (!titles.includes(g)) warns.push(`agent/map 的 phase「${g}」不在阶段带里——运行期会多出一个阶段组`);
+  return warns;
 }
 // 阶段带的**显示**清单(唯一实现):显式则原样(含正在编辑的空标题行——行不能边打字边消失),否则推导。
 // 与 flowMetaPhases 的差别只是"编辑中"与"落码":后者过滤空标题、全空则回落推导。
@@ -656,6 +690,10 @@ function flowGenerate(fs: FlowDraft, ctx?: FlowCtx): string {
   lines.push('export const meta = {');
   lines.push(`  name: ${JSON.stringify(fs.name || 'untitled')},`);
   lines.push(`  description: ${JSON.stringify(fs.desc || '')},`);
+  // meta.title(1.2.64):二进制归一化函数 E() 实证 meta 读 5 键 {name,description,title,whenToUse,phases}——
+  // title 与 whenToUse 同规矩"有才出"(空字段落码 = v1 草稿产物漂移,零 diff 断言钉死)。
+  const ttl = String(fs.title ?? '');
+  if (ttl.trim()) lines.push(`  title: ${JSON.stringify(ttl)},`);
   // whenToUse 与 detail 都是"有才出"(空字段落码 = v1 草稿产物漂移,零 diff 断言钉死)
   const wtu = String(fs.whenToUse ?? '');
   if (wtu.trim()) lines.push(`  whenToUse: ${JSON.stringify(wtu)},`);
@@ -666,7 +704,7 @@ function flowGenerate(fs: FlowDraft, ctx?: FlowCtx): string {
   lines.push('}');
   for (const id of groups.flat()) {
     const n = byId(id);
-    if (n?.type === 'agent' && String(n.data.schemaText || '').trim()) lines.push(`const SCHEMA_${id} = ${String(n.data.schemaText).trim()}`);
+    if (flowIsAgentNode(n) && String(n!.data.schemaText || '').trim()) lines.push(`const SCHEMA_${id} = ${String(n!.data.schemaText).trim()}`);
   }
   // $retry 助手(全图只生成一次;形状与官方 scan.js 同构:失败 → log 旁白 → 指数退避 → 再试)
   if (fs.nodes.some(n => Number(n.data.retryN || 0) > 0)) {
