@@ -69,7 +69,7 @@ interface FlowNode { id: string; type: FlowKind; position: FlowPos; data: FlowNo
 interface FlowConn { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }
 type FlowEdge = FlowConn & { id: string };
 type FlowView = { x: number; y: number; zoom: number };
-type FlowPhase = { title: string; detail?: string };   // meta.phases 的一条(1.2.50:v2 可显式编辑,空数组=沿用推导)
+type FlowPhase = { title: string; detail?: string; model?: string };   // meta.phases 的一条(1.2.50:v2 可显式编辑,空数组=沿用推导;1.2.63 加 model=该阶段的模型覆盖标注)
 // args 契约(1.2.51):schemaText/exampleText 存**JSON 原文**(与 agent.schemaText 同一约定——
 // 编辑器是文本框,存文本才不丢"正在编辑的半截 JSON";落盘前 flowValidate 已保证合法)。
 type FlowArgsSpec = { schemaText: string; exampleText: string; required: boolean };

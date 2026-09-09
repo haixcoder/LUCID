@@ -402,19 +402,22 @@ function renderPhaseBand(force = false): void {
   phSig = sig;
   box.innerHTML = `<span class="fh-k">PHASES</span>` + (list.length
     ? list.map(p => `<span class="ph"><input class="ph-t" value="${esc(p.title)}" placeholder="${esc(T('阶段标题'))}">`
-        + `<input class="ph-d" value="${esc(p.detail || '')}" placeholder="${esc(T('阶段说明'))}"></span>`).join('')
+        + `<input class="ph-d" value="${esc(p.detail || '')}" placeholder="${esc(T('阶段说明'))}">`
+        + `<input class="ph-m" list="fModels" value="${esc(p.model || '')}" placeholder="model"></span>`).join('')
     : '<i>—</i>');
   box.querySelectorAll<HTMLElement>('.ph').forEach((el, i) => {
     const t = el.querySelector<HTMLInputElement>('.ph-t'), d = el.querySelector<HTMLInputElement>('.ph-d');
+    const m = el.querySelector<HTMLInputElement>('.ph-m');
     const apply = (): void => {
-      const raw = flowBandPhases(flowDraft()).map(x => ({ ...x }));
-      raw[i] = { title: t?.value ?? '', detail: d?.value ?? '' };
+      const raw = flowBandPhases(flowDraft()).map(flowPhaseRow);
+      raw[i] = flowPhaseRow({ title: t?.value ?? '', detail: d?.value ?? '', model: m?.value ?? '' });
       FS.phases = raw;                                   // 推导 → 显式物化(用户编辑过就归用户)
       phSig = JSON.stringify(flowBandPhases(flowDraft()));  // 先认账:refreshFlowScript 才不会重建本带(否则每键丢焦点)
       refreshFlowScript(); autosaveFlow();
     };
     t?.addEventListener('input', apply);
     d?.addEventListener('input', apply);
+    m?.addEventListener('input', apply);
   });
 }
 // ── 脚本预览 + 校验(铁律 7:错误清单不裁,定高滚动)+ 两块读数 ──
@@ -504,7 +507,7 @@ function flowApply(d: FlowDraft): void {
   FS.name = String(d.name || ''); FS.desc = String(d.desc || ''); FS.cwd = String(d.cwd || '');
   FS.whenToUse = String(d.whenToUse || '');
   // v1 草稿没有这两项 → 缺省空(不猜不塞默认值;空 = 沿用推导,与旧行为逐字节一致)
-  FS.phases = (Array.isArray(d.phases) ? d.phases : []).map(p => ({ title: String(p?.title ?? ''), detail: String(p?.detail ?? '') }));
+  FS.phases = (Array.isArray(d.phases) ? d.phases : []).map(flowPhaseRow);
   const as = d.argsSpec || ({} as Partial<FlowArgsSpec>);
   FS.argsSpec = { schemaText: String(as.schemaText ?? ''), exampleText: String(as.exampleText ?? ''), required: !!as.required };
   FS.nodes = (d.nodes || []).map(n => ({ id: String(n.id), type: n.type, position: { x: Number(n.position?.x) || 0, y: Number(n.position?.y) || 0 }, data: { ...n.data } }));
@@ -553,6 +556,11 @@ let fATypes: string[] = [];
 function renderATypes(): void {
   const dl = $<HTMLElement>('fATypes');
   if (dl) dl.innerHTML = fATypes.map(t => `<option value="${esc(t)}"></option>`).join('');
+}
+// 阶段 model 候选(1.2.63):就是 agent 那套档位白名单(flowModelBad 判定的同一份),datalist 允许自由填全 id
+function renderModelOptions(): void {
+  const dl = $<HTMLElement>('fModels');
+  if (dl) dl.innerHTML = FLOW_MODELS.map(m => `<option value="${esc(m)}"></option>`).join('');
 }
 async function loadAgentTypes(): Promise<void> {
   try { fATypes = ((await (await fetch('/api/agents')).json() as { types?: string[] }).types) || []; }
@@ -623,6 +631,7 @@ async function openFlow(cwd: string): Promise<void> {
   flowErr('');
   await loadFlowDrafts(FS.cwd);
   void loadAgentTypes();
+  renderModelOptions();                                      // 阶段 model 候选(静态,随编辑器打开刷一次)
   const saved = autosavePeek(FS.cwd);
   if (saved) {
     // 上次未显式保存的编辑:先问再恢复(不静默覆盖用户刚存的版本),拒绝则回到"有草稿载入/无草稿示例"的正常态
@@ -864,12 +873,13 @@ function flowSmoke(): void {
         await frames(4);
       } else { res.push('✗drag-add(no-palette)'); }
       // 1.2.50 草稿 v2:whenToUse 头部输入 + 可编辑阶段带——真实 DOM 里才验得到"输入框真的在、值真的回填"
-      FS.whenToUse = 'smoke-when'; FS.phases = [{ title: 'S1', detail: 'd1' }];
+      FS.whenToUse = 'smoke-when'; FS.phases = [{ title: 'S1', detail: 'd1', model: 'haiku' }];
       refreshFlowScript();
       const bandT = $<HTMLElement>('fPhases').querySelector<HTMLInputElement>('input.ph-t');
-      check('meta-v2', !!$('fWhen') && !!bandT && bandT.value === 'S1'
+      const bandM = $<HTMLElement>('fPhases').querySelector<HTMLInputElement>('input.ph-m');
+      check('meta-v2', !!$('fWhen') && !!bandT && bandT.value === 'S1' && !!bandM && bandM.value === 'haiku'
         && /whenToUse: "smoke-when"/.test($<HTMLElement>('fScript').textContent || '')
-        && /phases: \[\{ title: "S1", detail: "d1" \}\]/.test($<HTMLElement>('fScript').textContent || ''));
+        && /phases: \[\{ title: "S1", detail: "d1", model: "haiku" \}\]/.test($<HTMLElement>('fScript').textContent || ''));
       // 1.2.53 map 节点(Phase 4):真机里走一遍"建节点 → 连线 → 出码含 pipeline"
       flowBlank();
       const sm2 = sm('start', 60, 150, { note: 'q' }), mp = sm('map', 300, 150, { items: 'ARGS.paths', prompt: '审计 {{item}}', label: 'audit:{{item}}', phase: 'Scan' });

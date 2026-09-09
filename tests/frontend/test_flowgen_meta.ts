@@ -47,6 +47,27 @@ const demo = (extra: Record<string, unknown> = {}): any =>
   ck('phases/显式阶段带不改变 phase() 调用(它由 agent.phase 驱动,脚本才跑得对)',
      /phase\("Scope"\)/.test(G(demo({ phases: band }))) && !/phase\("扫描"\)/.test(G(demo({ phases: band }))));
 
+  // ── meta.phases[].model(1.2.63):技能原文「Add `model` to a phase entry when that phase uses a
+  //    specific model override」——它是**阶段元数据**(标注该阶段用了哪个模型覆盖),不改变 agent() 的调用;
+  //    与 agent.model 同一白名单、同样"空不落码"。 ──
+  const bandM = [{ title: '扫描', detail: '每文件一个审计代理', model: 'haiku' }, { title: '汇总', model: 'claude-sonnet-5' }];
+  ck('phases/model/条目带 model → meta.phases 逐字落 model 键',
+     metaBlock(G(demo({ phases: bandM }))).includes('phases: [{ title: "扫描", detail: "每文件一个审计代理", model: "haiku" }, { title: "汇总", model: "claude-sonnet-5" }]'),
+     metaBlock(G(demo({ phases: bandM }))));
+  ck('phases/model/为空 → 不落该键(空字段不落码,v1 产物零 diff)',
+     !/model:/.test(metaBlock(G(demo({ phases: band })))) && G(demo()) === GOLD);
+  ck('phases/model/单点返回 model(UI 阶段带与生成器读同一份)',
+     JSON.stringify(env.get('flowMetaPhases(' + JSON.stringify(demo({ phases: bandM })) + ')'))
+       === JSON.stringify(bandM),
+     String(env.get('JSON.stringify(flowMetaPhases(' + JSON.stringify(demo({ phases: bandM })) + '))')));
+  ck('phases/model/不在白名单 → 校验报错(与 agent.model 同一口径)',
+     V(demo({ phases: [{ title: 'S', model: 'gpt-4' }] })).some(e => /model/.test(e) && /gpt-4/.test(e)),
+     JSON.stringify(V(demo({ phases: [{ title: 'S', model: 'gpt-4' }] }))));
+  ck('phases/model/合法 claude-* 全 id → 放行',
+     V(demo({ phases: bandM })).length === 0, JSON.stringify(V(demo({ phases: bandM }))));
+  ck('phases/model 不改变 phase() 调用(它只是元数据,执行语义不动)',
+     /phase\("Scope"\)/.test(G(demo({ phases: bandM }))) && !/phase\("扫描"\)/.test(G(demo({ phases: bandM }))));
+
   // ── 校验器对 v2 草稿照常放行(v2 不是"非法载荷")──
   ck('validate/v2 草稿(带 whenToUse/phases)零错误', V(demo({ v: 2, whenToUse: 'x', phases: band })).length === 0,
      JSON.stringify(V(demo({ v: 2, whenToUse: 'x', phases: band }))));
@@ -69,6 +90,12 @@ const demo = (extra: Record<string, unknown> = {}): any =>
   ck('sandbox/args 仍注入 Start 入口(加宽没碰 args 通路)', r2.calls[0].prompt === '把选题 我的题 拆成 3 个互补的调研角度,每角度一行。', r2.calls[0].prompt);
   ck('sandbox/显式阶段带不改变执行(phase() 仍按 agent.phase,代理调用序列不变)',
      r2.phases.join(',') === 'Scope,Search,Verify' && r2.calls.length === 5, JSON.stringify([r2.phases, r2.calls.length]));
+
+  const r3 = await runFlowScript(G(demo({ v: 2, phases: bandM })), '我的题');
+  ck('sandbox/phases[].model 落到运行期 meta(不是只出现在文本里)',
+     JSON.stringify(r3.meta.phases) === JSON.stringify(bandM), JSON.stringify(r3.meta.phases));
+  ck('sandbox/model 只进 meta.phases,不进 agent opts(它是阶段标注,不是执行参数)',
+     r3.calls.every(c => !/model/.test(JSON.stringify(c.opts || {}))), JSON.stringify(r3.calls[0]?.opts));
 
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

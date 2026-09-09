@@ -5,6 +5,12 @@
 //   schemaText → 顶部 const SCHEMA_vX 字面量 + opts.schema;return.ret 空 → 兜底 { results: [末层变量].filter(Boolean) }。
 // 三个口径各住唯一函数:flowValidate(错误清单)/ flowMetaPhases(phase 首现去重)/ flowGenerate(出码)——UI 与测试都只调它们。
 const FLOW_MODEL_OK = ['sonnet', 'opus', 'haiku', 'fable', 'mythos'];   // agent(opts.model) 档位白名单;'' = inherit
+// model 合法性判定**单点**(agent.data.model 与 meta.phases[].model 共用,1.2.63):返回"不合法的原文"或 ''
+// (空 = 合法或没填——空值一律放行,落码时也一律不出键)。报错文案由各调用方拼,判定只此一处。
+function flowModelBad(md: unknown): string {
+  const m = String(md ?? '').trim();
+  return (m && !FLOW_MODEL_OK.includes(m) && !/^claude-[a-z0-9.:-]+$/i.test(m)) ? m : '';
+}
 // ⚠ 共享带 /g 的正则做 .test()/.exec() 会留下 lastIndex 状态(同一正则被两个调用方交错使用即漏判)——
 // 因此探测用无 g 的 FLOW_REF_PROBE,枚举用 matchAll(自带独立迭代状态),替换用带 g 的 replace(结束时自复位)。
 // 1.2.60 起占位符带**可选字段路径**(字段选择):{{n2.title}} / {{n2.tags[0]}} / {{item.name}}。
@@ -526,9 +532,14 @@ function flowValidate(fs: FlowDraft, ctx?: FlowCtx): string[] {
     try { JSON.parse(ex); }
     catch (e) { errs.push(`args 示例不是合法 JSON:${String((e as Error).message || '')}`); }
   }
+  // meta.phases[].model(1.2.63):阶段元数据,但写错同样会误导——与 agent.model 同一白名单、同一判定单点
+  for (const p of (Array.isArray(fs.phases) ? fs.phases : [])) {
+    const bad = flowModelBad(p?.model);
+    if (bad) errs.push(`阶段「${String(p?.title ?? '').trim() || '未命名'}」的 model「${bad}」不在白名单`);
+  }
   for (const n of agents) {
-    const md = String(n.data.model || '');
-    if (md && !FLOW_MODEL_OK.includes(md) && !/^claude-[a-z0-9.:-]+$/i.test(md)) errs.push(`节点 ${n.id} 的 model「${md}」不在白名单`);
+    const md = flowModelBad(n.data.model);
+    if (md) errs.push(`节点 ${n.id} 的 model「${md}」不在白名单`);
     const ef = String(n.data.effort || '');
     if (ef && !FLOW_EFFORT_OK.includes(ef)) errs.push(`节点 ${n.id} 的 effort「${ef}」不在白名单(${FLOW_EFFORT_OK.join('/')})`);
     for (const [k, v, min] of [['retryN', n.data.retryN, 0], ['retryMs', n.data.retryMs, 0]] as [string, unknown, number][]) {
@@ -553,17 +564,30 @@ function flowDerivedPhases(fs: FlowDraft): FlowPhase[] {
 // 阶段带的**显示**清单(唯一实现):显式则原样(含正在编辑的空标题行——行不能边打字边消失),否则推导。
 // 与 flowMetaPhases 的差别只是"编辑中"与"落码":后者过滤空标题、全空则回落推导。
 function flowBandPhases(fs: FlowDraft): FlowPhase[] {
-  const norm = (p: FlowPhase | undefined): FlowPhase => ({ title: String(p?.title ?? ''), detail: String(p?.detail ?? '') });
+  const norm = (p: FlowPhase | undefined): FlowPhase => ({ title: String(p?.title ?? ''), detail: String(p?.detail ?? ''), model: String(p?.model ?? '') });
   return fs.phases && fs.phases.length ? fs.phases.map(norm) : flowDerivedPhases(fs).map(norm);
+}
+// 阶段条目的**存储形态**单点(1.2.63):空 model 不落盘(与"空字段不落码"同一条原则——
+// 打开旧草稿再保存不该平白多出 `"model":""`;草稿 JSON 是用户可见产物,加宽要可 diff)。
+// 显示形态归 flowBandPhases(它一律补空串,输入框才拿得到 value),两者分工固定。
+function flowPhaseRow(p: FlowPhase | undefined): FlowPhase {
+  const o: FlowPhase = { title: String(p?.title ?? ''), detail: String(p?.detail ?? '') };
+  const md = String(p?.model ?? '').trim();
+  if (md) o.model = md;
+  return o;
 }
 // meta.phases 单点(生成与 UI 阶段带共用):**显式阶段带优先,空/全空标题 → 回落推导**。
 // 显式 = 用户在阶段带上写过的标题(顺序即用户顺序);推导 = 上面的 flowDerivedPhases。
-// detail 逐字保留(空则不出该键——空字段落码会让 v1 草稿产物漂移,零 diff 断言钉死)。
+// detail/model 逐字保留(空则不出该键——空字段落码会让 v1 草稿产物漂移,零 diff 断言钉死)。
+// 键序固定 title → detail → model(生成物可 diff;`detail` 空而 `model` 非空时不许把 model 吞掉)。
 function flowMetaPhases(fs: FlowDraft): FlowPhase[] {
   const out: FlowPhase[] = [];
   for (const p of flowBandPhases(fs)) {
     if (!p.title.trim()) continue;
-    out.push(String(p.detail ?? '').trim() ? p : { title: p.title });
+    const e: FlowPhase = { title: p.title };
+    if (String(p.detail ?? '').trim()) e.detail = p.detail;
+    if (String(p.model ?? '').trim()) e.model = p.model;
+    out.push(e);
   }
   return out.length ? out : flowDerivedPhases(fs);
 }
@@ -635,7 +659,10 @@ function flowGenerate(fs: FlowDraft, ctx?: FlowCtx): string {
   // whenToUse 与 detail 都是"有才出"(空字段落码 = v1 草稿产物漂移,零 diff 断言钉死)
   const wtu = String(fs.whenToUse ?? '');
   if (wtu.trim()) lines.push(`  whenToUse: ${JSON.stringify(wtu)},`);
-  lines.push(`  phases: [${metaPhases.map(p => (p.detail ? `{ title: ${JSON.stringify(p.title)}, detail: ${JSON.stringify(p.detail)} }` : `{ title: ${JSON.stringify(p.title)} }`)).join(', ')}],`);
+  // 键序固定 title → detail → model;空键不落码(1.2.63:model 是阶段元数据,detail 空而 model 非空时也照落)
+  lines.push(`  phases: [${metaPhases.map(p => `{ ${[`title: ${JSON.stringify(p.title)}`]
+    .concat(p.detail ? [`detail: ${JSON.stringify(p.detail)}`] : [])
+    .concat(p.model ? [`model: ${JSON.stringify(p.model)}`] : []).join(', ')} }`).join(', ')}],`);
   lines.push('}');
   for (const id of groups.flat()) {
     const n = byId(id);

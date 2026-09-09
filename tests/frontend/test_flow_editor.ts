@@ -508,6 +508,23 @@ const FAN = {
      envV.$('fScript').textContent.slice(0, 220));
   ck('v2/阶段带编辑即时自动存盘(防误关丢 whenToUse/phases)',
      JSON.parse(String(envV.localStorage.getItem('wfo-flow-autosave-/work/fix'))).phases[0].title === '扫描');
+  // 阶段 model(1.2.63):第三列输入 + 存储"空不落键"(草稿可 diff)+ 落到 meta.phases
+  const m0 = querySelectorEl(envV.rootEl, '#fPhases .ph input.ph-m');
+  ck('v2/阶段芯片 = 标题 + 说明 + model 三输入', !!m0 && m0.getAttribute('list') === 'fModels');
+  m0.value = 'haiku';
+  m0.fire('input', { target: m0 });
+  await envV.flush(4);
+  ck('v2/编辑阶段 model → 落到 FS.phases 与 meta.phases(逐字)',
+     JSON.parse(envV.get('JSON.stringify(flowDraft().phases)'))[0].model === 'haiku'
+     && /\{ title: "扫描", detail: "每文件一个审计代理", model: "haiku" \}/.test(envV.$('fScript').textContent),
+     envV.$('fScript').textContent.slice(0, 200));
+  m0.value = '';
+  m0.fire('input', { target: m0 });
+  await envV.flush(4);
+  ck('v2/阶段 model 清空 → 存储不留空键(旧草稿保存不平白多键)',
+     envV.get('JSON.stringify(flowDraft().phases[0])') === '{"title":"扫描","detail":"每文件一个审计代理"}'
+     && !/model:/.test(envV.$('fScript').textContent),
+     String(envV.get('JSON.stringify(flowDraft().phases[0])')));
   // 保存载荷带 v2 全字段
   envV.run('saveFlowDraft(false)');
   await envV.flush(20);
@@ -517,7 +534,7 @@ const FAN = {
      && JSON.stringify(vbody.draft.phases) === '[{"title":"扫描","detail":"每文件一个审计代理"},{"title":"Search","detail":""},{"title":"Verify","detail":""}]',
      JSON.stringify(vbody.draft && vbody.draft.phases));
   // 回载:v2 草稿 → 头部 + 阶段带逐字还原
-  const v2draft = dft(CHAIN.nodes, CHAIN.edges, { v: 2, name: 'v2-one', whenToUse: '只在需要审计时', phases: [{ title: '扫描', detail: '每文件一个' }, { title: '汇总' }] });
+  const v2draft = dft(CHAIN.nodes, CHAIN.edges, { v: 2, name: 'v2-one', whenToUse: '只在需要审计时', phases: [{ title: '扫描', detail: '每文件一个', model: 'haiku' }, { title: '汇总' }] });
   draftsResp = { drafts: [{ name: 'v2-one', meta: { name: 'v2-one' }, mtime: 1, js: '/x/v2-one.js', draft: v2draft }] };
   const envV2 = mkEnv();
   await envV2.flush();
@@ -527,13 +544,14 @@ const FAN = {
   await envV2.flush(10);
   ck('v2/回载:v=2 草稿被接受且 whenToUse 逐字还原到头部',
      envV2.get('FS.name') === 'v2-one' && envV2.$('fWhen').value === '只在需要审计时', envV2.$('fWhen').value);
-  ck('v2/回载:阶段带按显式清单还原(title + detail 逐字)',
-     envV2.get('JSON.stringify(FS.phases)') === '[{"title":"扫描","detail":"每文件一个"},{"title":"汇总","detail":""}]'
+  ck('v2/回载:阶段带按显式清单还原(title + detail + model 逐字)',
+     envV2.get('JSON.stringify(FS.phases)') === '[{"title":"扫描","detail":"每文件一个","model":"haiku"},{"title":"汇总","detail":""}]'
      && envV2.$qa('#fPhases .ph input.ph-t').map(e => e.value).join(',') === '扫描,汇总'
-     && envV2.$qa('#fPhases .ph input.ph-d').map(e => e.value).join(',') === '每文件一个,',
+     && envV2.$qa('#fPhases .ph input.ph-d').map(e => e.value).join(',') === '每文件一个,'
+     && envV2.$qa('#fPhases .ph input.ph-m').map(e => e.value).join(',') === 'haiku,',
      envV2.get('JSON.stringify(FS.phases)') + ' | ' + envV2.$qa('#fPhases .ph input.ph-t').map(e => e.value).join(','));
   ck('v2/回载后生成脚本与 UI 逐字一致', /whenToUse: "只在需要审计时"/.test(envV2.$('fScript').textContent)
-     && /phases: \[\{ title: "扫描", detail: "每文件一个" \}, \{ title: "汇总" \}\]/.test(envV2.$('fScript').textContent),
+     && /phases: \[\{ title: "扫描", detail: "每文件一个", model: "haiku" \}, \{ title: "汇总" \}\]/.test(envV2.$('fScript').textContent),
      envV2.$('fScript').textContent.slice(0, 240));
   // v1 兼容:老草稿原样载入,新字段缺省为空(不塞默认值 = 不改变既有产物)
   draftsResp = { drafts: [{ name: 'v1-one', meta: { name: 'v1-one' }, mtime: 1, js: '/x/v1-one.js', draft: dft(CHAIN.nodes, CHAIN.edges, { name: 'v1-one' }) }] };
