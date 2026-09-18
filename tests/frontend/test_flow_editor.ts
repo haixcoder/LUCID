@@ -92,7 +92,15 @@ const FAN = {
   const iVend = html.indexOf('<script src="/static/xyflow.system.umd.js"></script>');
   ck('C0 vendor 以 <script src> 引入且排在主脚本块之前', iVend > 0 && iVend < html.lastIndexOf('<script>\n'), JSON.stringify([iVend, html.lastIndexOf('<script>\n')]));
   ck('C1 画布契约类名在骨架里', /id="fPane" class="lucid-flow__pane"/.test(html) && /id="fViewport" class="xyflow__viewport lucid-flow__viewport"/.test(html));
-  ck('编辑器住独立容器 #flow(默认关闭,排在 #list 之后)', /<div id="flow" hidden>/.test(html));
+  ck('编辑器住独立容器 #flow(默认关闭,排在 #list 之后)', /<div id="flow" hidden[^>]*>/.test(html) && html.indexOf('id="flow"') > html.indexOf('id="list"'));
+  // ── A10 可访问性(1.2.66):骨架语义在**静态 HTML** 层钉住(桩给不出读屏,但结构必须可断言)──
+  ck('A10 站点标题是 <h1 class="brand">(原为 div;整页没有一级标题)', /<h1 class="brand">/.test(html));
+  ck('A10 仪表区/会话区标题 aria-live=polite(轮询更新的数字要能被读屏播报)',
+     /id="gauges"[^>]*aria-live="polite"/.test(html) && /id="secttl"[^>]*aria-live="polite"/.test(html));
+  ck('A10 断连横幅 role=status(状态变更,不是弹窗)', /id="linkdown"[^>]*role="status"/.test(html));
+  ck('A10 编排模态 role=dialog + aria-modal + aria-labelledby 指向真实标题 id',
+     /id="flow"[^>]*role="dialog"/.test(html) && /id="flow"[^>]*aria-modal="true"/.test(html)
+     && /aria-labelledby="flowTitle"/.test(html) && /id="flowTitle"/.test(html));
 
   const env = mkEnv();
   await env.flush();
@@ -102,8 +110,13 @@ const FAN = {
   // ── 入口按项目(1.2.44 需求):选「◆ 全部项目」时**不该有**编排入口,只有选中具体项目才出现 ──
   const envE = mkEnv();
   await envE.flush();
+  // B1(1.2.66):按钮 hidden 时 tooltip 永不可见 → 引导必须在明处:常显提示行 #flowHint,显隐同住 syncFlowEntry 单点
+  const hint = (): any => envE.$q('#flowHint');
   ck('未选项目:入口隐藏 + tooltip 直接交代下一步(不是灰着让人猜)',
      envE.$('btnFlow').hidden === true && /先在上方选一个具体项目/.test(envE.$('btnFlow').title), envE.$('btnFlow').title);
+  ck('B1 未选项目:常显提示行可见且写明前置条件(按钮藏起来后唯一的发现路径)',
+     !!hint() && hint().hidden === false && /先在上方选一个具体项目/.test(hint().textContent || ''),
+     hint() ? String(hint().hidden) + ':' + hint().textContent : 'no #flowHint');
   envE.run('void openFlow("")');
   await envE.flush(10);
   ck('openFlow("") 被拒(第二道守卫:绕开入口也写不出"无项目"草稿)',
@@ -112,14 +125,29 @@ const FAN = {
   await envE.flush();
   ck('选中具体项目:入口出现,tooltip 指名该项目',
      envE.$('btnFlow').hidden === false && envE.$('btnFlow').title.includes('/work/fix'), envE.$('btnFlow').title);
+  ck('B1 选中具体项目:提示行同步隐藏(与按钮显隐同一单点)', !!hint() && hint().hidden === true, hint() ? String(hint().hidden) : 'no #flowHint');
   envE.run('fproj = ""; renderAnchored()');
   await envE.flush();
   ck('切回「全部项目」:入口立即消失(判定只有一个函数,按钮/守卫/tooltip 三处同源)', envE.$('btnFlow').hidden === true);
+  ck('B1 切回「全部项目」:提示行立即回来', !!hint() && hint().hidden === false, hint() ? String(hint().hidden) : 'no #flowHint');
+  // A7 配套(1.2.66):session_cwd 解不出的项目会以编码名出现在数据里——编排入口必须对它关闭。
+  // 非绝对 cwd 让草稿 slug 按相对路径 realpath 落到服务进程目录、项目分发必然报错(与后端只写绝对 cwd 同口径)。
+  envE.run('fproj = "-Users-x-proj"; renderAnchored()');
+  await envE.flush();
+  ck('A7 配套:编码名项目(非绝对 cwd)不给编排入口,提示行照旧可见',
+     envE.$('btnFlow').hidden === true && !!hint() && hint().hidden === false,
+     String(envE.$('btnFlow').hidden) + '/' + (hint() ? String(hint().hidden) : 'no #flowHint'));
+  envE.run('void openFlow("-Users-x-proj")');
+  await envE.flush(10);
+  ck('A7 配套:openFlow(编码名) 被第二道守卫拒绝(绕开入口也开不出来)',
+     envE.$('flow').hidden === true && rec.pz === null);
   envE.run('fproj = "/work/fix"; renderAnchored()');
   await envE.flush();
   envE.run("document.getElementById('langsel').value='en'; document.getElementById('langsel').onchange({target:{value:'en'}});");
   await envE.flush();
   ck('切语言后 tooltip 同步换语(动态文案也在 T() 层内)', /Pick a specific project|Compose a Workflow/.test(envE.$('btnFlow').title), envE.$('btnFlow').title);
+  ck('B1 切语言后提示行文案同步换语(data-i18n 覆盖,不留中文)', /Pick a specific project/.test(hint() ? hint().textContent : ''),
+     hint() ? hint().textContent : 'no #flowHint');
 
   // ── 打开编辑器(后端无草稿 → seed 起手图)──
   env.run('void openFlow("/work/fix")');
@@ -150,6 +178,14 @@ const FAN = {
   ck('C2 拓扑合理性:start 无 target 把、return 无 source 把',
      env.$q('.wfnode.t-start .lucid-flow__handle.target') === null && env.$q('.wfnode.t-return .lucid-flow__handle.source') === null);
   ck('每个 handle 都注册了 pointerdown(连线起点)', handles.every(h => !!(h._l || {}).pointerdown));
+  // A10:可聚焦元素必须有名。删除键改 <button>(键盘可达/可 Tab 到),handle 同步 aria-label(div 不可聚焦,读屏也读不到 title)
+  const tags = env.$qa('#fViewport .tag');
+  ck('A10 删除节点是 <button> 且 aria-label 有名(类名 tag nodrag 保留:选择器/C6 契约不动)',
+     tags.length === 7 && tags.every(e => e.tag === 'button' && /nodrag/.test(e.attrs.class || '') && (e.getAttribute('aria-label') || '').length > 0),
+     tags.map(e => e.tag + ':' + (e.getAttribute('aria-label') || '')).slice(0, 3).join(','));
+  ck('A10 handle 带 aria-label(与 title 同源)',
+     handles.every(h => (h.getAttribute('aria-label') || '') === h.getAttribute('title') && !!h.getAttribute('title')),
+     handles[0] && handles[0].attrs['aria-label']);
   ck('XYDrag 参数含 getStoreItems;update 含阈值与 noDragClassName',
      typeof rec.drags[0].getStoreItems === 'function' && rec.dragUpdates[0].nodeClickDistance === 3 && rec.dragUpdates[0].noDragClassName === 'nodrag');
 
@@ -1048,6 +1084,21 @@ const FAN = {
      selC.querySelector('option[selected]')?.textContent === 'claude-opus-4-5-20251101'
      && envC64.get('FS.nodes[1].data.model') === 'claude-opus-4-5-20251101',
      [...selC.querySelectorAll('option')].map(o => (o.getAttribute('selected') ? '*' : '') + o.textContent).join(','));
+  // A10 键盘可达:把 ✕ 换成 <button> 之后,键盘激活(Enter/Space 只派生 click,detail=0)必须真的能删;
+  // 鼠标路径仍由 mousedown 单点负责,两条不许互相触发(独立 env,不干扰上面的 n2/n3 断言)
+  const envK = mkEnv();
+  await envK.flush();
+  envK.run('void openFlow("/work/fix")');
+  await envK.flush(10);
+  const kTag = querySelectorEl(envK.rootEl, '.wfnode[data-nodeid="n3"] .tag') as unknown as { fire: (t: string, o: unknown) => void };
+  const kN0 = envK.get('FS.nodes.length');
+  kTag.fire('click', { detail: 1 });
+  ck('A10 指针语义 click(detail≥1)不重复删(删除仍由 mousedown 单点负责)', envK.get('FS.nodes.length') === kN0,
+     String(envK.get('FS.nodes.length')));
+  kTag.fire('click', { detail: 0 });
+  ck('A10 键盘激活(click detail=0)真的删节点 —— button 不是"能 Tab 到却按不动"的摆设',
+     envK.get('FS.nodes.length') === kN0 - 1 && !envK.$q('.wfnode[data-nodeid="n3"]'), String(envK.get('FS.nodes.length')));
+
   draftsResp = { drafts: [] };
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

@@ -51,7 +51,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:98;bac
 header{position:sticky;top:0;z-index:50;background:var(--hdr);backdrop-filter:blur(6px)}
 header::after{content:'';display:block;height:2px;background:linear-gradient(90deg,transparent,var(--ln2) 18%,var(--am) 50%,var(--ln2) 82%,transparent);opacity:.7}
 .wrap{max-width:1150px;margin:auto;display:flex;align-items:center;gap:26px;padding:13px 16px;flex-wrap:wrap}
-.brand{font:700 19px/1 var(--disp);letter-spacing:.06em;display:flex;align-items:center;gap:10px}
+/* 站点标题是文档唯一的 h1(A10):h1 的 UA 默认(margin/font-size/font-weight)必须在此中和,视觉零变化 */
+.brand{margin:0;font:700 19px/1 var(--disp);letter-spacing:.06em;display:flex;align-items:center;gap:10px}
 .brand .dia{width:13px;height:13px;background:var(--am);transform:rotate(45deg);box-shadow:0 0 10px var(--amr);animation:beat 2.4s infinite}
 @keyframes beat{50%{box-shadow:0 0 18px var(--amr),0 0 3px var(--am)}}
 .ops{color:var(--am)}
@@ -60,6 +61,14 @@ header::after{content:'';display:block;height:2px;background:linear-gradient(90d
 .g b{font:700 23px/1 var(--disp);font-variant-numeric:tabular-nums}
 .g span{font-size:8.5px;letter-spacing:.26em;color:var(--dim2)}
 .g.lv b{color:var(--am)}.g.ok b{color:var(--gr)}.g.er b{color:var(--rd)}
+/* A9:断连横幅与「最后更新」戳住顶栏(常驻元素),**不进 #gauges** —— 仪表串受 GSTR 每轮 diff 去重,
+   断连态写进去就会被"数据未变"钉死(1.2.66 真机缺陷:恢复后横幅永久残留)。 */
+#linkdown{color:var(--rd);border:1px solid color-mix(in srgb,var(--rd) 55%,transparent);padding:1.5px 8px;font:600 10px var(--mono);letter-spacing:.06em;white-space:nowrap}
+/* 连续失败 ≥3 轮才降透明(偶发一次抖动不该把整页变灰;视觉幅度刻意保守) */
+body.stale #list,body.stale #sess{opacity:.55}
+/* B1:未选项目时的常显引导行(按钮 hidden 时它的 tooltip 永不可见 —— 引导必须在明处)。
+   不用 data-i18n 之外的机制:文案随 applyI18n 一起换语言。 */
+.fhint{color:var(--dim2);font:500 10px var(--mono);letter-spacing:.04em}
 .tools{margin-left:auto;display:flex;gap:14px;align-items:center}
 #fq{background:var(--pnl2);color:var(--tx);border:1px solid var(--ln2);padding:4px 9px;font:500 10px var(--mono);letter-spacing:.05em;width:180px;outline:none}
 #fq:focus{border-color:var(--am)}
@@ -110,6 +119,10 @@ main{padding:18px 16px 70px;display:flex;flex-direction:column;gap:16px;max-widt
 .b-completed,.b-done{color:var(--gr);border-color:color-mix(in srgb,var(--gr) 50%,transparent)}
 .b-failed,.b-error,.b-stale,.b-killed,.b-timeout{color:var(--rd);border-color:color-mix(in srgb,var(--rd) 55%,transparent)}
 .b-aborted{color:var(--dim);border-color:var(--ln2);border-style:dashed}
+/* stopped 在 notify.STATUS_ZH 白名单里(⏹ 已停止),此前漏了这条样式 → 该状态的卡章是裸文字(1.2.66 补)。
+   非clean 终态用告警色;killed/timeout 同族。注意它**不在** ALERT_ST 计数集里——那个集合是人工定过的口径,
+   不是"所有非净收尾"(aborted 计入却用 dim 章,同理:计数与章色本就不是一一映射)。 */
+.b-stopped{color:var(--rd);border-color:color-mix(in srgb,var(--rd) 55%,transparent)}
 .b-waiting,.b-ended{color:var(--cy);border-color:color-mix(in srgb,var(--cy) 50%,transparent)}
 /* 回合已完(waitReason=turn):模型说完、正常交回话轮 = 执行完成 —— 安静显示,不占用 ⏸ 告警视觉(1.2.13) */
 .b-turn{color:var(--cy);border-color:color-mix(in srgb,var(--cy) 55%,transparent)}
@@ -206,6 +219,21 @@ details.term{margin:0}
 .term-body{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,6fr);gap:11px;margin:10px 8px 12px;animation:rise .24s ease-out}
 .term-body.solo{grid-template-columns:minmax(0,1fr)}
 @media(max-width:860px){.term-body{grid-template-columns:1fr}}
+/* A8 移动端(1.2.66):390px 实测 scrollWidth 682 vs 390 —— 溢出源由宽到窄:.tools 不换行(666px)、
+   #fq 固定 158px + #fproj max 320、会话卡 7 列网格。**必须排在 .thead/.arow 基础规则之后**
+   (同优先级后来者胜,排在前面会被盖住)。360px 还差几像素 → .gauges 同步收窄 gap。 */
+@media(max-width:640px){
+ .wrap{gap:12px;padding:11px 12px}
+ .tools{flex-wrap:wrap;width:100%;gap:10px;margin-left:0}
+ #fproj{flex:1 1 100%;max-width:100%;min-width:0}
+ #fq{flex:1 1 auto;min-width:0;width:auto}
+ .gauges{gap:10px}
+ .thead,.arow{grid-template-columns:18px 1.3fr 62px 56px 24px;gap:4px}
+ /* 窄屏放不下的两列(阶段/工具名)让位给标题与数字:隐藏而非挤压(信息仍在抽屉里) */
+ .arow .phc,.arow .tool{display:none}
+ /* markdown 表格是数据源原样内容:限宽 + 横向滚动,不许撑破页面,也不许裁(铁律 7) */
+ .mdt{display:block;overflow-x:auto;max-width:100%}
+}
 .pane{border:1px solid var(--ln);background:var(--pnl2);padding:11px 13px;position:relative;box-shadow:var(--sh);min-width:0}
 .pane::before{content:attr(data-t);position:absolute;top:-7px;left:9px;background:var(--pnl);padding:0 7px;font:600 8px var(--mono);letter-spacing:.3em;color:var(--am)}
 /* 全文回取转场(1.2.17):.q=拉取中循环扫描光(预告"即将换全文",消解"突然一闪");.xfp=到达时一次性高光扫过;.xf=新内容淡入(透明度+上浮+去模糊)。色只取各主题皆有的 --amr */
@@ -322,7 +350,11 @@ body.flow-open{overflow:hidden}
 .wfnode.t-start .hd b{color:var(--gr)}.wfnode.t-agent .hd b{color:var(--am)}.wfnode.t-return .hd b{color:var(--cy)}
 .wfnode .hd i{font:500 9px var(--mono);color:var(--dim2);border:1px solid var(--ln);padding:0 3px}
 .wfnode .hd span{color:var(--tx);opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
-.wfnode .hd .tag{margin-left:auto;color:var(--dim2);cursor:pointer;padding:0 3px}
+/* 删除键是 <button>(A10:可聚焦、有 aria-label);类名 tag nodrag 保留 —— 选择器契约与 C6 断言不动。
+   它曾是 <span>,同时吃到这里 `.wfnode .hd span{opacity:.8;font-size:10px;white-space:nowrap}` 那条规则;
+   换元素后不再命中,故把这几项显式抄回来(否则 ✕ 会变大变亮)+ 中和 button 的 UA 默认。 */
+.wfnode .hd .tag{margin-left:auto;color:var(--dim2);cursor:pointer;padding:0 3px;background:none;border:0;
+ font:inherit;font-size:10px;line-height:normal;opacity:.8;white-space:nowrap;text-align:center;appearance:none}
 .wfnode .hd .tag:hover{color:var(--rd)}
 .wfnode label{display:block;margin:6px 7px 0;color:var(--dim2);font:600 8px var(--mono);letter-spacing:.16em}
 .wfnode input,.wfnode textarea,.wfnode select{background:var(--pnl2);border:1px solid var(--ln);color:var(--tx);
@@ -401,13 +433,18 @@ body.flow-open{overflow:hidden}
 </style></head><body>
 <script>(function(){var t=localStorage.getItem('wfo-theme');if(!t)t=localStorage.getItem('wfo-night')==='1'?'night':'day';if(t!=='day')document.body.classList.add(t)})()</script>
 <header><div class="wrap">
-<div class="brand"><span class="dia"></span>WORKFLOW<span class="ops">OPS</span></div>
-<div class="gauges" id="gauges"></div>
+<h1 class="brand"><span class="dia"></span>WORKFLOW<span class="ops">OPS</span></h1><!-- A10:文档唯一一级标题(原为 div) -->
+<div class="gauges" id="gauges" aria-live="polite"></div><!-- A10:轮询更新的计数,读屏按 polite 播报 -->
 <div class="tools">
 <select id="fproj"><option value="" data-i18n="◆ 全部项目">◆ 全部项目</option></select>
 <input id="fq" placeholder="⌕ 搜索 名称/run/任务/状态" data-i18n-ph="⌕ 搜索 名称/run/任务/状态" autocomplete="off" spellcheck="false">
+<!-- B1:按钮 hidden 时它的 tooltip 永不可见 —— 未选项目时把前置条件摆在明处(显隐同住 syncFlowEntry 单点) -->
+<span class="fhint" id="flowHint" data-i18n="先在上方选一个具体项目,才能编排 Workflow" hidden>先在上方选一个具体项目,才能编排 Workflow</span>
 <button class="tgl" id="btnFlow" data-i18n="✦ 编排" hidden>✦ 编排</button><!-- 显隐与 tooltip 由 syncFlowEntry() 按"是否选中具体项目"单点决定 -->
 <button class="tgl" id="hookbtn" data-i18n="⚙ 设置">⚙ 设置</button>
+<!-- A9:链路状态两件套——常驻顶栏,不进 #gauges(仪表串受 GSTR 去重,断连态写进去无法自动恢复) -->
+<span id="linkdown" role="status" data-i18n="⚠ 链路中断 重连中" hidden>⚠ 链路中断 重连中</span>
+<span class="rid" id="lastupd"></span>
 <span class="rid" id="verB" style="align-self:center"></span>
 </div></div></header>
 <div class="wrap" style="padding:0 16px"><div class="cfgp" id="cfg" style="width:100%" hidden>
@@ -448,13 +485,13 @@ body.flow-open{overflow:hidden}
 </div></div></div>
 <div class="cfsave"><span class="hmsg" id="hmsg"></span><button class="save" id="hsave" data-i18n="保存 APPLY ▸">保存 APPLY ▸</button></div>
 </div></div>
-<div class="secttl" id="secttl" hidden></div>
+<div class="secttl" id="secttl" hidden aria-live="polite"></div><!-- A10:会话计数/⏸ 数与仪表同理 -->
 <main id="sess" class="sesstop"></main>
 <main id="list"></main>
 <!-- 编排器模态(1.2.43):独立容器,不在 #list/#sess 的 diffPaint 池内;静态文案全挂 data-i18n -->
-<div id="flow" hidden>
+<div id="flow" hidden role="dialog" aria-modal="true" aria-labelledby="flowTitle"><!-- A10:模态语义;标题 id 供 aria-labelledby 指向 -->
   <div class="flow-head">
-    <b class="flow-title" data-i18n="✦ 编排 Workflow">✦ 编排 Workflow</b>
+    <b class="flow-title" id="flowTitle" data-i18n="✦ 编排 Workflow">✦ 编排 Workflow</b>
     <input id="fName" placeholder="workflow 名" data-i18n-ph="workflow 名" autocomplete="off" spellcheck="false">
     <input id="fDesc" placeholder="一句话描述(meta.description)" data-i18n-ph="一句话描述(meta.description)" autocomplete="off" spellcheck="false">
     <input id="fTitle" placeholder="标题(meta.title,可空)" data-i18n-ph="标题(meta.title,可空)" autocomplete="off" spellcheck="false">

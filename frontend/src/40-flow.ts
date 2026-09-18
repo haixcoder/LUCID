@@ -59,8 +59,9 @@ function flowNote(msg: string, ok: boolean): void {
 function handleHTML(n: FlowNode, type: 'source' | 'target', hid?: string, pos?: string): string {
   const id = hid || (type === 'source' ? 'out' : 'in'), position = pos || (type === 'source' ? 'right' : 'left');
   // connectable + connectableend = isConnectable 的隐藏契约:缺任一 → isValid 恒 false → 连线静默失效(C4)
+  // A10:handle 是 div(不可聚焦),读屏只认 aria-label —— 与 title 同源,别只写 title
   return `<div class="${FLOW_LIB}-flow__handle ${type}${hid ? ' h-' + hid : ''} nodrag connectable connectableend" data-handleid="${id}"` +
-    ` data-handlepos="${position}" data-nodeid="${n.id}" data-id="${FLOW_ID}-${n.id}-${id}-${type}" title="${type}"></div>`;
+    ` data-handlepos="${position}" data-nodeid="${n.id}" data-id="${FLOW_ID}-${n.id}-${id}-${type}" title="${type}" aria-label="${type}"></div>`;
 }
 // ── 字段选择(1.2.60):把上游节点的 schema 字段做成可点芯片,点一下插到 prompt 光标处 ──
 // 候选口径单点(与生成器同一套语法):上游节点 ∪ map 链内的 item/index;字段名来自上游 agent 的
@@ -114,12 +115,12 @@ function nodeHTML(n: FlowNode): string {
   let fields = '';
   if (t === 'start') fields = `<label>${T('说明(生成 args 入口)')}</label><input class="nodrag f-note" value="${esc(d.note || '')}" placeholder="${esc(T('如:调研选题'))}">`;
   if (t === 'agent') fields =
-    `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
+    `<label>${T('标签 / 阶段')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
     `<label>${T('prompt(可引用 {{nX}} 或 {{nX.字段}})')}</label><textarea class="nodrag f-prompt" rows="3">${esc(d.prompt || '')}</textarea>` +
     `<div class="fchips">${chipsHTML(n)}</div>` +
     optFieldsHTML(d);
   if (t === 'map') fields =
-    `<label>${T('label / phase')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
+    `<label>${T('标签 / 阶段')}</label><div class="frow"><input class="nodrag f-label" value="${esc(d.label || '')}" placeholder="label"><input class="nodrag f-phase" value="${esc(d.phase || '')}" placeholder="phase"></div>` +
     `<label>${T('items 表达式(如 ARGS.paths)')}</label><input class="nodrag f-items" value="${esc(d.items || '')}" placeholder="ARGS.paths">` +
     `<label>${T('回调模板({{item}} / {{index}})')}</label><textarea class="nodrag f-prompt" rows="2">${esc(d.prompt || '')}</textarea>` +
     `<div class="fchips">${chipsHTML(n)}</div>` +
@@ -153,7 +154,9 @@ function nodeHTML(n: FlowNode): string {
     : t === 'merge' ? handleHTML(n, 'target', 'in', 'left') + handleHTML(n, 'target', 'in2', 'left') + handleHTML(n, 'source')
     : (t !== 'start' ? handleHTML(n, 'target') : '') + (t !== 'return' ? handleHTML(n, 'source') : '');
   return `<div class="wfnode t-${t} ${FLOW_LIB}-flow__node nopan${FS.sel.has(n.id) ? ' sel' : ''}" data-nodeid="${n.id}" style="left:${n.position.x}px;top:${n.position.y}px">` +
-    `<div class="hd"><b>${label}</b><i>${n.id}</i>${sub}<span class="tag nodrag" title="${T('删除节点')}">✕</span></div>${fields}` + hs + `</div>`;
+    // 删除键是 <button>(A10:键盘可达、aria-label 有名);类名 tag nodrag 是契约(test_flow_editor 的
+    // `#fViewport .tag` 选择器 + C6 的 nodrag 断言),改元素不许改类名。title 保留=鼠标悬停仍有提示。
+    `<div class="hd"><b>${label}</b><i>${n.id}</i>${sub}<button type="button" class="tag nodrag" title="${T('删除节点')}" aria-label="${T('删除节点')}">✕</button></div>${fields}` + hs + `</div>`;
 }
 function fNodeEl(id: string): HTMLElement | null {
   return fVp().querySelector<HTMLElement>(`.wfnode[data-nodeid="${id}"]`);
@@ -248,6 +251,9 @@ function wireNodes(): void {
     const guard = el.querySelector<HTMLInputElement>('.f-guard');
     if (guard) guard.addEventListener('change', () => { n.data.budgetGuard = guard.checked; refreshFlowScript(); autosaveFlow(); });
     el.querySelector('.tag')?.addEventListener('mousedown', e => { e.stopPropagation(); flowRemoveNode(n.id); });
+    // A10:button 的键盘激活(Enter/Space)只派生 click、不派生 mousedown —— 只绑 mousedown 等于"能 Tab 到却按不动"。
+    // detail===0 = 非指针点击(键盘/程序化),与鼠标路径互斥,不会重复删除。
+    el.querySelector('.tag')?.addEventListener('click', e => { if ((e as MouseEvent).detail === 0) flowRemoveNode(n.id); });
     el.addEventListener('mousedown', () => { if (!FS.sel.has(n.id)) { FS.sel.clear(); FS.sel.add(n.id); refreshSel(); } });
     el.querySelectorAll('.lucid-flow__handle').forEach(h => {
       h.addEventListener('pointerdown', ev => startConnect(ev as PointerEvent, h, n.id, h.classList.contains('target')));
@@ -764,12 +770,19 @@ function flowRelang(): void {
 // 草稿落点(drafts/<项目 slug>)、提示词上下文、终端执行目录都要求一个确定的 cwd;
 // 选了「◆ 全部项目」时根本没有目标项目 → 入口不该存在(不是灰着让人猜)。
 // 判定只住这里,展示面(按钮显隐 / openFlow 守卫 / tooltip)一律调它——铁律 8。
-const flowCanCompose = (cwd: string): boolean => !!String(cwd || '').trim();
+// 入口存在性判定单点(1.2.66 起要求**绝对路径**):A7 修复后,session_cwd 解不出的项目会以编码名
+// ('-Users-…')或空串出现在数据里(CSS 类键 cwd||project 照旧)。让它们可编排 = 草稿 slug 按相对路径
+// realpath 落到服务进程目录、项目分发必然报错——宁可不给入口,也不把草稿写错地方(与 web._project_workflow_path
+// 只接受绝对 cwd 同一口径)。真实项目 cwd 均为绝对路径,行为不变;"全部项目"('')照旧无入口。
+const flowCanCompose = (cwd: string): boolean => String(cwd || '').startsWith('/');
 function syncFlowEntry(): void {
   const b = $<HTMLElement>('btnFlow'); if (!b) return;
   const on = flowCanCompose(fproj);
   b.hidden = !on;
   b.title = on ? T('对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)', fproj) : T('先在上方选一个具体项目,才能编排 Workflow');
+  // B1(1.2.66):按钮 hidden 时 tooltip 永不可见 —— 未选项目时用常显提示行交代下一步,
+  // 仍与 1.2.44「全部项目下不该有编排入口」兼容(入口还是不存在,只是把原因写在明处)。显隐同住本单点。
+  const h = $<HTMLElement>('flowHint'); if (h) h.hidden = on;
 }
 $<HTMLElement>('btnFlow').onclick = () => { if (flowCanCompose(fproj)) void openFlow(fproj); };
 syncFlowEntry();   // 启动即定态:fproj 在 30-app 顶层已从 localStorage 恢复(本文件在其后拼接)

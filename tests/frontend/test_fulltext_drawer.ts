@@ -134,6 +134,46 @@ const FULL_TEXT = { prompt: 'FULL-IN 全文注入段落', result: 'FULL-OUT 回�
      !!ad2 && [...ad2.querySelectorAll('.pane')].some((p) => (p.dataset.t || '').startsWith('OUT') && /sub result/.test(p.textContent)),
      ad2 && ad2.textContent.slice(0, 200));
 
+  // ── A1:折叠态「一行摘要」也要渲染 markdown(1.2.66)──
+  // 详情面板(paneIn/paneOut)早已 mdLite,只有三处摘要行用裸 esc:`**粗体**`/反引号原样露出
+  // (真实语料 45.9% 的 assistant 文本块含此类标记)。摘要行是折叠态,展开即全文,预览不该露标记。
+  sessions[0].steps[0].text = '**BOLD** 与 `code` 摘要';
+  sessions[0].prompts[0].t = '# 标题 `x` 提示词';
+  sessions[0].lastText = '**粗体** 输出';
+  env.run('void tick()');
+  await env.flush();
+  const lblMd = env.$('sess').querySelector(`details[data-k="${sk}"] .lbl`)!;
+  ck('步骤摘要行渲染 markdown(粗体/反引号不再原样露出)',
+     /<b>BOLD<\/b>/.test(lblMd.innerHTML) && /<code>code<\/code>/.test(lblMd.innerHTML), lblMd.innerHTML);
+  const wtMd = env.$('sess').querySelector('.waitline .wt')!;
+  ck('等待行摘要行同渲染', /<b>粗体<\/b>/.test(wtMd.innerHTML), wtMd.innerHTML);
+  const wtSum = env.$('sess').querySelector('.waitline summary')!;
+  ck('等待行 title 属性仍是转义纯文本(属性值不能带标签)',
+     wtSum.getAttribute('title') === '**粗体** 输出', wtSum.getAttribute('title'));
+  const ptK = SESSION_FIX.sessionId + ':prompt:' + SESSION_FIX.prompts[0].u;
+  const ptMd = env.$('sess').querySelector(`details[data-k="${ptK}"] .pt`)!;
+  ck('提示词回显渲染 markdown 且剥掉行首标题标记(# 不再是噪音)',
+     /^标题 <code>x<\/code> 提示词$/.test(ptMd.innerHTML), ptMd.innerHTML);
+
+  // ── A2:有工具无文本的步骤 → .lbl 回落 toolHint / 工具名(真实数据 64% 的步骤如此)──
+  // 旧实现一律显示「(工具调用步)」= 信息量为零;toolHint 是后端新字段(≤80 字,'Bash: git log …'),未上线时缺失也要正常。
+  sessions[0].steps[0].text = '';
+  sessions[0].steps[0].tools = ['Bash', 'Read'];
+  env.run('void tick()');
+  await env.flush();
+  const lblOf = () => env.$('sess').querySelector(`details[data-k="${sk}"] .lbl`)!;
+  ck('无文本但有工具:摘要行回落工具名列表(不再一律占位符)',
+     lblOf().textContent.includes('Bash · Read') && !lblOf().textContent.includes('工具调用步'), lblOf().textContent);
+  sessions[0].steps[0].toolHint = 'Bash: git log --oneline -8';
+  env.run('void tick()');
+  await env.flush();
+  ck('toolHint(后端摘要)优先于工具名列表', lblOf().textContent.includes('Bash: git log --oneline -8'), lblOf().textContent);
+  delete sessions[0].steps[0].toolHint;
+  sessions[0].steps[0].tools = [];
+  env.run('void tick()');
+  await env.flush();
+  ck('文本/提示/工具全空:回落链尽头仍是占位符', lblOf().textContent.includes('工具调用步'), lblOf().textContent);
+
   ck('全程无渲染异常', env.errs.length === 0, env.errs.join('|'));
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

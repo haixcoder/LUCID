@@ -14,7 +14,7 @@ function card(r: Run, i: number): string {
   <h2>${esc(r.name)}</h2><span class="rid">${esc(r.runId)}</span>
   <span class="meta">${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${fmtT(r.durationMs)}${r.tokens ? ' · ' + fmtN(r.tokens) + ' tok' : ''}</span></div>
   <div class="cwd">${esc(r.cwd || r.project)} · ${esc(r.session.slice(0, 8))}…</div>
-  ${r.task ? `<details class="term taskd" data-k="${esc(r.runId)}:task"><summary class="task clamp">${inlineMd(r.task.replace(/^#{1,4}\s+/gm, '').replace(/^```[^\n]*$/gm, '').slice(0, 170))}</summary><div class="task full rich">${mdLite(r.task)}</div></details>` : ''}
+  ${r.task ? `<details class="term taskd" data-k="${esc(r.runId)}:task"><summary class="task clamp">${inlineMd(r.task.replace(/^#{1,4}\s+/gm, '').replace(/^```[^\n]*$/gm, '').slice(0, 170))}${r.task.length >= 2000 ? ` <span style="font:500 10px var(--mono);color:var(--dim2);letter-spacing:.02em">${T('(原文上限 2000 字)')}</span>` : ''}</summary><div class="task full rich">${mdLite(r.task)}</div></details>` : ''}
   ${r.phases.length ? `<div class="strip">${r.phases.map(p => `<span class="ph ${phRun[p.title] ? 'on' : phDone[p.title] ? 'fin' : ''}">${esc(p.title)}</span>`).join('')}</div>` : ''}
   <div class="pipe"><div class="trk"></div><div class="fil" style="width:calc(${Math.round(done / total * 100)}% * .98)"></div>
   ${r.agents.map((a, j) => `<div class="nd ${esc(a.state)}" title="${esc(a.label)} · ${esc(a.state)}" style="left:${((j + .5) / (total || 1) * 100).toFixed(1)}%;${a.state === 'running' ? AD(1.6) : ''}"></div>`).join('')}</div>
@@ -95,7 +95,7 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
     const ptag = pf.p ? T('全文') : pf.m ? T('不可回取') : T('截断预览');
     const pbody = pf.p ? mdLite(wrapLong(unent(pf.p))) : pf.m ? `<i style="opacity:.7">${esc(T('⚠ 该条输入已超出转录留存范围，无法回取全文'))}</i>` : mdLite(wrapLong(unent(p ? p.t || '' : '')));
     const phint = (pf.p || pf.m) ? '' : `<div class="hint">${T('展开后自动拉取整条输入全文(超出转录留存范围会显式提示)')}</div>`;
-    const summ = p ? `<span class="pk">${p.ts ? fmtC(Date.parse(p.ts)) : '—'}</span>${p.f ? `<span class="fchip">${T('最初')}</span>` : ''}<span class="pt">${esc((p.t || '').replace(/\s+/g, ' ').trim())}</span>`
+    const summ = p ? `<span class="pk">${p.ts ? fmtC(Date.parse(p.ts)) : '—'}</span>${p.f ? `<span class="fchip">${T('最初')}</span>` : ''}<span class="pt">${inlineMd((p.t || '').replace(/\s+/g, ' ').trim().replace(/^#{1,4}\s+/, ''))}</span>`
                    : `<span class="pk">—</span><span class="pt"><i style="opacity:.45">${esc(T('(该任务输入超出尾窗 · 展开取全文)'))}</i></span>`;
     return `<details class="term promptline turnhd" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(u)}">
   <summary>${summ}<span class="tc">${T('%1 步', n)}</span></summary>
@@ -109,10 +109,16 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
     // FULL[k].r='' → R 恒空 → OUT 面板整块消失,onToggle 写进 pane 的 ⚠ 又在下一轮轮询重建时被冲掉 ——
     // 用户看到的是"点击展开详情后，不显示内容"(既无全文也无提示,静默空白)。
     const miss = !!fu.m, hasIn = !!P || miss, hasOut = !!R || miss;
+    // 折叠态摘要行的回落链(1.2.66):文本摘要 → toolHint(后端 ≤80 字) → 工具名列表 → 占位符。
+    // 真实数据 64% 的步骤"有工具无文本",旧实现一律「(工具调用步)」= 信息量为零。
+    // 一律过 inlineMd(自带 esc):摘要行也是 markdown 的展示面,`**粗体**`/反引号原样露出 = 与详情面板口径不一。
+    const sm = (s.text || '').replace(/\s+/g, ' ').trim().replace(/^#{1,4}\s+/, '').slice(0, 110);
+    const lbl = sm ? inlineMd(sm) : s.toolHint ? inlineMd(s.toolHint)
+      : (s.tools || []).length ? inlineMd((s.tools || []).join(' · ')) : `<i style="opacity:.45">${T('(工具调用步)')}</i>`;
     return `<details class="term tstep" data-k="${esc(k)}" data-src="S|${esc(r.project)}|${esc(r.sessionId)}|main#${esc(s.msgId)}">
   <summary class="arow">
   <span class="glyph s-${g}" ${g === 'running' ? `style="${AD(1.5)}"` : ''} title="${esc(s.model || '')}">${g === 'running' ? '◈' : '▸'}</span>
-  <span class="lbl" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((s.text || '').replace(/\s+/g, ' ').slice(0, 110)) || `<i style="opacity:.45">${T('(工具调用步)')}</i>`}</span>
+  <span class="lbl" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lbl}</span>
   <span class="tool">${esc((s.tools || []).join(' '))}</span>
   <span class="num">${fmtN(s.tokIn)}/${fmtN(s.tokOut)}</span><span class="num">${s.ts ? fmtC(Date.parse(s.ts)) : '—'}</span><span class="tw"></span></summary>
   <div class="term-body${hasIn && hasOut ? '' : ' solo'}"><div class="pane" data-t="IN · ${T(P ? '工具入参全文' : miss ? '不可回取' : '工具')}"><div class="rich">${P ? mdLite(wrapLong(unent(P))) : miss ? `<i style="opacity:.7">${esc(T(MISS_STEP_TXT))}</i>` : esc((s.tools || []).map(t => '● ' + t).join(' ')) || T('(本步无工具调用)')}</div></div>${R ? paneOut(T(fu.r !== undefined ? '全文' : '截断预览'), R) : miss ? paneOut(T('不可回取'), MISS_STEP_TXT) : ''}</div></details>`;
@@ -156,7 +162,7 @@ function sessCard(r: SessionState, i: number, wfs: Run[] = []): string {
   <h2>${esc(r.title || T('会话 %1', r.sessionId.slice(0, 8)))}</h2><span class="rid">${esc(r.sessionId.slice(0, 8))}${r.pid ? ' · pid ' + r.pid : ''}</span>
   <span class="meta">${T('主 agent')} · ${esc(r.model || '?')}${r.permissionMode ? ' · ' + T('%1 模式', esc(r.permissionMode)) : ''}${r.kind ? ' · ' + esc(r.kind) : ''}</span></div>
   <div class="cwd">${esc(r.cwd || r.project)} · ${T('T%1 启动', fmtC(r.startedAt).slice(0, 8))} · ${T('最后活动')} ${fmtC(r.lastActivityAt)} · ${r.turns === undefined ? '' : T('任务 %1', r.turns) + ' · '}${T('尾窗工具调用')} ${r.toolCalls}</div>
-  ${wait ? `<details class="term waitline${stuck ? '' : ' turn'}" data-k="${esc(r.sessionId)}:wait"${wsrc}${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${stuck ? T('在等') + ' · ' + (r.waitTool ? esc(r.waitTool) : T('你的回复')) : T('最后输出')}</span><span class="wt">${wtxt ? esc(wtxt) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
+  ${wait ? `<details class="term waitline${stuck ? '' : ' turn'}" data-k="${esc(r.sessionId)}:wait"${wsrc}${r.lastText ? '' : ' style="display:contents"'}><summary title="${esc(wtxt)}"><span class="wk">${stuck ? T('在等') + ' · ' + (r.waitTool ? esc(r.waitTool) : T('你的回复')) : T('最后输出')}</span><span class="wt">${wtxt ? inlineMd(wtxt.replace(/^#{1,4}\s+/, '')) : `<i style="opacity:.45">${T('(无文本输出)')}</i>`}</span></summary>
   <div class="term-body solo"><div class="pane" data-t="OUT · ${wtag}"><div class="rich">${wbody}</div>${whint}</div></div></details>` : ''}
   <div class="strip"><span class="ph ${r.pendingTools.length ? 'on' : ''}">${T('最近工具')} ${esc(r.pendingTools[0] || '—')}${r.pendingTools.length > 1 ? ' ' + T('等%1项', r.pendingTools.length) : ''}</span>
   <span class="ph fin">tok in ${fmtN(tk.input)} / out ${fmtN(tk.output)} / cacheR ${fmtN(tk.cacheRead)}</span>

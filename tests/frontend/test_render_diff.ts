@@ -5,6 +5,7 @@
 //  · 后台节流补偿 catchUp:visibilitychange/pageshow/focus 立即补扫,1s 冷却去重,auto=off 不越权;
 //  · 两条真实缺陷的 RED 复现:① 搜索空态→恢复后 .idle「NO MATCH」永久残留(render() 漏摘);
 //    ② meta[wfo-ver] 无 id → VER 恒空 → 部署后旧标签页永不自动刷新(桩按规范只认 id,还原真机行为)。
+import fs from 'node:fs';
 import { load, makeCk, payload, RUN_DONE, RUN_LIVE, SESSION_FIX, ARTIFACT } from './harness.ts';
 const { ck, done } = makeCk();
 
@@ -20,9 +21,19 @@ const { ck, done } = makeCk();
      && list.children[1].dataset.rid === 'wf_live9', list.children.map(c => c.dataset.rid).join(','));
   ck('会话卡落 DOM + 区标题可见', sessEl.children.length === 1 && env.$('secttl').hidden === false);
   const g0 = env.$('gauges').innerHTML;
-  ck('仪表无过滤态:RUNS 纯计数(无命中/总数,无 title 说明)', /<b>2<\/b><span>RUNS/.test(g0) && g0.indexOf('title=') < 0, g0.slice(0, 160));
+  // 标签自 1.2.66 起走 T()(桩环境默认 zh → 断言中文标签;英文侧由 test_i18n 的整屏"零汉字"断言覆盖)。
+  // 首块(RUNS)仍必须无 title:tooltip 只属于有口径歧义的两块(LIVE/ALERT)。
+  ck('仪表无过滤态:RUNS 纯计数(无命中/总数,首块无 title 说明)',
+     /^<div class="g"><b>2<\/b><span>运行<\/span><\/div>/.test(g0), g0.slice(0, 160));
   // TASKS=视图内各会话主 agent 调用任务次数之和(数据只认后端 turns 字段;SESSION_FIX turns=2)
-  ck('仪表:TASKS 紧跟 RUNS 展示总和(无过滤=纯计数)', /<b>2<\/b><span>TASKS<\/span><\/div>\s*<div class="g lv/.test(g0), g0.slice(0, 240));
+  ck('仪表:TASKS 紧跟 RUNS 展示总和(无过滤=纯计数)', /<b>2<\/b><span>任务<\/span><\/div>\s*<div class="g lv/.test(g0), g0.slice(0, 240));
+  // A5/A6:LIVE / ALERT 与会话区「活跃」、运行卡状态章同词不同义 —— 口径写进 tooltip(判定仍只住 ALERT_ST)
+  const gEls = env.$('gauges').children;
+  ck('LIVE 仪表带口径 tooltip(说明=正在执行的 run,与会话区「活跃」不同义)',
+     !!gEls[2] && /正在执行/.test(gEls[2].getAttribute('title') || ''), gEls[2] && gEls[2].getAttribute('title'));
+  ck('ALERT 仪表 tooltip 列出所含状态(失败/错误/陈旧/中止/终止/超时)',
+     !!gEls[4] && ['失败', '错误', '陈旧', '中止', '终止', '超时'].every(w => (gEls[4].getAttribute('title') || '').indexOf(w) >= 0),
+     gEls[4] && gEls[4].getAttribute('title'));
   ck('会话区标题含 ⏸ 计数(ask=真卡住)', /⏸/.test(env.$('secttl').innerHTML), env.$('secttl').innerHTML);
 
   // ── 按卡 diff:完成卡身份保持;会话卡数据稳定同样不重建 ──
@@ -76,10 +87,10 @@ const { ck, done } = makeCk();
   env.$('fq').oninput!({ target: { value: 'alpha' } });
   await env.flush(2);
   const g1 = env.$('gauges').innerHTML;
-  ck('有过滤:RUNS 显示 命中/总数', /<b>1\/2<\/b><span>RUNS/.test(g1), g1.slice(0, 200));
+  ck('有过滤:RUNS 显示 命中/总数', /<b>1\/2<\/b><span>运行/.test(g1), g1.slice(0, 200));
   ck('有过滤:title 交代原因', /已按项目\/搜索过滤|filtered/i.test(g1), g1.slice(0, 240));
   // 'alpha' 不命中会话标题等字段 → 任务命中和为 0,全量和为 2(与 RUNS 分数口径同构)
-  ck('有过滤:TASKS 也显示 命中/总数', /<b>0\/2<\/b><span>TASKS/.test(g1), g1.slice(0, 260));
+  ck('有过滤:TASKS 也显示 命中/总数', /<b>0\/2<\/b><span>任务/.test(g1), g1.slice(0, 260));
 
   // ── RED①:空态→恢复,.idle 残留(render() 从未摘掉) ──
   env.$('fq').oninput!({ target: { value: 'zzz-绝无匹配' } });
@@ -95,6 +106,19 @@ const { ck, done } = makeCk();
      list.innerHTML.slice(0, 120) + '…');
   ck('恢复:会话区无残留', !sessEl.querySelector('.idle'));
 
+  // ── A11:task 原文 2000 字硬上限必须在界面写明(铁律 7;上限住在 scripts/ccviewer/scan.py 的 [:2000]) ──
+  // 展开的 .task.full 也是上限量——不写明,用户会以为看到的就是任务全文。
+  runs[0].task = 'x'.repeat(1999);
+  env.run('void tick()');
+  await env.flush();
+  let tdd = env.$('list').querySelector('details[data-k="wf_alpha1:task"]')!;
+  ck('task 1999 字(未触顶):不显示上限标注', !tdd.textContent!.includes('原文上限'), tdd.textContent!.slice(0, 80));
+  runs[0].task = 'x'.repeat(2000);
+  env.run('void tick()');
+  await env.flush();
+  tdd = env.$('list').querySelector('details[data-k="wf_alpha1:task"]')!;
+  ck('task 触顶(2000 字):摘要行标注原文上限', tdd.textContent!.includes('(原文上限 2000 字)'), tdd.textContent!.slice(0, 80));
+
   // ── RED②:meta[wfo-ver] 取不到 → 部署自刷新失效(桩按规范只认 id) ──
   ck('VER 常量非空(页面从 meta 自取构建戳;当前 meta 无 id → 真浏览器同为 null)',
      env.get('VER') !== '', JSON.stringify(env.get('VER')));
@@ -107,6 +131,13 @@ const { ck, done } = makeCk();
   await mismatch.flush();
   ck('api ver ≠ 页面构建戳 → location.reload()(旧标签页自动换新代码)', mismatch.location.reloads >= 1,
      'reloads=' + mismatch.location.reloads + ' VER=' + JSON.stringify(mismatch.get('VER')));
+
+  // ── A6 配套:状态章样式表必须覆盖全部状态(含 notify.STATUS_ZH 白名单里的 stopped)──
+  // 卡章类名 = `b-<status>`。少一条 → 该状态的运行卡章"无样式"(裸文字),stopped 就是缺的那条(1.2.66 补)。
+  const art = fs.readFileSync(ARTIFACT, 'utf8');
+  const cssMissing = ['running', 'completed', 'failed', 'error', 'stale', 'aborted', 'killed', 'timeout', 'stopped']
+    .filter(s => !new RegExp('\\.b-' + s + '[,\\{]').test(art));
+  ck('状态章样式覆盖 9 态(含 .b-stopped;缺=该状态卡章裸文字)', cssMissing.length === 0, cssMissing.join(','));
 
   done();
 })().catch((e: unknown) => { console.error('HARNESS CRASH:', e); process.exit(2); });

@@ -59,6 +59,25 @@ htest2.onclick = async () => {  // 分型测试：按「等待用户输入」的
 // 构建戳自取。历史坑:曾写作 $('wfo-ver') —— getElementById 只认 id,而模板里是 <meta name=...>,
 // 真浏览器返回 null → VER 恒为空 → "旧标签页自动换新代码"与版本角标静默失效多版(无头桩按规范复现,1.2.18 修)。
 const VER = (document.querySelector('meta[name="wfo-ver"]') as HTMLMetaElement | null)?.getAttribute('content') || '';
+// ── A9 链路状态(1.2.66):横幅与「最后更新」戳都住顶栏常驻元素,不进 #gauges ──
+// 真机缺陷:catch 曾直接改写 #gauges.innerHTML 且不清 GSTR[0] → 恢复后数据载荷未变时 gh === GSTR[0]
+// 为真 → 仪表块永不重绘 → "⚠ 链路中断 重连中"在恢复后**永久残留**(14s/7 个周期仍是假掉线)。
+// 结构性修法:断连态一律不写 #gauges(旧数字留着 + 时间戳交代它有多旧),成功一轮即清横幅。
+let lastOk = 0, failN = 0;
+function linkState(ok: boolean): void {
+  const ld = $('linkdown'), lu = $('lastupd');
+  if (ok) {
+    lastOk = Date.now(); failN = 0;
+    if (ld) ld.hidden = true;
+    if (lu) lu.textContent = T('更新于 %1', fmtC(lastOk));
+    document.body.classList.remove('stale');
+    return;
+  }
+  failN++;
+  if (ld) ld.hidden = false;                                              // 首次失败即报(不等到阈值)
+  if (lu) lu.textContent = lastOk ? T('数据最后更新于 %1', fmtC(lastOk)) : '';
+  if (failN >= 3) document.body.classList.add('stale');                    // 偶发抖动不降透明,连续 3 轮才算陈旧
+}
 async function tick(): Promise<void> {
   let d: RunsResp, s: SessionsResp;
   try {
@@ -66,7 +85,12 @@ async function tick(): Promise<void> {
     d = a; s = b;
     // 部署后旧标签页自动换代码:服务端 JS 载荷 md5 ≠ 本页构建时戳 → 整页重载(一次即可,新页戳必匹配)
     if (d.ver && VER && d.ver !== VER) { location.reload(); return; }
-  } catch (e) { $('gauges').innerHTML = `<div class="g er"><b>⚠</b><span>${T('⚠ 链路中断 重连中')}</span></div>`; return; }
+    linkState(true);   // 拿到数据=链路健康:清横幅/去 stale/写「更新于」(A9)
+  } catch (e) {
+    GSTR[0] = '';      // 止血:仪表串若曾被错误态占位,diff 缓存会把它钉死 → 清掉,下轮成功必重绘
+    linkState(false);
+    return;
+  }
   // 渲染异常不再冒充"链路中断"(历史坑:catch 同包 fetch+render,JS bug 被伪装成掉线且无痕迹)
   try {
     runs = d.runs; sess = s.sessions || []; rdays = d.recentDays || 14; tasksData = d.tasks || null;
@@ -83,6 +107,7 @@ async function tick(): Promise<void> {
   } catch (e) {
     console.error('render error:', e);
     const err: string = String((e as Error | null)?.message ?? e);
+    GSTR[0] = '';   // 同 A9:错误态占位的仪表串不许被 diff 缓存钉住(下次成功必重绘回真实计数)
     $('gauges').innerHTML = '<div class="g er" title="' + esc(err) + '"><b>⚠</b><span>' + T('渲染异常(全文见下方卡片)') + '</span></div>';
     fullError(err, (e as Error)?.stack || '');   // 仪表条装不下异常全文：整条堆栈进列表区滚动框(见"日志可看全"铁律)
   }
@@ -145,7 +170,10 @@ function renderSessions(): void {
   const el = $('sess'), tt = $('secttl');
   if (!sess.length) { tt.hidden = true; el.innerHTML = ''; return; }
   tt.hidden = false;
-  const vis = sess.filter(sessHit), live = sess.filter(s => s.alive).length, waiting = vis.filter(sessStuck).length;  // ⏸ 只数真卡住(ask/permission);回合已完(turn)不算等待(1.2.13)
+  // A4(1.2.66):「活跃 N」必须与同一行的 vis 同口径 —— 旧实现用未过滤的 sess 求 live,
+  // 项目过滤/搜索下会出现"列表 1 张卡、标题写 活跃 3"的自相矛盾(用户看不见的会话不该计数)。
+  // ⏸ 只数真卡住(ask/permission);回合已完(turn)不算等待(1.2.13)
+  const vis = sess.filter(sessHit), live = vis.filter(s => s.alive).length, waiting = vis.filter(sessStuck).length;
   tt.innerHTML = `${T('AGENT 状态 · 会话(主+子)')} ${vis.length}${live ? ' · ' + T('活跃') + ' ' + live : ''}${waiting ? ' · <b class="wtag">⏸ ' + T('等待输入') + ' ' + waiting + '</b>' : ''}`;
   if (!vis.length) { el.innerHTML = `<p class="idle">${T('NO MATCH · 无匹配会话')}</p>`; spainted = true; return; }
   if (el.querySelector('.idle')) el.innerHTML = '';
@@ -176,11 +204,13 @@ function render(): void {
   const tsum = (ls: SessionState[]): number => ls.reduce((a, s) => a + (s.turns || 0), 0);
   const tAll = tasksData ? tasksData.total : tsum(sess);
   const tHit = !flt ? tAll : tasksData && fproj && !fstr ? (tasksData.byCwd[fproj] || 0) : tsum(sess.filter(sessHit));
-  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行 · 任务 %3/%4', rv.length, runs.length, tHit, tAll))}"` : ''}><b>${rv.length}${flt ? '/' + runs.length : ''}</b><span>RUNS</span></div>
-    <div class="g"><b>${tHit}${flt ? '/' + tAll : ''}</b><span>TASKS</span></div>
-    <div class="g lv"><b>${n(r => r.status === 'running')}</b><span>LIVE</span></div>
-    <div class="g ok"><b>${n(r => r.status === 'completed')}</b><span>DONE</span></div>
-    <div class="g er"><b>${n(r => ALERT_ST.has(r.status))}</b><span>ALERT</span></div>`;
+  // 标签走 T()(A3):原先五个裸英文 span 是唯一不进文案层的用户可见文案。ALERT 保留英文词是刻意的
+  // (异常终态聚合的代号),含义由 tooltip 交代;LIVE 与下方会话区「活跃」同词不同义,同样靠 tooltip 分区。
+  const gh = `<div class="g"${flt ? ` title="${esc(T('已按项目/搜索过滤：显示 %1 个，共 %2 个运行 · 任务 %3/%4', rv.length, runs.length, tHit, tAll))}"` : ''}><b>${rv.length}${flt ? '/' + runs.length : ''}</b><span>${T('运行')}</span></div>
+    <div class="g"><b>${tHit}${flt ? '/' + tAll : ''}</b><span>${T('任务')}</span></div>
+    <div class="g lv" title="${esc(T('口径:正在执行的 run(status = running)。与下方会话区的「活跃」(会话进程存活)不是一回事'))}"><b>${n(r => r.status === 'running')}</b><span>${T('运行中')}</span></div>
+    <div class="g ok"><b>${n(r => r.status === 'completed')}</b><span>${T('已完成')}</span></div>
+    <div class="g er" title="${esc(T('口径:异常终态聚合 —— 失败 / 错误 / 陈旧 / 中止 / 终止 / 超时'))}"><b>${n(r => ALERT_ST.has(r.status))}</b><span>${T('异常')}</span></div>`;
   if (gh !== GSTR[0]) { $('gauges').innerHTML = gh; GSTR[0] = gh; }
   // 空态→非空态:先摘 NO MATCH 段。<p.idle> 无 data-rid,下面的按卡清理会跳过它——不显式摘除就永久
   // 残留在结果尾部(与 renderSessions 的 .idle 清理对称;历史缺失,无头桩 t-diff 复现,1.2.18 修)

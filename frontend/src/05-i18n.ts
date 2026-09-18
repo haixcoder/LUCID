@@ -110,6 +110,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     '工具': 'tools',
     '时间': 'time',
     '(工具调用步)': '(tool-call step)',
+    '(原文上限 2000 字)': '(source text capped at 2000 chars)',
     '工具入参全文': 'full tool input',
     '(本步无工具调用)': '(no tool calls in this step)',
     '类型 · 模型': 'type · model',
@@ -240,6 +241,17 @@ const I18N: Record<Lang, Record<string, string>> = {
     // 编排入口按项目(1.2.44)
     '对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)': 'Compose a Workflow for the selected project "%1" (drag nodes and wires; run it in that project terminal after saving)',
     '先在上方选一个具体项目,才能编排 Workflow': 'Pick a specific project above to compose a Workflow',
+    // 仪表标签 / 链路状态 / 编排器字段(1.2.66)
+    '运行': 'RUNS',
+    '任务': 'TASKS',
+    '运行中': 'RUNNING',
+    '已完成': 'DONE',
+    '异常': 'ALERT',
+    '口径:正在执行的 run(status = running)。与下方会话区的「活跃」(会话进程存活)不是一回事': 'Scope: runs currently executing (status = running). Not the same as “live” in the session list below (session process alive).',
+    '口径:异常终态聚合 —— 失败 / 错误 / 陈旧 / 中止 / 终止 / 超时': 'Scope: anomalous terminal states aggregated — failed / error / stale / aborted / killed / timeout.',
+    '更新于 %1': 'updated %1',
+    '数据最后更新于 %1': 'data last updated %1',
+    '标签 / 阶段': 'label / phase',
   },
   es: {
     '已写入项目 workflow: %1': 'Escrito en el workflow del proyecto: %1',
@@ -337,6 +349,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     '工具': 'herramientas',
     '时间': 'hora',
     '(工具调用步)': '(paso de herramientas)',
+    '(原文上限 2000 字)': '(texto original limitado a 2000 caracteres)',
     '工具入参全文': 'entrada completa de herramienta',
     '(本步无工具调用)': '(este paso no usa herramientas)',
     '类型 · 模型': 'tipo · modelo',
@@ -467,6 +480,17 @@ const I18N: Record<Lang, Record<string, string>> = {
     // 编排入口按项目(1.2.44)
     '对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)': 'Compón un Workflow para el proyecto seleccionado «%1» (arrastra nodos y conexiones; ejecútalo en la terminal de ese proyecto al guardar)',
     '先在上方选一个具体项目,才能编排 Workflow': 'Elige arriba un proyecto concreto para componer un Workflow',
+    // 仪表标签 / 链路状态 / 编排器字段(1.2.66)
+    '运行': 'RUNS',
+    '任务': 'TAREAS',
+    '运行中': 'ACTIVOS',
+    '已完成': 'HECHOS',
+    '异常': 'ALERTA',
+    '口径:正在执行的 run(status = running)。与下方会话区的「活跃」(会话进程存活)不是一回事': 'Alcance: runs en ejecución (status = running). No es lo mismo que «activas» en la lista de sesiones de abajo (proceso de sesión vivo).',
+    '口径:异常终态聚合 —— 失败 / 错误 / 陈旧 / 中止 / 终止 / 超时': 'Alcance: estados finales anómalos agregados — failed / error / stale / aborted / killed / timeout.',
+    '更新于 %1': 'actualizado %1',
+    '数据最后更新于 %1': 'datos actualizados por última vez %1',
+    '标签 / 阶段': 'label / fase',
   },
   fr: {
     '已写入项目 workflow: %1': 'Écrit dans le workflow du projet : %1',
@@ -564,6 +588,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     '工具': 'outils',
     '时间': 'heure',
     '(工具调用步)': "(étape d'outils)",
+    '(原文上限 2000 字)': '(texte source plafonné à 2000 caractères)',
     '工具入参全文': "entrée d'outil complète",
     '(本步无工具调用)': "(aucun appel d'outil ici)",
     '类型 · 模型': 'type · modèle',
@@ -694,6 +719,17 @@ const I18N: Record<Lang, Record<string, string>> = {
     // 编排入口按项目(1.2.44)
     '对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)': 'Composez un Workflow pour le projet choisi « %1 » (glissez nœuds et liens ; lancez-le dans le terminal du projet après enregistrement)',
     '先在上方选一个具体项目,才能编排 Workflow': 'Choisissez un projet précis ci-dessus pour composer un Workflow',
+    // 仪表标签 / 链路状态 / 编排器字段(1.2.66)
+    '运行': 'RUNS',
+    '任务': 'TÂCHES',
+    '运行中': 'EN COURS',
+    '已完成': 'TERMINÉS',
+    '异常': 'ALERTE',
+    '口径:正在执行的 run(status = running)。与下方会话区的「活跃」(会话进程存活)不是一回事': 'Portée : runs en cours d’exécution (status = running). Ce n’est pas la même chose que « actives » dans la liste des sessions ci-dessous (processus de session vivant).',
+    '口径:异常终态聚合 —— 失败 / 错误 / 陈旧 / 中止 / 终止 / 超时': 'Portée : états finaux anormaux agrégés — failed / error / stale / aborted / killed / timeout.',
+    '更新于 %1': 'mis à jour %1',
+    '数据最后更新于 %1': 'dernières données %1',
+    '标签 / 阶段': 'label / phase',
   },
   de: {
     '已写入项目 workflow: %1': 'In den Projekt-Workflow geschrieben: %1',
@@ -791,6 +827,7 @@ const I18N: Record<Lang, Record<string, string>> = {
     '工具': 'Tools',
     '时间': 'Zeit',
     '(工具调用步)': '(Tool-Schritt)',
+    '(原文上限 2000 字)': '(Originaltext auf 2000 Zeichen begrenzt)',
     '工具入参全文': 'vollständiges Tool-Input',
     '(本步无工具调用)': '(keine Tool-Aufrufe in diesem Schritt)',
     '类型 · 模型': 'Typ · Modell',
@@ -921,6 +958,17 @@ const I18N: Record<Lang, Record<string, string>> = {
     // 编排入口按项目(1.2.44)
     '对选中项目「%1」编排 Workflow(拖节点连线,保存后在该项目终端执行)': 'Workflow für das gewählte Projekt „%1“ erstellen (Knoten und Kanten ziehen; nach dem Speichern im Terminal dieses Projekts ausführen)',
     '先在上方选一个具体项目,才能编排 Workflow': 'Oben ein konkretes Projekt wählen, um einen Workflow zu erstellen',
+    // 仪表标签 / 链路状态 / 编排器字段(1.2.66)
+    '运行': 'RUNS',
+    '任务': 'AUFGABEN',
+    '运行中': 'LAUFEND',
+    '已完成': 'FERTIG',
+    '异常': 'ALARM',
+    '口径:正在执行的 run(status = running)。与下方会话区的「活跃」(会话进程存活)不是一回事': 'Umfang: aktuell laufende Runs (status = running). Nicht dasselbe wie „aktiv“ in der Sitzungsliste unten (Sitzungsprozess lebt).',
+    '口径:异常终态聚合 —— 失败 / 错误 / 陈旧 / 中止 / 终止 / 超时': 'Umfang: fehlerhafte Endzustände zusammengefasst — failed / error / stale / aborted / killed / timeout.',
+    '更新于 %1': 'aktualisiert %1',
+    '数据最后更新于 %1': 'Daten zuletzt aktualisiert %1',
+    '标签 / 阶段': 'label / phase',
   },
 };
 function detectLang(): Lang {

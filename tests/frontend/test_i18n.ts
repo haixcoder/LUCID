@@ -47,7 +47,9 @@ for (const f of fs.readdirSync(SRC)) {
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) usedKeys.add(m[1].replace(/\\'/g, "'"));
 }
-const missing = [...usedKeys].filter((k) => /[一-鿿]/.test(k) && !enSet.has(k));
+// 1.2.66:去掉"只查含汉字 key"的过滤 —— 纯 ASCII key(如 'label / phase')恰恰是它放过去的漏网,
+// 而 ASCII key 漏译后切英文界面显示的仍是源语言原文,同样露馅(与汉字 key 漏译同一症状)。
+const missing = [...usedKeys].filter((k) => !enSet.has(k));
 ck('模板 T() 字面量在 en 字典全有译(' + usedKeys.size + ' 键引用)', missing.length === 0, missing.join(' | '));
 
 // ── CSS content 文案走 --tr-* 变量:五语齐全(day 走 :root) ──
@@ -63,6 +65,10 @@ for (const l of ['"en"', '"es"', '"fr"', '"de"']) {
   const env = load({ fetchFor: payload(runs, sessions) });
   await env.flush();
   env.run("document.getElementById('langsel').value='en'; document.getElementById('langsel').onchange({target:{value:'en'}});");
+  await env.flush();
+  // 补一轮 tick:顶栏「更新于 12:34:56」是**逐轮重写**的动态文本(1.2.66),切语言那一刻它还是上一轮
+  // 语言写的;下轮 tick 自然换语(与 hmsg/命令区的一次性状态行不同,不值得特判进 setLang)。
+  env.run('void tick()');
   await env.flush();
   const bodyText = visibleText(env.doc.body);
   const cn = (bodyText.match(/[一-鿿]/g) || []);
