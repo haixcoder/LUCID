@@ -63,9 +63,24 @@ with tempfile.TemporaryDirectory() as td:
     cold.write_text(urec('e' * 36, '四十天前的输入', iso(now - 40 * 86400)) + '\n', encoding='utf-8')
     os.utime(cold, (now - 40 * 86400,) * 2)
 
+    # NOHEAD:头部 40 行内无 cwd、~/.claude.json 白名单也解不出(fixture 环境无该文件)→ session_cwd 返回 ''。
+    # 1.2.65 兜底路径:window_activity 的展示名/键必须回落 proj.name(与前端过滤键 cwd||project 同源),
+    # 绝不产出 ''——否则下拉多出空标签项(与「全部项目」value='' 撞值)、byCwd[''] 与前端键对不上账。
+    nohead_id = 'a1b00000-0000-0000-0000-000000000005'
+    proj2 = root / '-w2'
+    proj2.mkdir()
+    rec = {'type': 'user', 'uuid': 'f' * 36, 'timestamp': iso(now - 3600),
+           'message': {'role': 'user', 'content': '无 cwd 头的任务'}}
+    (proj2 / (nohead_id + '.jsonl')).write_text(
+        json.dumps(rec, ensure_ascii=False, separators=(',', ':')) + '\n', encoding='utf-8')
+
     wa = sessions.window_activity()
-    ck('gauge/fixture-window-byCwd(仪表先给出口径)', wa['tasks']['byCwd'] == {'/work/w1': 4}
-       and wa['tasks']['total'] == 4 and wa['projects'] == ['/work/w1'], str(wa))
+    ck('gauge/fixture-window-byCwd(仪表先给出口径)', wa['tasks']['byCwd'] == {'/work/w1': 4, '-w2': 1}
+       and wa['tasks']['total'] == 5 and wa['projects'] == ['-w2', '/work/w1'], str(wa))
+    # NOHEAD 兜底:无 cwd 会话的展示名/键 = proj.name,空串绝不出现在 projects/byCwd
+    ck('fallback/no-cwd-label-uses-project-name',
+       '' not in wa['projects'] and '' not in wa['tasks']['byCwd'] and wa['tasks']['byCwd'].get('-w2') == 1,
+       str(wa))
 
     listed = {s['sessionId']: s for s in sessions.scan_sessions()}
     # ① 核心 RED:窗内输入但 2h 无文件活动的会话必须出现在列表(真实反馈:仪表 10 / 列表 0)
@@ -77,12 +92,19 @@ with tempfile.TemporaryDirectory() as td:
     ck('gate/out-of-window-not-listed', cold_id not in listed)
     # ④ 对账不变量:列表各会话 turns 之和 == 仪表 byCwd(用户拿列表核仪表的通路)
     ck('consistency/list-turns-sum-equals-gauge',
-       sum(s['turns'] for s in listed.values()) == wa['tasks']['byCwd'].get('/work/w1') == 4,
+       sum(s['turns'] for s in listed.values() if (s['cwd'] or s['project']) == '/work/w1')
+       == wa['tasks']['byCwd'].get('/work/w1') == 4,
        str({k: v['turns'] for k, v in listed.items()}))
+    # NOHEAD 会话的对账通路:前端过滤键 cwd||project = '-w2' == byCwd 键(空 cwd 不破坏对账)
+    # (无条件断言——W4 复核:夹具若静默变化,条件式 `if x in listed` 会"跳过而恒绿")
+    s2 = listed.get(nohead_id)
+    ck('fallback/no-cwd-session-key-consistent',
+       s2 is not None and s2['cwd'] == '' and (s2['cwd'] or s2['project']) == '-w2'
+       and wa['tasks']['byCwd'].get(s2['cwd'] or s2['project']) == s2['turns'], str(s2))
     # ⑤ 入选卡片的呈现语义:非活跃历史会话 = ended 卡(不冒充运行中)
-    if old_id in listed:
-        s = listed[old_id]
-        ck('card/windowed-session-ended-status', s['status'] == 'ended' and s['alive'] is False
-           and s['turns'] == 3, '%s/%s/%s' % (s['status'], s['alive'], s['turns']))
+    s = listed.get(old_id)
+    ck('card/windowed-session-ended-status',
+       s is not None and s['status'] == 'ended' and s['alive'] is False and s['turns'] == 3,
+       str(s and {k: s[k] for k in ('status', 'alive', 'turns')}))
 
 done()

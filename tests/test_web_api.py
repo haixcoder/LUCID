@@ -190,6 +190,49 @@ try:
        sum(x.get('turns') or 0 for x in ss.values()) == (d.get('tasks') or {}).get('byCwd', {}).get('/work/fix'),
        str({k: v.get('turns') for k, v in ss.items()}))
 
+    # ── HTTP/1.1 + gzip + keep-alive(1.2.65 B3/C1)──
+    # 真连接验证:协议版本、压缩协商(含 q=0 拒绝)、同连接两次 GET(HTTP/1.0 时第二发必断)
+    import http.client
+    import gzip as _gzip
+    _c = http.client.HTTPConnection('127.0.0.1', PORT, timeout=10)
+    _c.request('GET', '/api/sessions')
+    _r1 = _c.getresponse()
+    _b1 = _r1.read()
+    ck('http: /api/sessions 载荷 >=1KB(压缩阈值前提)', len(_b1) >= 1024, str(len(_b1)))
+    ck('http: 响应为 HTTP/1.1', _r1.version == 11, str(_r1.version))
+    ck('http: 未声明 gzip 时不压缩 + Vary 含 Accept-Encoding',
+       not _r1.getheader('Content-Encoding') and 'Accept-Encoding' in (_r1.getheader('Vary') or ''),
+       str(_r1.getheaders()))
+    _c.request('GET', '/api/sessions', headers={'Accept-Encoding': 'gzip'})
+    _r2 = _c.getresponse()
+    _b2 = _r2.read()
+    ck('http: Accept-Encoding: gzip → Content-Encoding: gzip 且长度=压缩后(更小)',
+       _r2.getheader('Content-Encoding') == 'gzip' and int(_r2.getheader('Content-Length')) == len(_b2)
+       and len(_b2) < len(_b1), '%s %d/%d' % (_r2.getheader('Content-Encoding'), len(_b2), len(_b1)))
+    try:                                               # now 每请求现算 ⇒ 比 sessions 子树,不比整串
+        _ok_un = json.loads(_gzip.decompress(_b2)).get('sessions') == json.loads(_b1).get('sessions')
+    except Exception:
+        _ok_un = False
+    ck('http: 解压后语义不变(sessions 子树等价)', _ok_un, '')
+    ck('http: 同一连接连发两次 GET 都成功(keep-alive;HTTP/1.0 时第二发必断)',
+       _r1.status == 200 and _r2.status == 200, '%s/%s' % (_r1.status, _r2.status))
+    # 静态件:同 URL 两次取回逐字节可比 → gzip 协商(含 q=0 拒绝)的确定性证据,顺带覆盖 static 写点
+    _c.request('GET', '/static/xyflow.system.umd.js')
+    _s1 = _c.getresponse()
+    _sb1 = _s1.read()
+    _c.request('GET', '/static/xyflow.system.umd.js', headers={'Accept-Encoding': 'gzip;q=0'})
+    _s2 = _c.getresponse()
+    _sb2 = _s2.read()
+    ck('http: gzip;q=0 视为拒绝(不压缩且逐字节一致;子串判断会误压)',
+       not _s2.getheader('Content-Encoding') and _sb2 == _sb1, str(_s2.getheader('Content-Encoding')))
+    _c.request('GET', '/static/xyflow.system.umd.js', headers={'Accept-Encoding': 'gzip'})
+    _s3 = _c.getresponse()
+    _sb3 = _s3.read()
+    ck('http: 静态件 gzip 往返逐字节一致(解压后 == 未压缩)',
+       _s3.getheader('Content-Encoding') == 'gzip' and _gzip.decompress(_sb3) == _sb1,
+       '%s %d/%d' % (_s3.getheader('Content-Encoding'), len(_sb3), len(_sb1)))
+    _c.close()
+
     # ── 全文端点 + 守卫 ──
     a = json.loads(get('/api/agent?proj=-fixproj&sess=%s&run=wf_live1&agent=b1' % S1)[1])
     ck('agent: 转录首条 user=任务,journal result 覆盖转录',
@@ -299,6 +342,23 @@ try:
        post('/api/draft/save', {'name': 'vv2', 'draft': {'v': 2, 'cwd': '/work/fix'}, 'script': 'x'})[1].get('ok') is True)
     ck('draft: 未知 draft.v=3 经 HTTP 被拒(不猜)',
        post('/api/draft/save', {'name': 'vv', 'draft': {'v': 3, 'cwd': '/work/fix'}, 'script': 'x'})[1].get('ok') is False)
+    # ── 断连兜底(1.2.65 B3,真 socket):客户端取大件途中 RST,服务端写失败不许冒 traceback ──
+    import struct as _struct
+    _n_rst = 0
+    for _ in range(6):
+        _sk = socket.socket()
+        _sk.connect(('127.0.0.1', PORT))
+        _sk.sendall(b'GET /static/xyflow.system.umd.js HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+                    b'Accept-Encoding: gzip\r\n\r\n')
+        _sk.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, _struct.pack('ii', 1, 0))  # close 即发 RST
+        _sk.close()
+        _n_rst += 1
+    time.sleep(0.5)
+    _slog = Path(HOME / 'server.out').read_text(errors='replace')
+    ck('断连: %d 次 RST 后 server.log 无 traceback(现网 517 行里 97%% 是它)' % _n_rst,
+       'Traceback' not in _slog, _slog[-300:])
+    ck('断连: 确有 client gone 单行日志(证明写失败路径被走到,不是没写到)',
+       'client gone' in _slog, _slog[-300:])
 finally:
     proc.terminate()
     try:

@@ -83,4 +83,29 @@ with tempfile.TemporaryDirectory() as td:
     ck('回填只影响孤儿组(窗口内归属不动)', by3.get('msg_w2', {}).get('turn') == 'u-IN', '')
 
     # 真·无开场输入(会话开头就是 assistant)→ 保持 ''(不造假锚点)
+
+    # ── A2(1.2.65):步骤行 toolHint —— 真机 64% 的步骤"有工具无文本",前端只能显示占位符 ──
+    # 从本步第一个有摘要的 tool_use 的 input 里取一行(工具名: 值首行,空白折叠,≤80 字);取不到保持 ''。
+    fp4 = Path(td) / 'h.jsonl'
+    long_desc = 'd' * 200
+    fp4.write_text('\n'.join([
+        rec('user', '看看目录', 'u-H'),
+        rec('assistant', [{'type': 'tool_use', 'id': 'h1', 'name': 'Bash',
+                           'input': {'command': 'ls   -la\n  /tmp  目录'}},
+                          {'type': 'tool_use', 'id': 'h2', 'name': 'Read',
+                           'input': {'file_path': '/a/b.py'}}], 'h1', mid='msg_h1'),
+        rec('assistant', [{'type': 'tool_use', 'id': 'h3', 'name': 'Read', 'input': {}}], 'h2', mid='msg_h2'),
+        rec('assistant', [{'type': 'tool_use', 'id': 'h4', 'name': 'mcp__x__y',
+                           'input': {'description': long_desc}}], 'h3', mid='msg_h3'),
+    ]) + '\n', encoding='utf-8')
+    st4 = {s['msgId']: s for s in sessions._main_steps(fp4)}
+    ck('toolHint/首个工具摘要 = 工具名: 值首行(空白折叠)',
+       st4['msg_h1'].get('toolHint') == 'Bash: ls -la', repr(st4['msg_h1'].get('toolHint')))
+    ck('toolHint/不改 tools 字段(两工具都在)', st4['msg_h1'].get('tools') == ['Bash', 'Read'], str(st4['msg_h1'].get('tools')))
+    ck('toolHint/取不到入参 → 空串(前端显式占位)', st4['msg_h2'].get('toolHint') == '', repr(st4['msg_h2']))
+    ck('toolHint/其余工具按兜底键序取 + 超 80 字截断加 …',
+       st4['msg_h3'].get('toolHint') == 'mcp__x__y: ' + 'd' * 80 + '…',
+       repr(st4['msg_h3'].get('toolHint'))[:120])
+    ck('toolHint/既有步骤键一个不少', all(k in st4['msg_h1'] for k in
+       ('msgId', 'turn', 'tools', 'text', 'model', 'tokIn', 'tokOut', 'ts')), str(sorted(st4['msg_h1'])))
     done()

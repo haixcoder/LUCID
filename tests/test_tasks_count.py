@@ -51,7 +51,9 @@ with tempfile.TemporaryDirectory() as td:
     # OLD:窗口外(40 天)会话,含 5 条输入 → tasks_summary 不许计入(负对照)
     old_id = '01d00000-0000-0000-0000-000000000003'
     old = proj / (old_id + '.jsonl')
-    old.write_text('\n'.join([json.dumps({'type': 'user', 'uuid': '%08d-0000-0000-0000-000000000000' % i,
+    # 带 cwd(真机形态;1.2.65 起解析不到即返回 '',项目展示名不再回落编码目录名,见 tests/test_session_cwd.py)
+    old.write_text('\n'.join([json.dumps({'type': 'user', 'cwd': '/work/old',
+                                          'uuid': '%08d-0000-0000-0000-000000000000' % i,
                                           'message': {'role': 'user', 'content': 'oldtask%d' % i}}) for i in range(5)])
                    + '\n', encoding='utf-8')
     oldt = now - 40 * 86400
@@ -116,8 +118,9 @@ with tempfile.TemporaryDirectory() as td:
        and w14['tasks']['byCwd'].get('/work/tch') == 1 and w14['tasks']['total'] == 3, str(w14))
     config.recent_sec = lambda: 45 * 86400
     w45 = sessions.window_activity()
-    ck('window/45d: old(40d 无 ts,mt 兜底)入列贡献 5;任务甲(30d)也回到窗内', set(w45['projects']) == {'/work/tp', '/work/tch', '-tp'}
-       and w45['tasks']['byCwd'].get('-tp') == 5 and w45['tasks']['total'] == 3 + 1 + 5, str(w45))
+    ck('window/45d: old(40d 无 ts,mt 兜底)入列贡献 5;任务甲(30d)也回到窗内',
+       set(w45['projects']) == {'/work/tp', '/work/tch', '/work/old'}
+       and w45['tasks']['byCwd'].get('/work/old') == 5 and w45['tasks']['total'] == 3 + 1 + 5, str(w45))
     config.recent_sec = lambda: 1 * 86400
     w1 = sessions.window_activity()
     ck('window/1d: 任务甲(30d)/tch(10d)/old(40d)全出列,只剩 /work/tp',

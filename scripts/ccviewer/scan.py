@@ -4,6 +4,7 @@
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -59,11 +60,41 @@ def session_wf_meta(proj, sess, run_id):
     return out
 
 
+_CLAUDE_JSON = {'key': None, 'paths': ()}   # ~/.claude.json 真实路径白名单的进程内缓存
+
+
+def known_project_paths():
+    """~/.claude.json 的 projects 键集合(官方逐项目聚合的真实路径 = 白名单),按文件
+    (路径, mtime_ns, size) 缓存,变了才重读;文件缺失/坏 JSON 一律空——调用方据此回退 '',绝不猜。"""
+    p = config.PROJ.parent.parent / '.claude.json'   # config.PROJ=~/.claude/projects ⇒ 此处=~/.claude.json
+    try:
+        st = p.stat()
+        key = (str(p), st.st_mtime_ns, st.st_size)
+    except OSError:
+        return ()
+    if _CLAUDE_JSON['key'] != key:
+        try:
+            pr = json.loads(p.read_text(encoding='utf-8')).get('projects')
+            paths = tuple(pr) if isinstance(pr, dict) else ()
+        except Exception:
+            paths = ()
+        _CLAUDE_JSON['key'], _CLAUDE_JSON['paths'] = key, paths
+    return _CLAUDE_JSON['paths']
+
+
 def session_cwd(proj_dir, sess_id):
-    for d in iter_records((config.PROJ / proj_dir / (sess_id + '.jsonl')), 5):
+    """会话的真实 cwd = 转录里首个带 cwd 的记录(cwd 只出现在文件开头几行,真机 113/113 在前 5 行内,
+    但 38 份恰好压在第 5 行——预算留到 40,命中即 return,成本可忽略)。
+    兜底解码:proj_dir 是 cwd 的编码形式('/'→'-'),拿 ~/.claude.json 的真实路径键做**白名单正向比对**,
+    精确命中才还真实路径;**都不行返回 ''**(1.2.65 前回退编码名:它会经 cwd||project 渗进项目下拉/
+    过滤键/草稿 slug/项目分发,而 _project_workflow_path 拿到非绝对路径只会报错——宁缺毋滥)。"""
+    for d in iter_records((config.PROJ / proj_dir / (sess_id + '.jsonl')), 40):
         if d.get('cwd'):
             return d['cwd']
-    return proj_dir
+    for real in known_project_paths():
+        if real.replace('/', '-') == proj_dir:
+            return real
+    return ''
 
 
 def script_meta(sess_id, run_id):
@@ -287,11 +318,17 @@ def scan():
 
 
 _scan_cache = {'t': 0.0, 'runs': []}
+# 锁住"检查-过期-重扫-写入"**整段**(1.2.65):HTTP 线程(2s 轮询)与 notify 线程(5s 一轮)现在共用
+# 这一份缓存,无锁时两线程会同时判定过期→各扫一遍全盘(旧注释的"竞态最坏=多扫一遍,无害"已不成立)。
+# scan()/scan_sessions() 内部都不回调 cached 函数,无重入/死锁风险。
+_scan_lock = threading.Lock()
 
 
 def scan_cached(maxage):
-    # ponytail: notify 线程复用近期扫描，省一半全盘 I/O；竞态最坏=多扫一遍，无害
-    if time.time() - _scan_cache['t'] > maxage:
-        _scan_cache['runs'] = scan()
-        _scan_cache['t'] = time.time()
-    return _scan_cache['runs']
+    # HTTP 与 notify 共用一份近期扫描,省掉重复全盘 I/O;整对象缓存含时间态字段,
+    # maxage=2s 对 2s 轮询的 UI 不可见(口径与 Step2 TODO 见 web.do_GET)
+    with _scan_lock:
+        if time.time() - _scan_cache['t'] > maxage:
+            _scan_cache['runs'] = scan()
+            _scan_cache['t'] = time.time()
+        return _scan_cache['runs']

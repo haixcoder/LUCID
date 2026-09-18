@@ -9,6 +9,7 @@ import re
 import sys
 import threading
 import time
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -17,8 +18,8 @@ from . import config
 from .agent import api_agent
 from .config import INPUT_TIERS, load_conf, port_free, save_conf
 from .notify import LAST_HOOK, send_hook, sess_text
-from .scan import scan
-from .sessions import agent_detail, scan_sessions, window_activity
+from .scan import scan_cached
+from .sessions import agent_detail, scan_sessions_cached, window_activity
 
 INDEX_HTML = (Path(__file__).parent / 'static' / 'index.html').read_text(encoding='utf-8')
 _m = re.search(r'<script>\n([\s\S]*)\n</script></body>', INDEX_HTML)  # 主脚本块(boot 片段在 head,非 greedy 会错抓,用尾锚点定位)
@@ -38,6 +39,8 @@ SCRIPT_CAP = 1_000_000
 DRAFT_LIMIT = 200
 DRAFT_VERS = (1, 2)      # 1.2.50:v2 = 纯加宽(whenToUse/phases[].detail/argsSpec),v1 原样兼容;未知版本仍拒绝,不猜
 AGENT_TYPE_CAP = 200     # agentType 下拉候选上限(枚举只为"给个起点",自由文本永远可用)
+GZIP_MIN = 1024          # 压缩阈值(字节):小于此值不值得压(头开销+CPU);实测 /api/sessions 249KB→81KB(33%)、页面 313KB→113KB(36%)
+SCAN_CACHE_SEC = 2       # HTTP 扫描缓存窗口:与前端 2s 轮询同周期(见 do_GET 里的口径注释)
 
 
 def draft_ver_ok(v):
@@ -190,30 +193,88 @@ def list_drafts(cwd):
     return {'drafts': items[:DRAFT_LIMIT]}
 
 
+def accepts_gzip(header):
+    """Accept-Encoding 判定单点:客户端是否接受 gzip。必须按 RFC 解析 q 值——`'gzip' in header` 的
+    子串判断会把明确拒绝的 `gzip;q=0` 当成接受;通配 `*` 只在没有显式 gzip 项时兜底(explicit 优先)。"""
+    gz = star = None
+    for tok in (header or '').split(','):
+        parts = tok.split(';')
+        name = parts[0].strip().lower()
+        if not name:
+            continue
+        q = 1.0
+        for p in parts[1:]:
+            k, _, v = p.partition('=')
+            if k.strip().lower() == 'q':
+                try:
+                    q = float(v.strip())
+                except ValueError:
+                    q = 0.0
+        if name == 'gzip':
+            gz = q
+        elif name == '*':
+            star = q
+    q = gz if gz is not None else star
+    return q is not None and q > 0
+
+
 class H(BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'   # keep-alive:前端 2s 轮询复用连接(1.2.65);HTTP/1.0 每请求关连接、且忽略 Accept-Encoding
+    timeout = 20                    # 必须与上面**同时**存在:空闲连接超时后 stdlib 置 close_connection,
+                                    # 否则线程永久阻塞在 readline 不释放(ThreadingHTTPServer 每连接一线程)
     server_version = 'lucid'  # 本机服务不向任何同源页面外的探测者泄露 Python/http.server 版本
     sys_version = ''
 
     def log_message(self, *a):
         pass
 
+    def _send(self, body, ctype, code=200):
+        """响应出口单点(1.2.65):三处写点(_json/static/index)共用——统一响应头 + gzip(尊重 q=0)
+        + 客户端提前断开(刷新/关页/切端口)时不把异常冒到 socketserver.handle_error。
+        全裸 wfile.write 时,断连异常会变成 traceback 打满 server.log(现网 517 行里 97% 是它)。"""
+        hd = getattr(self, 'headers', None)      # 直调 handler(测试)时可能没有 headers 属性
+        try:
+            ae = (hd.get('Accept-Encoding') or '') if hd is not None else ''
+        except Exception:
+            ae = ''
+        if accepts_gzip(ae) and len(body) >= GZIP_MIN:
+            co = zlib.compressobj(1, zlib.DEFLATED, 31)   # 31=gzip 包装;q1 档=实测体积/CPU 平衡点
+            body = co.compress(body) + co.flush()
+            gz = True
+        else:
+            gz = False
+        try:
+            self.send_response(code)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Vary', 'Accept-Encoding')   # 同 URL 两种编码,缓存键须分开
+            if gz:
+                self.send_header('Content-Encoding', 'gzip')
+            self.send_header('Content-Length', str(len(body)))   # 压缩后长度
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # 客户端已走:不是缺陷而是客户端行为——收尾(不再写)+ 单行日志,不打印 traceback
+            self.close_connection = True
+            print('[web] client gone: %s' % self.path, flush=True)
+
     def _json(self, obj, code=200):
-        body = json.dumps(obj, ensure_ascii=False).encode()
-        self.send_response(code)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Cache-Control', 'no-store')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._send(json.dumps(obj, ensure_ascii=False).encode(), 'application/json; charset=utf-8', code)
 
     def do_GET(self):
         u = urlparse(self.path)
+        # 扫描缓存口径(1.2.65 B2):maxage = 前端轮询周期(2s)。缓存的是整份扫描对象,**含时间态字段**
+        # (ageSec/status/alive/waitReason)——≤2s 陈旧对 2s 轮询的 UI 不可见,且与 notify 线程共用同一份
+        # (不再 HTTP/notify 各扫一遍)。不缓存 window_activity(0.003s,可忽略)。
+        # TODO(Step2):内容派生字段(名字/阶段/步骤/标题)按签名缓存,时间态每轮现算——F1 铁线见
+        #   docs/perf-architecture-research.md(误缓存时间态=等待通知卡死);本步只接线+加锁。
         if u.path == '/api/runs':
             wa = window_activity()  # 项目列表与 TASKS 单一数据源:同一判窗口径,切换窗口两处一起变
-            self._json({'now': time.time(), 'ver': VER, 'recentDays': load_conf()['recentDays'], 'runs': scan(),
+            self._json({'now': time.time(), 'ver': VER, 'recentDays': load_conf()['recentDays'],
+                        'runs': scan_cached(SCAN_CACHE_SEC),
                         'projects': wa['projects'], 'tasks': wa['tasks']})
         elif u.path == '/api/sessions':
-            self._json({'now': time.time(), 'sessions': scan_sessions()})
+            self._json({'now': time.time(), 'sessions': scan_sessions_cached(SCAN_CACHE_SEC)})
         elif u.path == '/api/subagent':
             q = parse_qs(u.query)
             g = lambda k: (q.get(k, ['']))[0]
@@ -243,20 +304,9 @@ class H(BaseHTTPRequestHandler):
             except OSError:
                 self.send_error(404)
                 return
-            self.send_response(200)
-            self.send_header('Content-Type', STATIC[name])
-            self.send_header('Cache-Control', 'no-store')         # 与 INDEX_HTML 同口径:升级即生效(vendor 随版本目录整体替换)
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send(body, STATIC[name])   # Cache-Control: no-store 与 INDEX_HTML 同口径:升级即生效(vendor 随版本目录整体替换)
         elif u.path in ('/', '/index.html'):
-            body = INDEX_HTML.encode()
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Cache-Control', 'no-store')
-            self.send_header('Content-Length', str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send(INDEX_HTML.encode(), 'text/html; charset=utf-8')
         else:
             self.send_error(404)
 
@@ -325,5 +375,16 @@ class H(BaseHTTPRequestHandler):
         self._json(out)
 
 
+class Server(ThreadingHTTPServer):
+    """兜底:客户端提前断开在**写响应**时才暴露为 BrokenPipe/ConnectionReset——socketserver 默认把它们
+    当"未处理异常"打印整段 traceback 到 stderr(server.log 噪声主源)。这两类不是缺陷而是客户端行为:
+    直接 return;其余异常照旧交父类打印(不掩盖真 bug)。send_error 等残余路径也归此处收口。"""
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def make_server(port):
-    return ThreadingHTTPServer(('127.0.0.1', port), H)
+    return Server(('127.0.0.1', port), H)

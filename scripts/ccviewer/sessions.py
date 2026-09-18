@@ -301,6 +301,30 @@ def _first_user_text(path):
     return ''
 
 
+_HINT_KEYS = {'Bash': 'command', 'Read': 'file_path', 'Write': 'file_path', 'Edit': 'file_path',
+              'NotebookEdit': 'file_path', 'Grep': 'pattern', 'Glob': 'pattern', 'WebFetch': 'url',
+              'WebSearch': 'query', 'Task': 'description', 'Agent': 'description'}
+_HINT_FALLBACK = ('command', 'file_path', 'path', 'pattern', 'query', 'url', 'description', 'prompt')
+
+
+def _tool_hint(name, inp):
+    """步骤行的工具摘要(A2):真机 64% 的步骤"有工具无文本",前端只能显示占位符——
+    这里给 '工具名: 值首行' 一句话(空白折叠、≤80 字、超长加 …);取不到返回 ''(前端仍走占位)。
+    纯展示摘要,不参与任何判定/统计。"""
+    if not isinstance(inp, dict):
+        return ''
+    keys = ((_HINT_KEYS[name],) if name in _HINT_KEYS else ()) + _HINT_FALLBACK
+    for k in keys:
+        v = inp.get(k)
+        if not isinstance(v, str):
+            continue
+        line = next((x for x in v.splitlines() if x.strip()), '')   # 首行(多行命令只展示第一行)
+        line = ' '.join(line.split())
+        if line:
+            return '%s: %s' % (name, line if len(line) <= 80 else line[:80] + '…')
+    return ''
+
+
 def _main_steps(path, limit=30):
     """主 agent 执行步骤：按 message.id 聚合尾窗内的 assistant 消息(流式分块会重复同 id)。
     返回稳定键(msgId)的步骤列表 —— 前端抽屉跨轮询重建靠它保持展开态。
@@ -322,7 +346,7 @@ def _main_steps(path, limit=30):
         if not mid:
             continue
         s = steps.setdefault(mid, {'msgId': mid, 'turn': cur, 'tools': [], 'text': '', 'model': None,
-                                   'tokIn': 0, 'tokOut': 0, 'ts': None})
+                                   'tokIn': 0, 'tokOut': 0, 'ts': None, 'toolHint': ''})
         tids.setdefault(mid, set())
         if d.get('timestamp'):
             s['ts'] = d['timestamp']
@@ -336,7 +360,10 @@ def _main_steps(path, limit=30):
                 continue
             if b.get('type') == 'tool_use' and b.get('id') not in tids[mid]:
                 tids[mid].add(b.get('id'))
-                s['tools'].append(b.get('name') or '?')
+                nm = b.get('name') or '?'
+                s['tools'].append(nm)
+                if not s['toolHint']:                       # 只取本步第一个有摘要的工具(代表这一步在干嘛)
+                    s['toolHint'] = _tool_hint(nm, b.get('input'))
             elif b.get('type') == 'text' and (b.get('text') or '').strip():
                 s['text'] = b['text']
     # 孤儿归属回填(真机踩到:单条超长回合把开场输入挤出 256KB 尾窗 → 一批步骤 turn='')。
@@ -363,7 +390,7 @@ def _main_steps(path, limit=30):
                 if not s['turn']:
                     s['turn'] = opener
     out = [{'msgId': s['msgId'], 'turn': s['turn'], 'tools': s['tools'], 'text': s['text'][:300], 'model': s['model'],
-            'tokIn': s['tokIn'], 'tokOut': s['tokOut'], 'ts': s['ts']} for s in steps.values()]
+            'tokIn': s['tokIn'], 'tokOut': s['tokOut'], 'ts': s['ts'], 'toolHint': s['toolHint']} for s in steps.values()]
     return out[-limit:]
 
 
@@ -632,7 +659,8 @@ def window_activity():
     不作入选依据——真实反馈:4 天窗口列出没操作过的项目(researchProject mtime 被非输入写入顶到 4.0d,
     最后一次输入其实在 4.9 天前)。无时间戳输入的会话(旧数据/只有 journal 无转录的目录)回落 mtime 判窗;
     跨窗长会话只计窗内输入(全量计会多算:实测 4 天窗口 151 vs 127)。
-    展示名=session_cwd(与前端过滤键 cwd||project 同源可去重);写入不晚于 mtime ⇒ mt 出窗者必无窗内输入,跳过不读盘。"""
+    展示名=session_cwd,取不到(头部 40 行无 cwd 且 ~/.claude.json 白名单解不出)回落 proj.name——
+    (与前端过滤键 cwd||project 同源可去重);写入不晚于 mtime ⇒ mt 出窗者必无窗内输入,跳过不读盘。"""
     now = time.time()
     recent = config.recent_sec()
     cutoff = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now - recent))
@@ -667,7 +695,9 @@ def window_activity():
             ok, n = _window_hit(proj.name, sid, cutoff)  # 判窗单点(与会话卡列表同一口径,ISO8601Z 串字典序=时间序)
             if not ok:
                 continue  # 最后一次输入已在窗外(mtime 被非输入写入顶新)——不算操作过,不入列
-            lbl = session_cwd(proj.name, sid)
+            # 1.2.65:session_cwd 的 '' 回退要在此收口成 proj.name——前端过滤键是 cwd||project,
+            # 空串会与「全部项目」的 value='' 撞值、byCwd[''] 也对不上前端键(对账不变量,铁律 8)
+            lbl = session_cwd(proj.name, sid) or proj.name
             labels.add(lbl)
             if n:
                 total += n
@@ -728,11 +758,16 @@ def scan_sessions():
 
 
 _SESS_CACHE = {'t': 0, 'sessions': []}
+# 同 scan_cached:1.2.65 起 HTTP(2s 轮询)与通知线程(5s 一轮)共用这一份缓存,必须锁住
+# "检查-过期-重扫-写入"整段,否则两线程并发判定过期会各扫一遍(scan_sessions 实测中位 0.249s)。
+# scan_sessions() 内部不回调本函数,无重入风险。
+_SESS_LOCK = threading.Lock()
 
 
 def scan_sessions_cached(maxage):
-    # 同 scan_cached 的取舍：通知线程 5s 一轮，复用 maxage 秒内的扫描结果省掉重复全盘 I/O
-    if time.time() - _SESS_CACHE['t'] > maxage:
-        _SESS_CACHE['sessions'] = scan_sessions()
-        _SESS_CACHE['t'] = time.time()
-    return _SESS_CACHE['sessions']
+    # 复用 maxage 秒内的扫描结果省掉重复全盘 I/O;整对象含时间态字段,口径见 web.do_GET
+    with _SESS_LOCK:
+        if time.time() - _SESS_CACHE['t'] > maxage:
+            _SESS_CACHE['sessions'] = scan_sessions()
+            _SESS_CACHE['t'] = time.time()
+        return _SESS_CACHE['sessions']

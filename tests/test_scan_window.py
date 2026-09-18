@@ -26,7 +26,11 @@ with tempfile.TemporaryDirectory() as td:
     jd.write_text('{"type":"started","agentId":"a1"}\n', encoding='utf-8')
     (jd.with_name('agent-a1.jsonl')).write_text('{"type":"assistant"}\n', encoding='utf-8')
     tr_a = proj / 'aaaa1111.jsonl'
-    tr_a.write_text('{"type":"assistant"}\n', encoding='utf-8')
+    # 转录带 cwd(真机形态):1.2.65 起 session_cwd 解析不到时返回 ''(不再吐编码目录名),
+    # 项目展示名=真实路径——fixture 用无 cwd 的桩会让标签变成空串(见 tests/test_session_cwd.py)
+    tr_a.write_text(json.dumps({'type': 'user', 'cwd': '/work/proj',
+                                'message': {'role': 'user', 'content': '跑一下'}}, ensure_ascii=False) + '\n',
+                    encoding='utf-8')
     pid = os.getpid()
     (root / 'sessions' / ('%d.json' % pid)).write_text(json.dumps({'pid': pid, 'sessionId': 'aaaa1111'}),
                                                        encoding='utf-8')
@@ -51,7 +55,9 @@ with tempfile.TemporaryDirectory() as td:
     (sc / 'workflows' / 'wf_new.json').write_text(json.dumps(
         {'runId': 'wf_new', 'status': 'completed', 'workflowName': 'new', 'agentCount': 1,
          'workflowProgress': [], 'startTime': int(time.time() * 1000)}), encoding='utf-8')
-    (proj / 'cccc3333.jsonl').write_text('{"x":1}\n', encoding='utf-8')
+    (proj / 'cccc3333.jsonl').write_text(json.dumps({'type': 'user', 'cwd': '/work/proj',
+                                                     'message': {'role': 'user', 'content': '跑一下'}},
+                                                    ensure_ascii=False) + '\n', encoding='utf-8')
 
     # 项目 -noref:回看窗口内有活动但【没有 workflow 运行】的纯交互会话——真实反馈的现场:
     # 回看窗口设 180 天后,项目选择列表仍只列"有运行/活跃"的项目,这类项目永远不出现(总数不对)。
@@ -81,7 +87,7 @@ with tempfile.TemporaryDirectory() as td:
     # 1.2.36 起与 TASKS 同住 sessions.window_activity() 单点(列表与计数口径必须一致,切换窗口时两处一起变)
     pl = sessions.window_activity()['projects']
     ck('pl/pure-session-project-included', '/work/nq' in pl, str(pl))
-    ck('pl/workflow-project-included', '-proj' in pl, str(pl))
+    ck('pl/workflow-project-included', '/work/proj' in pl, str(pl))
     ck('pl/out-of-window-project-excluded', all('cold' not in x and 'eeee' not in x for x in pl), str(pl))
     ck('pl/dedup-one-per-project', len(pl) == len(set(pl)), str(pl))
     ck('pl/sorted-stable', pl == sorted(pl), str(pl))
