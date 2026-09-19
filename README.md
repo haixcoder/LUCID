@@ -78,6 +78,8 @@ claude plugin install lucid@kw-dev-plugins                    # install the plug
 
 **Option 2 (npm)** — same plugin, distributed via the npm registry as a self-contained marketplace. Needs Node.js ≥16.7 for the installer only (the plugin itself stays zero-dependency Python):
 
+> ⚠ **Not published yet (as of 2026-09-19): `kw-lucid` is not on the npm registry** (`npx -y kw-lucid` fails with E404), so this channel does not work today — **use Option 1**. The setup below is complete; it becomes usable once the maintainer publishes (`npm login` + `npm publish`).
+
 ```bash
 npx -y kw-lucid                      # one-liner: registers the bundled marketplace + installs (idempotent; rerun to upgrade)
 # or explicit global install:

@@ -80,6 +80,8 @@ claude plugin install lucid@kw-dev-plugins                    # 安装插件
 
 **方式二（npm）**——同一个插件经 npm registry 分发，包内自带市场。安装器需 Node.js ≥16.7（仅安装时用；插件本体仍是零依赖 Python）：
 
+> ⚠ **尚未发布（截至 2026-09-19）：`kw-lucid` 不在 npm registry 上**（`npx -y kw-lucid` 直接 E404），此渠道当前不可用——**请用方式一**。下面的命令已就绪，维护者完成 `npm login` + `npm publish` 后即可用。
+
 ```bash
 npx -y kw-lucid                      # 一行装:注册包内市场 + 安装(幂等,重跑即升级)
 # 或显式全局安装:
