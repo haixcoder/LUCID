@@ -27,15 +27,19 @@ PROJ = CLD / 'projects'
 (CLD / 'cc-viewer').mkdir(parents=True, exist_ok=True)
 
 # ── fixture:一个已完成 run + 一个进行中 run + 一个活会话 + 一个窗内历史会话(S3,1.2.38) ──
+# 输入时间戳一律相对 now——写死固定日期会在默认 14d 窗口外到期,两条窗口对账断言静默变红
+# (2026-09-19 实际踩到:S1/S2 写死 2026-09-05,14 天后出窗,tasks.total 3→1)。
 proj = PROJ / '-fixproj'
 proj.mkdir(parents=True)
 S1 = str(uuid.uuid4())
 now_ms = int(time.time() * 1000)
 UU = str(uuid.uuid4())
 (proj / (S1 + '.jsonl')).write_text('\n'.join([
-    json.dumps({'type': 'user', 'cwd': '/work/fix', 'uuid': UU, 'timestamp': '2026-09-05T04:00:00.000Z',
+    json.dumps({'type': 'user', 'cwd': '/work/fix', 'uuid': UU,
+                'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 3 * 3600)),
                 'message': {'role': 'user', 'content': '跑个演示流程'}}),
-    json.dumps({'type': 'assistant', 'timestamp': '2026-09-05T04:00:05.000Z',
+    json.dumps({'type': 'assistant',
+                'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 3 * 3600 + 5)),
                 'message': {'id': 'msgW1', 'model': 'claude-fable-5', 'role': 'assistant',
                             'stop_reason': 'end_turn', 'usage': {'input_tokens': 7, 'output_tokens': 9},
                             'content': [{'type': 'text', 'text': '演示已完成,请查收。'}]}}),
@@ -46,7 +50,8 @@ UU = str(uuid.uuid4())
 # S2:工具型回合会话(1.2.18「冒号收尾全文」e2e:过渡句以:结尾,内容在 ▸/◂ 里,HTTP 层必须能拿全)
 S2 = str(uuid.uuid4())
 (proj / (S2 + '.jsonl')).write_text('\n'.join([
-    json.dumps({'type': 'user', 'cwd': '/work/fix', 'uuid': str(uuid.uuid4()), 'timestamp': '2026-09-05T04:00:00.000Z',
+    json.dumps({'type': 'user', 'cwd': '/work/fix', 'uuid': str(uuid.uuid4()),
+                'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 4 * 3600)),
                 'message': {'role': 'user', 'content': '测工具可见'}}),
     json.dumps({'type': 'assistant', 'message': {'id': 'msgT1', 'role': 'assistant', 'stop_reason': 'tool_use',
                                                  'content': [{'type': 'text', 'text': '先跑命令：'},

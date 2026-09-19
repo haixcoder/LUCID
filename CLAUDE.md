@@ -61,7 +61,7 @@ Claude Code 插件 **lucid**：网页版 Workflow 执行进度实时查看器。
 安装副本      ~/.claude/plugins/cache/kw-dev-plugins/lucid/<版本>/   ← 命令/服务实际从这里加载
 ```
 
-- 改完源码必须同步：前端有改动先 `python3 frontend/build.py`（tsc 过编译，产物落 `static/index.html`）；然后 `claude plugin validate .` + `claude plugin install lucid@kw-dev-plugins` 重装，或手动覆盖安装副本（版本目录一致时等效，**`scripts/` 含 `ccviewer/` 子包与 `static/`，拷贝要递归 `cp -R`；`frontend/` 是开发源码，不进安装副本**）。
+- 改完源码必须同步：前端有改动先 `python3 frontend/build.py`（tsc 过编译，产物落 `static/index.html`）；然后 `claude plugin validate .` + `claude plugin marketplace update kw-dev-plugins` + `claude plugin update lucid@kw-dev-plugins` 重装，或手动覆盖安装副本（版本目录一致时等效，**`scripts/` 含 `ccviewer/` 子包与 `static/`，拷贝要递归 `cp -R`；`frontend/` 是开发源码，不进安装副本**）。**「重装」勿写 `claude plugin install <插件>`**——2.1.276 实测(2026-09-19,在架 1.2.67 对已装 1.2.66):它只回 `already installed (scope: user)`、不会换成新版本,只适用于首次安装。另 `Plugin … not found in marketplace … Your local copy may be out of date` 类报错,CLI 文案自己指名的处方就是先 `claude plugin marketplace update <市场名>`(目录型市场的 install 路径本身不做刷新)。
 - **正在运行的服务进程是旧代码**——重启才生效。常驻进程有两把：**server 与 guard 看护循环**，且 guard 会从**自己的运行路径** setsid 拉起 server——只重启 server 不杀 guard，旧循环会探测端口后把旧代码原地复活（1.2.10→1.2.11 实际踩坑，此后每次部署必"先杀旧 guard"）。升级动作顺序固定：`kill $(cat ~/.claude/cc-viewer/guard.pid)` → `server.py --stop` → 从**新安装副本路径**后台起 server → 新路径起 `guard.py --detach`。
 - 排查"改了没生效"先 `ps -o command -p $(cat ~/.claude/cc-viewer/server.pid)` **与 guard.pid 两条一起看**：两个路径的版本号必须一致且都指向新目录。
 
