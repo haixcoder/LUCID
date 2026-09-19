@@ -85,6 +85,25 @@ type FlowHandleBounds = { source: FlowHandleBound[]; target: FlowHandleBound[] }
 // 草稿 API(后端 web.list_drafts / save_draft 的响应契约)
 interface DraftItem { name: string; meta: { name?: string; desc?: string }; mtime: number; js: string; draft: unknown }
 interface DraftsResp { drafts: DraftItem[] }
+// 工作流库(1.2.71;后端 web.list_workflows / read_workflow 的响应契约):
+// src = draft(跨项目草稿)|proj(选中项目 .claude/workflows)|home(个人)|run(历史运行记录)
+type LibSrc = 'draft' | 'proj' | 'home' | 'run';
+interface LibItem {
+  src: LibSrc; name: string; desc: string; mtime: number;
+  graph: boolean;              // 能否直接上画布(draft 恒真;脚本看内嵌图注释;反解是打开时再试的兜底)
+  path: string;                // 打开入口:/api/workflow?path= 的入参(.json=图草稿/运行记录,.js=脚本)
+  js: string;                  // 执行件路径(展示用;run 无脚本文件时为空)
+  trunc?: boolean;
+  cwd?: string; whenToUse?: string;            // draft 专有(载入即切上下文的依据)
+  project?: string; status?: string; at?: number;   // run 专有
+}
+interface WorkflowsResp { items: LibItem[] }
+interface LibReadResp {
+  ok?: boolean; kind?: 'draft' | 'script' | 'run'; msg?: string;
+  graph?: FlowDraft;           // kind=draft:图草稿原文
+  script?: string;             // kind=script|run:脚本全文(上限 1MB,truncated 时非全文)
+  truncated?: boolean; embed?: boolean;
+}
 interface DraftSaveResp {
   ok?: boolean; msg?: string; path?: string; sha?: string;
   wfPath?: string;   // 1.2.59:执行件同步写入的项目 workflow 绝对路径(成功时非空)

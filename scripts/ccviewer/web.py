@@ -18,7 +18,7 @@ from . import config
 from .agent import api_agent
 from .config import INPUT_TIERS, load_conf, port_free, save_conf
 from .notify import LAST_HOOK, send_hook, sess_text
-from .scan import scan_cached
+from .scan import scan_cached, session_cwd
 from .sessions import agent_detail, scan_sessions_cached, window_activity
 
 INDEX_HTML = (Path(__file__).parent / 'static' / 'index.html').read_text(encoding='utf-8')
@@ -39,6 +39,15 @@ SCRIPT_CAP = 1_000_000
 DRAFT_LIMIT = 200
 DRAFT_VERS = (1, 2)      # 1.2.50:v2 = 纯加宽(whenToUse/phases[].detail/argsSpec),v1 原样兼容;未知版本仍拒绝,不猜
 AGENT_TYPE_CAP = 200     # agentType 下拉候选上限(枚举只为"给个起点",自由文本永远可用)
+# ── 工作流库(1.2.71):把「之前已经构建的工作流」聚进编排器(只读枚举;铁律 2 写域不变)──
+# graph 徽标 = 该件能否直接上画布:草稿恒真;脚本看尾部有没有内嵌图注释(// lucid-graph:<v>:<base64>,
+# 保存草稿时前端附加)。没有内嵌的旧脚本由前端 flowParse 尝试反解(仅本编辑器生成风格),失败则只读展示。
+EMBED_RE = re.compile(r'^// lucid-graph:(\d+):([A-Za-z0-9+/=]+)[ \t]*$', re.M)
+LIB_DIR_LIMIT = 100        # 单个脚本目录枚举上限
+LIB_RUN_SCAN = 400         # 运行记录扫描上限(按名去重前)
+LIB_RUN_BYTES = 8_000_000  # 单份运行记录读取上限(超限跳过:result 字段可能极大)
+LIB_LIMIT = 300            # 库总条数上限
+LIB_READ_CAP = 1_000_000   # 单件读取上限(.js / 草稿 JSON;截断如实上报,铁律 7)
 GZIP_MIN = 1024          # 压缩阈值(字节):小于此值不值得压(头开销+CPU);实测 /api/sessions 249KB→81KB(33%)、页面 313KB→113KB(36%)
 SCAN_CACHE_SEC = 2       # HTTP 扫描缓存窗口:与前端 2s 轮询同周期(见 do_GET 里的口径注释)
 
@@ -193,6 +202,184 @@ def list_drafts(cwd):
     return {'drafts': items[:DRAFT_LIMIT]}
 
 
+# ── 工作流库(1.2.71):四类来源的只读枚举 + 白名单读取 ────────────────────────────
+def _embed_in(text):
+    """内嵌图标记判定单点:脚本尾部 `// lucid-graph:<v>:<base64>`。列表徽标与读取共用。"""
+    return bool(EMBED_RE.search(text)) if isinstance(text, str) else False
+
+
+def _script_head_meta(text):
+    """从生成脚本头部 best-effort 读 meta.name/description(只为库列表展示;解析不出就空,不猜不报错——
+    单个怪文件不许拖垮整张列表)。键必须**行首**(生成器固定两空格缩进),免得描述文本里的 "name:" 误命中。"""
+    head = str(text or '')[:4000]
+    m = re.search(r'meta\s*=\s*\{', head)
+    if not m:
+        return {}
+    blk = head[m.end():]
+    out = {}
+    for key, dst in (('name', 'name'), ('description', 'desc')):
+        mm = re.search(r'\n\s*' + key + r':\s*("(?:[^"\\]|\\.)*")', blk)
+        if mm:
+            try:
+                out[dst] = json.loads(mm.group(1))
+            except ValueError:
+                pass
+    return out
+
+
+def _read_capped(p, cap=LIB_READ_CAP):
+    """读文本件(cap 字节;返回 (text, truncated))。铁律 7:截断必须能被告知,不假装读全。"""
+    try:
+        with open(p, 'rb') as f:
+            raw = f.read(cap + 1)
+    except OSError:
+        return '', False
+    return raw[:cap].decode('utf-8', 'replace'), len(raw) > cap
+
+
+def _ls_scripts(d, src, limit=LIB_DIR_LIMIT):
+    """目录 → 脚本条目(枚举本身即口径:只认 *.js,不可读的跳过)。内嵌图在文件**尾部**,
+    故整读(上限 LIB_READ_CAP;超过上限的怪文件 graph 徽标会落空 → 前端还有反解兜底,不假装可用)。"""
+    out = []
+    try:
+        ps = sorted((x for x in d.glob('*.js') if x.is_file()),
+                    key=lambda x: x.stat().st_mtime, reverse=True)[:limit]
+    except OSError:
+        return out
+    for p in ps:
+        try:
+            mt = int(p.stat().st_mtime)
+        except OSError:
+            continue
+        txt, trunc = _read_capped(p)
+        meta = _script_head_meta(txt)
+        out.append({'src': src, 'name': p.stem, 'desc': str(meta.get('desc') or ''),
+                    'mtime': mt, 'graph': _embed_in(txt), 'path': str(p), 'js': str(p), 'trunc': trunc})
+    return out
+
+
+def list_workflows(cwd):
+    """GET /api/workflows 的实现:「之前已经构建的工作流」的只读清单。
+    四类来源(draft 跨项目;proj 限选中项目;home/run 全局):
+      draft = CONF_DIR/drafts/*/*.json —— cwd 就存在草稿 JSON 里(与回载同一字段)
+      proj  = <cwd>/.claude/workflows/*.js(保存时分发的那份 + 手放/拷来的)
+      home  = ~/.claude/workflows/*.js(个人工作流;与 agentType 枚举同一根)
+      run   = PROJ/*/*/workflows/wf_*.json(历史运行;按 workflowName 去重,保留最近一次)
+    条目形状:{src,name,desc,mtime,graph,path,js} + draft:{cwd,whenToUse} / run:{project,status,at}。"""
+    items = []
+    droot = config.CONF_DIR / 'drafts'
+    try:
+        for slug in sorted(droot.iterdir()):
+            if not slug.is_dir():
+                continue
+            try:
+                ps = sorted(slug.glob('*.json'), key=lambda x: x.stat().st_mtime, reverse=True)[:LIB_DIR_LIMIT]
+            except OSError:
+                continue
+            for p in ps:
+                try:
+                    j = json.loads(p.read_text(encoding='utf-8'))
+                    mt = int(p.stat().st_mtime)
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(j, dict):
+                    continue
+                items.append({'src': 'draft', 'name': p.stem, 'desc': str(j.get('desc') or ''),
+                              'whenToUse': str(j.get('whenToUse') or ''), 'cwd': str(j.get('cwd') or ''),
+                              'mtime': mt, 'graph': True, 'path': str(p), 'js': str(p.with_suffix('.js'))})
+    except OSError:
+        pass
+    raw = str(cwd or '').strip()
+    if raw and Path(raw).is_absolute():
+        items += _ls_scripts(Path(raw) / '.claude' / 'workflows', 'proj')
+    items += _ls_scripts(config.PROJ.parent / 'workflows', 'home')
+    seen = {}
+    try:
+        files = []
+        for p in config.PROJ.glob('*/*/workflows/wf_*.json'):
+            try:
+                files.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+        files.sort(key=lambda x: x[0], reverse=True)
+        for mt, p in files[:LIB_RUN_SCAN]:
+            try:
+                if p.stat().st_size > LIB_RUN_BYTES:
+                    continue
+                j = json.loads(p.read_text(encoding='utf-8', errors='replace'))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(j, dict):
+                continue
+            nm = str(j.get('workflowName') or 'workflow')
+            at = j.get('startTime') or 0
+            cur = seen.get(nm)
+            if cur is not None and (cur.get('at') or 0) >= at:
+                continue
+            script = j.get('script') if isinstance(j.get('script'), str) else ''
+            proj_dir, sess = p.parents[2].name, p.parents[1].name
+            sp = next(iter(p.parent.glob('scripts/*-' + p.stem + '.js')), None)
+            seen[nm] = {'src': 'run', 'name': nm, 'desc': str(j.get('summary') or ''),
+                        'project': session_cwd(proj_dir, sess) or proj_dir,
+                        'status': str(j.get('status') or ''), 'at': at, 'mtime': int(mt),
+                        'graph': _embed_in(script), 'path': str(p),
+                        'js': str(sp) if sp else ''}
+    except OSError:
+        pass
+    items += sorted(seen.values(), key=lambda x: x.get('at') or 0, reverse=True)
+    return {'items': items[:LIB_LIMIT]}
+
+
+def read_workflow(raw):
+    """GET /api/workflow?path= 的实现:白名单根内才读(只读;铁律 2 的写域不含任何新路径)。
+    白名单(与 list_workflows 同一批根):
+      · CONF_DIR/drafts 下 .json/.js(图草稿与执行件)
+      · PROJ 下 .../workflows/wf_*.json(运行记录)与 .../workflows/scripts/*.js(当次脚本)
+      · 任意 <dir>/.claude/workflows/<name>.js(项目分发件与个人工作流:校验父目录结构,不要求 cwd 存在)
+    返回 {ok,kind,...};不在白名单/读不了 → None(handler 回 404 JSON,不泄露任何内容)。"""
+    s = str(raw or '')
+    if not s:
+        return None
+    try:
+        pr = Path(s).resolve()
+    except (OSError, ValueError):
+        return None
+    if not pr.is_file():
+        return None
+
+    def under(root):
+        try:
+            return pr.is_relative_to(Path(root).resolve())
+        except (OSError, ValueError):
+            return False
+
+    suf = pr.suffix.lower()
+    if suf == '.json':
+        if under(config.CONF_DIR / 'drafts'):
+            txt, trunc = _read_capped(pr)
+            try:
+                j = json.loads(txt)
+            except ValueError:
+                return {'ok': False, 'kind': 'draft',
+                        'msg': '草稿 JSON 无法解析' + ('(超过读取上限,已截断)' if trunc else '')}
+            return {'ok': True, 'kind': 'draft', 'graph': j, 'truncated': trunc}
+        if under(config.PROJ) and pr.parent.name == 'workflows' and pr.name.startswith('wf_'):
+            try:
+                j = json.loads(pr.read_text(encoding='utf-8', errors='replace'))
+            except (OSError, ValueError):
+                return {'ok': False, 'kind': 'run', 'msg': '运行记录无法解析'}
+            script = j.get('script') if isinstance(j, dict) and isinstance(j.get('script'), str) else ''
+            return {'ok': True, 'kind': 'run', 'script': script, 'truncated': False, 'embed': _embed_in(script)}
+        return None
+    proj_js = under(config.PROJ) and (pr.parent.name == 'workflows'
+                                      or (pr.parent.name == 'scripts' and pr.parent.parent.name == 'workflows'))
+    if suf == '.js' and (under(config.CONF_DIR / 'drafts') or proj_js
+                         or (pr.parent.name == 'workflows' and pr.parent.parent.name == '.claude')):
+        txt, trunc = _read_capped(pr)
+        return {'ok': True, 'kind': 'script', 'script': txt, 'truncated': trunc, 'embed': _embed_in(txt)}
+    return None
+
+
 def accepts_gzip(header):
     """Accept-Encoding 判定单点:客户端是否接受 gzip。必须按 RFC 解析 q 值——`'gzip' in header` 的
     子串判断会把明确拒绝的 `gzip;q=0` 当成接受;通配 `*` 只在没有显式 gzip 项时兜底(explicit 优先)。"""
@@ -293,6 +480,16 @@ class H(BaseHTTPRequestHandler):
             self._json(list_drafts((q.get('proj') or [''])[0]))
         elif u.path == '/api/agents':
             self._json(list_agent_types())
+        elif u.path == '/api/workflows':
+            q = parse_qs(u.query)
+            self._json(list_workflows((q.get('proj') or [''])[0]))
+        elif u.path == '/api/workflow':
+            q = parse_qs(u.query)
+            r = read_workflow((q.get('path') or [''])[0])
+            if r is None:
+                self._json({'ok': False, 'msg': '路径不在允许范围内'}, 404)
+            else:
+                self._json(r)
         elif u.path.startswith('/static/'):
             name = u.path.rsplit('/', 1)[-1]                      # 只取末段:../ 天然失效
             p = static_path(name)

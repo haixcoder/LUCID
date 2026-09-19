@@ -418,6 +418,32 @@ body.flow-open{overflow:hidden}
 .cmdrow code{flex:1 1 auto;min-width:0;font:11px/1.6 var(--mono);color:var(--cy);white-space:pre-wrap;overflow-wrap:anywhere}
 .cmdrow button{flex:0 0 auto}
 #fRunNote{margin:2px 0 0;font:10px/1.6 var(--mono);color:var(--dim2);white-space:pre-line}
+/* 工作流库面板(1.2.71):绝对定位浮在画布上(不进 diffPaint 池,黄金零漂移);列表/只读全文两态 */
+#fLibPanel{position:absolute;left:50%;top:54px;transform:translateX(-50%);width:min(760px,94vw);max-height:calc(100% - 108px);
+ display:flex;flex-direction:column;background:var(--pnl);border:1px solid var(--ln2);box-shadow:var(--sh);z-index:40;animation:rise .18s ease-out}
+#fLibPanel[hidden]{display:none}
+.lb-head{display:flex;align-items:center;gap:10px;padding:8px 12px 7px;border-bottom:1px solid var(--ln2)}
+.lb-head b{font:700 11px var(--disp);letter-spacing:.22em;color:var(--am);white-space:nowrap}
+.lb-head span{flex:1 1 auto;min-width:0;font:10px var(--mono);color:var(--dim2);letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lb-head button{background:transparent;border:1px solid var(--ln2);color:var(--am);font:600 10px var(--mono);padding:3px 9px;cursor:pointer}
+.lb-head button:hover{border-color:var(--am);background:var(--hov)}
+#fLibBody{overflow:auto;flex:1 1 auto;min-height:0}
+.lb-sec{padding:8px 12px 3px;font:600 9px var(--mono);letter-spacing:.18em;color:var(--dim2);border-top:1px dashed var(--ln2)}
+.lb-sec:first-child{border-top:0}
+.lb-it{display:block;width:100%;box-sizing:border-box;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--ln);
+ color:var(--tx);padding:7px 12px;cursor:pointer;font:11px/1.5 var(--mono)}
+.lb-it:hover{background:var(--hov)}
+.lb-it:focus-visible{outline:1px solid var(--am);outline-offset:-1px}
+.lb-it .nm{font-weight:600;color:var(--tx)}
+.lb-it .ds{color:var(--dim);font-size:10px;margin-top:2px;overflow-wrap:anywhere}
+.lb-it .mt{display:flex;gap:7px;margin-top:3px;font-size:9.5px;color:var(--dim2);flex-wrap:wrap;align-items:center}
+.lb-tag{border:1px solid var(--ln2);padding:0 4px;color:var(--am);white-space:nowrap}
+.lb-tag.ro{color:var(--dim2)}
+.lb-tag.g{border-color:color-mix(in srgb,var(--gr) 55%,var(--ln2));color:var(--gr)}
+.lb-empty{padding:16px 12px;color:var(--dim2);font:11px/1.7 var(--mono)}
+.lb-note{padding:8px 12px 2px;font:10px/1.7 var(--mono);color:var(--am);white-space:pre-line;overflow-wrap:anywhere}
+.lb-script{margin:8px 12px 12px;padding:8px 10px;border:1px solid var(--ln);background:var(--pnl2);
+ max-height:none;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.65 var(--mono);color:var(--tx)}
 /* 空画布是"邀请动手",不是报错;不用 .idle 类(setLang 会摘掉它) */
 #fEmpty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);margin:0;color:var(--dim2);
  font:600 10px var(--disp);letter-spacing:.2em;text-align:center;line-height:1.9;pointer-events:none}
@@ -498,7 +524,7 @@ body.flow-open{overflow:hidden}
     <input id="fWhen" placeholder="何时用(meta.whenToUse)" data-i18n-ph="何时用(meta.whenToUse)" autocomplete="off" spellcheck="false">
     <span id="fPhases"><span class="fh-k">PHASES</span></span>
     <span id="fCwd"></span>
-    <select id="fDraft"></select>
+    <button id="fLib" data-i18n="工作流库…">工作流库…</button>
     <button id="fFit" data-i18n="适配视图">适配视图</button>
     <button id="fOver" data-i18n="覆盖原稿" hidden>覆盖原稿</button>
     <button id="fSave" data-i18n="保存草稿">保存草稿</button>
@@ -561,6 +587,18 @@ body.flow-open{overflow:hidden}
       </div>
       <div id="fNote"></div>
     </div>
+  </div>
+  <!-- 工作流库(1.2.71):把「之前已经构建的工作流」聚到一处 —— 跨项目草稿 / 项目与个人 .claude/workflows 脚本 /
+       历史运行。点一条:有图(草稿 JSON 或内嵌注释)直接上画布;只有脚本先按生成器文法反解 + 逐字节复核;
+       都不行就只读展示全文并写明原因(铁律 7:不假装能编辑)。 -->
+  <div id="fLibPanel" hidden role="dialog" aria-modal="false">
+    <div class="lb-head">
+      <b data-i18n="工作流库">工作流库</b>
+      <span id="fLibStat"></span>
+      <button id="fLibBack" data-i18n="← 返回列表" hidden>← 返回列表</button>
+      <button id="fLibClose" data-i18n="关闭">关闭</button>
+    </div>
+    <div id="fLibBody"></div>
   </div>
 </div>
 <script src="/static/xyflow.system.umd.js"></script>

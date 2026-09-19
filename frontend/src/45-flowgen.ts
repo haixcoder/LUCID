@@ -850,3 +850,721 @@ function flowGenerate(fs: FlowDraft, ctx?: FlowCtx): string {
   if (FLOW_SANDBOX_BANNED.test(flowStripLiterals(js))) throw new Error('生成结果含沙箱禁用调用(内部 bug)');
   return js;
 }
+
+// ═══ 内嵌图 + 反解(1.2.71):让「之前已经构建的工作流」回到画布 ═══════════════════════
+// 两条通路,优先级固定:
+//   ① 内嵌图——保存草稿时把图 JSON 以注释形式附加在执行件尾部(注释对 Workflow 沙箱是惰性的);
+//      项目分发件 / cp 到个人目录 / 跑过的运行副本都带着它,打开即无损还原(含坐标与 args 示例)。
+//   ② 反解——更早的脚本没有内嵌,按**生成器文法**反解,再用 flowGenerate(还原图) === 原文 逐字节复核;
+//      复核不过一律 null(宁可不还原、只读展示,也不给一张与脚本对不上的假图)。
+// 内嵌不放进 flowGenerate:"产物逐字节不变"是黄金快照钉死的不变量,预览里也不该混入 base64 噪音——
+// 附加只发生在**保存**这一步(调用方:script = flowGenerate(...) + flowEmbed(draft))。
+const FLOW_EMBED_RE = /^\/\/ lucid-graph:(\d+):([A-Za-z0-9+/=]+)[ \t]*$/m;
+
+function flowB64Enc(s: string): string {
+  const b = new TextEncoder().encode(s);
+  let bin = '';
+  for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode.apply(null, Array.from(b.subarray(i, i + 0x8000)) as number[]);
+  return btoa(bin);
+}
+function flowB64Dec(s: string): string {
+  const bin = atob(s), b = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(b);
+}
+// 保存时附加的注释行(以 \n 结尾)。base64 字母表不含 `*`,不会破坏任何注释形态
+function flowEmbed(d: FlowDraft): string {
+  return '// lucid-graph:1:' + flowB64Enc(JSON.stringify(d)) + '\n';
+}
+// 读内嵌图:没有/坏了/版本不认识 → null(版本白名单与 loadFlowDrafts 同一口径,不猜)
+function flowDecodeGraph(script: string): FlowDraft | null {
+  const m = FLOW_EMBED_RE.exec(String(script || ''));
+  if (!m) return null;
+  try {
+    const j = JSON.parse(flowB64Dec(m[2])) as FlowDraft;
+    if (!j || typeof j !== 'object' || (j.v !== 1 && j.v !== 2) || !Array.isArray(j.nodes) || !Array.isArray(j.edges)) return null;
+    return j;
+  } catch { return null; }
+}
+// 反解图的自动布局(脚本里没有坐标):复用 flowLevels 分层——层序 → x,层内序 → y。
+function flowAutoLayout(d: FlowDraft): void {
+  const { groups } = flowLevels(d);
+  const placed = new Set<string>();
+  groups.forEach((g, gi) => (g || []).forEach((id, k) => {
+    const n = d.nodes.find(x => x.id === id);
+    if (!n) return;
+    placed.add(id);
+    n.position = { x: 80 + gi * 300, y: 110 + k * 170 };
+  }));
+  let y = 110;
+  for (const n of d.nodes) if (!placed.has(n.id)) { y += 170; n.position = { x: 80, y }; }
+}
+// 复核单点:反解图必须能**逐字节重新生成**同一份脚本(忽略尾部空白)才认账。
+// 先按真实上下文复核(子流按名引用可见);失败再按宽松上下文(不带草稿表)试一次——
+// 宽松通过 = 只是引用的子流不在当前项目,允许载入但由调用方给出警告(编辑器会立刻把错误亮出来)。
+function flowParseVerified(script: string, ctx?: FlowCtx): { draft: FlowDraft; foreignSubflow: boolean } | null {
+  const d = flowParse(script);
+  if (!d) return null;
+  const want = String(script).trimEnd();
+  const ok = (c?: FlowCtx): boolean => { try { return flowGenerate(d, c).trimEnd() === want; } catch { return false; } };
+  if (ok(ctx)) return { draft: d, foreignSubflow: false };
+  if (ctx && ok(undefined)) return { draft: d, foreignSubflow: true };
+  return null;
+}
+// ── flowParse:生成器文法的最小反解器(纯文本 → 图;不认识的结构 → null)──────────────────
+// 锚 = 生成器首行注释(顺带还原 cwd——载入切上下文要用它)。语句按出现顺序成组、组间全连接(源→汇);
+// map 链 / 分支两臂 / 循环体按结构显式重建。正确性不靠"读起来对":调用方 flowParseVerified 逐字节对账。
+// 内部用 FlowParseFail 抛"不认识",这里统一兜成 null —— 反解失败是**预期路径**(老脚本/别人的脚本),不是异常。
+class FlowParseFail extends Error {}
+let flowParseDbg = '';      // 最近一次反解失败的原因(诊断用;成功即清空)
+function flowParse(script: string): FlowDraft | null {
+  flowParseDbg = '';
+  try { return flowParseInner(script); }
+  catch (e) {
+    if (e instanceof FlowParseFail) { flowParseDbg = String((e as Error).message || ''); return null; }
+    throw e;
+  }
+}
+function flowParseInner(script: string): FlowDraft | null {
+  const src = String(script || '');
+  const head = /^\/\/ 由 Lucid 编排器生成 —— 目标项目: (.*)\n\/\/ 用法: [^\n]*\n/.exec(src);
+  if (!head) return null;
+  const cwd = head[1] === '(未填)' ? '' : head[1];
+  let i = head[0].length;
+  // ⚠ 必须给**变量**显式函数类型标注:TS 的 never-返回控制流收窄只认"变量带显式类型"的 const
+  // (只给箭头函数标返回类型不够)——否则后面每个 `if (!x) fail(...)` 都不会收窄。
+  const fail: (why: string) => never = (why) => { throw new FlowParseFail(why); };
+
+  // —— 扫描原语(字符串/模板/注释感知)——
+  const eol = (f: number): number => { const k = src.indexOf('\n', f); return k < 0 ? src.length : k; };
+  const curLine = (): string => src.slice(i, eol(i));
+  const trim = (): string => curLine().trim();
+  const nextLine = (): void => { i = eol(i) + 1; };
+  const strEnd = (s: string, k: number): number => {
+    const q = s[k]; let j = k + 1;
+    while (j < s.length) {
+      if (s[j] === '\\') { j += 2; continue; }
+      if (s[j] === q) return j + 1;
+      if (s[j] === '\n' && q !== '`') return j;
+      j++;
+    }
+    return j;
+  };
+  const tmplEnd = (s: string, k: number): number => {
+    let j = k + 1;
+    while (j < s.length) {
+      const c = s[j];
+      if (c === '\\') { j += 2; continue; }
+      if (c === '`') return j + 1;
+      if (c === '$' && s[j + 1] === '{') { const e2 = matchBracket(s, j + 1, '{', '}'); if (e2 < 0) return s.length; j = e2 + 1; continue; }
+      j++;
+    }
+    return s.length;
+  };
+  const matchBracket = (s: string, k: number, open: string, close: string): number => {
+    let depth = 1, j = k + 1;
+    while (j < s.length) {
+      const c = s[j];
+      if (c === '"' || c === "'") { j = strEnd(s, j); continue; }
+      if (c === '`') { j = tmplEnd(s, j); continue; }
+      if (c === '/' && s[j + 1] === '/') { while (j < s.length && s[j] !== '\n') j++; continue; }
+      if (c === '/' && s[j + 1] === '*') { const e2 = s.indexOf('*/', j + 2); j = e2 < 0 ? s.length : e2 + 2; continue; }
+      if (c === open) depth++;
+      else if (c === close) { depth--; if (!depth) return j; }
+      j++;
+    }
+    return -1;
+  };
+  // 顶层分隔符定位:diameter 0 的 sep 或 depth 0 的闭合符(后者 = "表达式到此为止")
+  const findSep = (s: string, from: number, seps: string): number => {
+    let depth = 0, j = from;
+    while (j < s.length) {
+      const c = s[j];
+      if (c === '"' || c === "'") { j = strEnd(s, j); continue; }
+      if (c === '`') { j = tmplEnd(s, j); continue; }
+      if (c === '/' && s[j + 1] === '/') { while (j < s.length && s[j] !== '\n') j++; continue; }
+      if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']' || c === '}') { if (!depth) return j; depth--; }
+      else if (!depth && seps.indexOf(c) >= 0) return j;
+      j++;
+    }
+    return s.length;
+  };
+  const splitTop = (s: string): string[] => {
+    const out: string[] = []; let p = 0;
+    for (;;) {
+      const e2 = findSep(s, p, ',');
+      out.push(s.slice(p, e2).trim());
+      if (e2 >= s.length) break;
+      p = e2 + 1;
+    }
+    return out;
+  };
+
+  // —— 状态 ——
+  const nodes: FlowNode[] = [], edges: FlowEdge[] = [];
+  const used = new Set<string>();
+  let ne = 0, nx = 0, startId = '';
+  const edge = (s: string, t: string, sh = 'out', th = 'in'): void => { edges.push({ id: 'e' + (++ne), source: s, sourceHandle: sh, target: t, targetHandle: th }); };
+  const mknode = (id: string, type: FlowKind, data: FlowNodeData): string => {
+    if (!id || used.has(id)) fail('节点 id 重复或为空:' + id);
+    used.add(id);
+    nodes.push({ id, type, position: { x: 0, y: 0 }, data });
+    return id;
+  };
+  const fresh = (): string => { let id = ''; do { id = 'x' + (++nx); } while (used.has(id)); return id; };
+  const schemaMap = new Map<string, string>();
+
+  // —— 字面量 → 草稿文本(flowLiteral 的逆)——
+  const unSub = (e: string, prevIds: string[] | null): string | null => {
+    const m = /^(Q|[A-Za-z_$][\w$]*)((?:\?\.\w+|\?\.\[\d+\])*)$/.exec(e.trim());
+    if (!m) return null;
+    const base = m[1];
+    let p2 = m[2] || '', path = '';
+    while (p2) {
+      let m2 = /^\?\.([A-Za-z_$][\w$]*)/.exec(p2);
+      if (m2) { path += '.' + m2[1]; p2 = p2.slice(m2[0].length); continue; }
+      m2 = /^\?\.\[(\d+)\]/.exec(p2);
+      if (m2) { path += '[' + m2[1] + ']'; p2 = p2.slice(m2[0].length); continue; }
+      return null;
+    }
+    if (base === 'Q') return path ? null : '{{start}}';
+    if (base === 'item') return '{{item' + path + '}}';
+    if (base === 'i') return path ? null : '{{index}}';
+    if (base === 'prev') return prevIds && prevIds.length === 1 ? '{{' + prevIds[0] + path + '}}' : null;
+    return '{{' + base + path + '}}';
+  };
+  const unlit = (expr: string, prevIds: string[] | null): string | null => {
+    const s = expr.trim();
+    if (s.startsWith('"')) { try { const v: unknown = JSON.parse(s); return typeof v === 'string' ? v : null; } catch { return null; } }
+    if (!s.startsWith('`') || !s.endsWith('`') || s.length < 2) return null;
+    const body = s.slice(1, -1);
+    let out = '', k = 0;
+    while (k < body.length) {
+      const c = body[k];
+      if (c === '\\') {
+        const d = body[k + 1];
+        if (d === '\\') { out += '\\'; k += 2; continue; }
+        if (d === '`') { out += '`'; k += 2; continue; }
+        if (d === '$' && body[k + 2] === '{') { out += '${'; k += 3; continue; }
+        return null;                                  // 生成器只转义这三样;别的转义 = 非本生成器产物
+      }
+      if (c === '$' && body[k + 1] === '{') {
+        const end = matchBracket(body, k + 1, '{', '}');
+        if (end < 0) return null;
+        const ref = unSub(body.slice(k + 2, end), prevIds);
+        if (ref === null) return null;
+        out += ref; k = end + 1; continue;
+      }
+      out += c; k++;
+    }
+    return out;
+  };
+  const strLit = (v: string): string => {
+    const x = unlit(v, null);
+    if (x === null) fail('字符串字面量解析失败:' + v.slice(0, 40));
+    return x;
+  };
+  const textsOf = (d: FlowNodeData): string[] =>
+    [d.prompt, d.label, d.text].filter((x): x is string => typeof x === 'string' && x.length > 0);
+
+  // —— 调用表达式解析 ——
+  const parseOpts = (text: string, prevIds: string[] | null): { label: string; phase: string; model: string; effort: string; agentType: string; isolation: boolean; schemaText: string } => {
+    const t2 = text.trim();
+    if (!t2.startsWith('{')) fail('opts 不是对象');
+    const close = matchBracket(t2, 0, '{', '}');
+    if (close < 0) fail('opts 未闭合');
+    const out = { label: '', phase: '', model: '', effort: '', agentType: '', isolation: false, schemaText: '' };
+    for (const e of splitTop(t2.slice(1, close))) {
+      const k = /^([\w$]+): ([\s\S]*)$/.exec(e);
+      if (!k) fail('opts 条目不认识:' + e.slice(0, 40));
+      const key = k[1], val = k[2].trim();
+      if (key === 'label') { const v = unlit(val, prevIds); if (v === null) fail('label 解析失败'); out.label = v; }
+      else if (key === 'phase' || key === 'model' || key === 'effort' || key === 'agentType') out[key] = strLit(val);
+      else if (key === 'isolation') { if (val !== '"worktree"') fail('isolation 值不认识'); out.isolation = true; }
+      else if (key === 'schema') {
+        const sm = /^SCHEMA_([\w$]+)$/.exec(val);
+        if (!sm || !schemaMap.has(sm[1])) fail('schema 引用不认识:' + val);
+        out.schemaText = schemaMap.get(sm[1]) as string;
+      } else fail('opts 未知键:' + key);
+    }
+    return out;
+  };
+  const parseCallInner = (inner: string, isRetry: boolean, prevIds: string[] | null): FlowNodeData => {
+    const segs = splitTop(inner);
+    if (segs.length < 2) fail('调用参数不足');
+    const prompt = unlit(segs[0], prevIds);
+    if (prompt === null) fail('prompt 字面量解析失败');
+    const o = parseOpts(segs[1], prevIds);
+    const data: FlowNodeData = { label: o.label, phase: o.phase, prompt, model: o.model, schemaText: o.schemaText };
+    if (o.effort) data.effort = o.effort;
+    if (o.agentType) data.agentType = o.agentType;
+    if (o.isolation) data.isolation = true;
+    if (isRetry) {
+      if (segs.length !== 4) fail('$retry 参数个数不对');
+      const rn = Number(segs[2]), rms = Number(segs[3]);
+      if (!Number.isInteger(rn) || !Number.isInteger(rms)) fail('$retry 数字不合法');
+      data.retryN = rn; data.retryMs = rms;
+    }
+    return data;
+  };
+  // text 必须是完整调用表达式(已 trim);返回节点 data
+  const parseCallExpr = (text: string, prevIds: string[] | null): FlowNodeData => {
+    const t2 = text.trim();
+    const m = /^(agent|\$retry)\(/.exec(t2);
+    if (!m) fail('调用形状不认识:' + t2.slice(0, 40));
+    const close = matchBracket(t2, m[0].length - 1, '(', ')');
+    if (close < 0 || t2.slice(close + 1).trim() !== '') fail('调用未闭合或尾部有杂质');
+    return parseCallInner(t2.slice(m[0].length, close), m[1] === '$retry', prevIds);
+  };
+  // parallel thunk 行:'  () => <call>,' —— 消费到 '])'。
+  // names = 脚本里的真实变量名(顶层/区域内非末级的 parallel 成员是有名的,可能被后续占位符引用);
+  // 末级赋值/扇出的成员在脚本里匿名 → null(发明 id,永不落码)。
+  const parseThunks = (from: number, prevIds: string[] | null, names: string[] | null): string[] => {
+    const ids: string[] = [];
+    i = from;
+    while (trim() !== '])') {
+      if (i >= src.length) fail('parallel 未闭合');
+      const line = curLine();
+      const q = i + line.length - line.trimStart().length;
+      const mm = /^\(\) => /.exec(src.slice(q));
+      if (!mm) fail('parallel 元素形状不认识');
+      const cs = q + mm[0].length;
+      const ce = findSep(src, cs, ',');
+      if (src[ce] !== ',') fail('parallel 元素未以逗号收尾');
+      const data = parseCallExpr(src.slice(cs, ce), prevIds);
+      const id = mknode(names ? names[ids.length] : fresh(), 'agent', data);
+      for (const t2 of textsOf(data)) refs.push({ id, text: t2 });
+      ids.push(id);
+      i = eol(ce) + 1;
+    }
+    nextLine();                                       // 消费 '])'
+    return ids;
+  };
+  const parseCallbackLevel = (seg: string, prevIds: string[] | null): string[] => {
+    const m = /^\(prev, item, i\) => /.exec(seg);
+    if (!m) fail('pipeline 回调形状不认识');
+    const expr = seg.slice(m[0].length).trim();
+    if (/^parallel\(\[/.test(expr)) {
+      const open = expr.indexOf('[');
+      const close = matchBracket(expr, open, '[', ']');
+      if (close < 0 || expr.slice(close + 1).trim() !== '') fail('pipeline 扇出级未闭合');
+      const ids: string[] = [];
+      for (const th of splitTop(expr.slice(open + 1, close))) {
+        const tm = /^\(\) => /.exec(th);
+        if (!tm) fail('pipeline 扇出元素形状不认识');
+        const data = parseCallExpr(th.slice(tm[0].length), prevIds);
+        const id = mknode(fresh(), 'agent', data);
+        for (const t2 of textsOf(data)) refs.push({ id, text: t2 });
+        ids.push(id);
+      }
+      if (!ids.length) fail('pipeline 扇出级为空');
+      return ids;
+    }
+    const data = parseCallExpr(expr, prevIds);
+    const id = mknode(fresh(), 'agent', data);
+    for (const t2 of textsOf(data)) refs.push({ id, text: t2 });
+    return [id];
+  };
+
+  // —— 头部:meta / SCHEMA_ / $retry 助手 / ARGS 块 / phase 前置 / Q ——
+  const meta = { name: 'untitled', desc: '', title: '', whenToUse: '', phases: [] as FlowPhase[] };
+  const reqKeys: string[] = [];
+  let hasArgs = false, argsRequired = false, note = '';
+  const parseMetaBlock = (): void => {
+    nextLine();
+    let m: RegExpExecArray | null;
+    while (i < src.length && trim() !== '}') {
+      const line = curLine();
+      const p = i + line.length - line.trimStart().length;
+      if ((m = /^name: (".*"),$/.exec(line.trim()))) meta.name = strLit(m[1]);
+      else if ((m = /^description: (".*"),$/.exec(line.trim()))) meta.desc = strLit(m[1]);
+      else if ((m = /^title: (".*"),$/.exec(line.trim()))) meta.title = strLit(m[1]);
+      else if ((m = /^whenToUse: (".*"),$/.exec(line.trim()))) meta.whenToUse = strLit(m[1]);
+      else if (/^phases: \[/.test(line.trim())) {
+        const open = src.indexOf('[', p);
+        const close = matchBracket(src, open, '[', ']');
+        if (close < 0) fail('meta.phases 未闭合');
+        for (const ent of splitTop(src.slice(open + 1, close))) {
+          if (!ent) continue;
+          if (!ent.startsWith('{')) fail('phases 条目不是对象');
+          const ce = matchBracket(ent, 0, '{', '}');
+          if (ce < 0) fail('phases 条目未闭合');
+          const ph: FlowPhase = { title: '' };
+          for (const kv of splitTop(ent.slice(1, ce))) {
+            const km = /^(title|detail|model): (".*")$/.exec(kv);
+            if (!km) fail('phases 字段不认识:' + kv.slice(0, 30));
+            if (km[1] === 'title') ph.title = strLit(km[2]);
+            else if (km[1] === 'detail') ph.detail = strLit(km[2]);
+            else ph.model = strLit(km[2]);
+          }
+          meta.phases.push(ph);
+        }
+        i = eol(close) + 1;
+        continue;
+      } else fail('meta 字段不认识:' + line.trim().slice(0, 40));
+      nextLine();
+    }
+    if (i >= src.length) fail('meta 块未闭合');
+    nextLine();                                       // 消费 '}'
+  };
+  for (;;) {
+    const t = trim();
+    if (!t) { if (i >= src.length) return null; nextLine(); continue; }
+    if (t.startsWith('export const meta = {')) { parseMetaBlock(); continue; }
+    if (t.startsWith('const SCHEMA_')) {
+      const m = /^const (SCHEMA_[\w$]+) = /.exec(t);
+      if (!m) fail('SCHEMA 行不认识');
+      const open = src.indexOf('{', i);
+      const close = matchBracket(src, open, '{', '}');
+      if (close < 0) fail('SCHEMA 未闭合');
+      schemaMap.set(m[1].slice('SCHEMA_'.length), src.slice(open, close + 1).trim());
+      i = eol(close) + 1;
+      continue;
+    }
+    if (t.startsWith('async function $retry(')) {
+      nextLine();
+      // 助手体里有缩进的 `}`(for 循环收尾)——只有**顶格**的 `}` 才是助手结束(生成器固定列 0)
+      while (i < src.length && src.slice(i, eol(i)).trimEnd() !== '}') nextLine();
+      if (i >= src.length) fail('$retry 助手未闭合');
+      nextLine();
+      continue;
+    }
+    if (t.startsWith('const ARGS = ')) { hasArgs = true; nextLine(); continue; }
+    if (t.startsWith('if (!ARGS')) { argsRequired = true; nextLine(); continue; }
+    if (t.startsWith('if (typeof ARGS')) {
+      const m1 = /^if \(typeof ARGS\.([A-Za-z_$][\w$]*) === 'undefined'\)/.exec(t);
+      const m2 = /^if \(typeof ARGS\[("(?:[^"\\]|\\.)*")\] === 'undefined'\)/.exec(t);
+      if (m1) reqKeys.push(m1[1]);
+      else if (m2) reqKeys.push(strLit(m2[1]));
+      else fail('ARGS 校验行不认识');
+      nextLine();
+      continue;
+    }
+    if (t.startsWith('phase(')) { nextLine(); continue; }
+    if (t.startsWith('const Q = ')) {
+      const m = /^const Q = \(typeof (?:ARGS|args) === 'string' && (?:ARGS|args)\.trim\(\)\) \|\| (.*)$/.exec(t);
+      if (!m) fail('Q 行不认识');
+      note = strLit(m[1]);
+      nextLine();
+      continue;
+    }
+    break;
+  }
+  startId = mknode(fresh(), 'start', { note });
+
+  // —— 占位符引用边(解析后统一挂:目标必须已存在)——
+  const refs: { id: string; text: string }[] = [];
+  const refEdges = (): void => {
+    // ⚠ 只在目标**还不可达**时补边:结构边往往已经提供可达性(占位符只是校验通过,不需要再多一条),
+    // 而重复/多余的边会改变区域走链形态(如 loop 体首多一条来自 start 的入边 → "循环体不是单入口"),
+    // 把"本可还原"的图否决掉。可达性口径与 flowRefIssues 的 upstream 判定一致:target 能走到 r.id。
+    const adj = new Map<string, string[]>();
+    for (const e of edges) { const a = adj.get(e.source); if (a) a.push(e.target); else adj.set(e.source, [e.target]); }
+    const hasEdge = new Set(edges.map(e => e.source + ' ' + e.target));
+    const reaches = (from: string, to: string): boolean => {
+      const seen = new Set<string>([from]);
+      const st = [from];
+      while (st.length) {
+        const x = st.pop() as string;
+        for (const y of adj.get(x) || []) {
+          if (y === to) return true;
+          if (!seen.has(y)) { seen.add(y); st.push(y); }
+        }
+      }
+      return false;
+    };
+    for (const r of refs) {
+      for (const m of r.text.matchAll(FLOW_REF_RE)) {
+        const name = m[1], path = m[2] || '';
+        if (name === 'item' || name === 'index') continue;
+        const target = name === 'start' ? startId : name;
+        if (!used.has(target)) fail('占位符引用了不存在的节点 {{' + name + path + '}}');
+        if (reaches(target, r.id)) continue;
+        const key = target + ' ' + r.id;
+        if (hasEdge.has(key)) continue;
+        hasEdge.add(key);
+        const a = adj.get(target); if (a) a.push(r.id); else adj.set(target, [r.id]);
+        edge(target, r.id);
+      }
+    }
+  };
+  const pendingReturnTails: string[] = [];
+  const regionTargets: string[] = [];
+
+  // —— 语句解析 ——
+  interface St { ins: string[]; outs: string[] }
+  const chain = (sts: St[]): void => {
+    for (let k = 0; k + 1 < sts.length; k++)
+      for (const a of sts[k].outs) for (const b of sts[k + 1].ins) edge(a, b);
+  };
+  const parseStmts = (stop: () => boolean): St[] => {
+    const sts: St[] = [];
+    for (;;) {
+      if (i >= src.length) break;
+      if (stop()) break;
+      const t = trim();
+      if (!t) { nextLine(); continue; }
+      if (t.startsWith('phase(')) { nextLine(); continue; }
+      sts.push(parseStmt());
+    }
+    chain(sts);
+    return sts;
+  };
+  // 循环体 / 分支臂 / 顶层共用的单条语句解析(消费到该语句结束的下一行行首)
+  const parseStmt = (): St => {
+    const line = curLine();
+    const p = i + line.length - line.trimStart().length;
+    const rest = line.trimStart();                // 语句判定只看**本行**($ 才能当行尾锚用);绝对扫描用 p
+    let m: RegExpExecArray | null;
+    if (/^return\b/.test(rest)) fail('语句顺序异常:return 提前出现');
+    // 单 agent / $retry
+    if ((m = /^const ([\w$]+) = await (agent|\$retry)\(/.exec(rest))) {
+      const close = matchBracket(src, p + m[0].length - 1, '(', ')');
+      if (close < 0) fail('agent 调用未闭合');
+      const data = parseCallInner(src.slice(p + m[0].length, close), m[2] === '$retry', null);
+      const id = mknode(m[1], 'agent', data);
+      for (const t2 of textsOf(data)) refs.push({ id, text: t2 });
+      i = eol(close) + 1;
+      return { ins: [id], outs: [id] };
+    }
+    // parallel 组(成员是脚本里的真实变量名,可能被后续占位符引用)
+    if ((m = /^const \[([^\]]*)\] = await parallel\(\[$/.exec(rest))) {
+      const ids = m[1].split(',').map(x => x.trim()).filter(Boolean);
+      if (!ids.length) fail('parallel 组为空');
+      const got = parseThunks(eol(i) + 1, null, ids);
+      if (got.length !== ids.length) fail('parallel 元素数与变量数不匹配');
+      return { ins: ids.slice(), outs: ids.slice() };
+    }
+    // map(级 1 = map 自身;pipeline 回调其余各级)
+    if ((m = /^const ([\w$]+) = await pipeline\(/.exec(rest))) {
+      const mapId = m[1];
+      const open = p + m[0].length - 1;
+      const close = matchBracket(src, open, '(', ')');
+      if (close < 0) fail('pipeline 未闭合');
+      const segs = splitTop(src.slice(open + 1, close));
+      if (segs.length < 2) fail('pipeline 至少需要一个回调级');
+      const cb1 = ((): FlowNodeData => {
+        const cm = /^\(prev, item, i\) => /.exec(segs[1]);
+        if (!cm) fail('pipeline 首级回调形状不认识');
+        return parseCallExpr(segs[1].slice(cm[0].length), null);
+      })();
+      const data: FlowNodeData = { label: cb1.label, phase: cb1.phase, prompt: cb1.prompt, model: cb1.model, schemaText: cb1.schemaText, items: segs[0] };
+      if (cb1.effort) data.effort = cb1.effort;
+      if (cb1.agentType) data.agentType = cb1.agentType;
+      if (cb1.isolation) data.isolation = true;
+      if (cb1.retryN !== undefined) { data.retryN = cb1.retryN; data.retryMs = cb1.retryMs; }
+      const id = mknode(mapId, 'map', data);
+      for (const t2 of textsOf(data)) refs.push({ id, text: t2 });
+      let prev = [mapId];
+      for (let k = 2; k < segs.length; k++) {
+        const lv = parseCallbackLevel(segs[k], prev);
+        for (const a of prev) for (const b of lv) edge(a, b);
+        prev = lv;
+      }
+      i = eol(close) + 1;
+      const am = /^const ([\w$]+) = ([\w$]+);$/.exec(trim());
+      if (am && am[2] === mapId) {                 // 链尾汇合点别名:const E = map;
+        const e2 = mknode(am[1], 'merge', {});
+        for (const a of prev) edge(a, e2);
+        nextLine();
+        return { ins: [mapId], outs: [e2] };
+      }
+      pendingReturnTails.push(...prev);            // 链尾无汇合点:收尾接 return(对不上由复核否决)
+      return { ins: [mapId], outs: [mapId] };
+    }
+    // log
+    if (/^log\(/.test(rest)) {
+      const close = matchBracket(src, p + 3, '(', ')');
+      if (close < 0) fail('log 未闭合');
+      const text = unlit(src.slice(p + 4, close), null);
+      if (text === null) fail('log 文本解析失败');
+      const id = mknode(fresh(), 'log', { text });
+      refs.push({ id, text });
+      i = eol(close) + 1;
+      return { ins: [id], outs: [id] };
+    }
+    // code 片段(原文插入,以单独一行 '})()' 收尾)
+    if ((m = /^const ([\w$]+) = await \(async \(\) => \{$/.exec(rest))) {
+      const openEnd = eol(i) + 1;
+      let j = openEnd, closeStart = -1;
+      while (j < src.length) {
+        const le = eol(j);
+        if (src.slice(j, le).trim() === '})()') { closeStart = j; break; }
+        j = le + 1;
+      }
+      if (closeStart < 0) fail('code 片段未闭合');
+      const code = src.slice(openEnd, Math.max(openEnd, closeStart - 1));
+      const id = mknode(m[1], 'code', { code });
+      i = eol(closeStart) + 1;
+      return { ins: [id], outs: [id] };
+    }
+    // subflow
+    if ((m = /^const ([\w$]+) = await workflow\(/.exec(rest))) {
+      const close = matchBracket(src, p + m[0].length - 1, '(', ')');
+      if (close < 0) fail('workflow 未闭合');
+      const segs = splitTop(src.slice(p + m[0].length, close));
+      const r0 = segs[0] || '';
+      let ref = '';
+      if (r0.startsWith('"')) ref = strLit(r0);
+      else {
+        const om = /^\{ scriptPath: (".*") \}$/.exec(r0);
+        if (!om) fail('workflow 引用形状不认识');
+        ref = strLit(om[1]);
+      }
+      const argsExpr = segs.length > 1 ? segs.slice(1).join(', ') : '';
+      const id = mknode(m[1], 'subflow', { ref, argsExpr });
+      i = eol(close) + 1;
+      return { ins: [id], outs: [id] };
+    }
+    // let X; → 循环 or 分支(带汇合点)
+    if ((m = /^let ([\w$]+);$/.exec(rest))) {
+      const first = eol(i) + 1;
+      const t1 = src.slice(first, eol(first)).trim();
+      if (t1 === '{') return parseLoop(m[1], first);
+      if (/^if \(/.test(t1)) return parseBranch(m[1], first);
+      fail('let 语句后既不是循环也不是分支');
+    }
+    // 无汇合点的分支:双臂直接收于 return,脚本里没有 let 行,以 if 开头
+    if (/^if \(/.test(rest)) return parseBranch('', p);
+    // 区域末级赋值(<target> = await ...; / <target> = null;)——只允许落在区域目标上。
+    // 末级成员在脚本里匿名(整个数组赋给 merge/loop 变量)→ 发明 id;空臂 = 'null;' 标记。
+    if ((m = /^([\w$]+) = ([\s\S]+)$/.exec(rest))) {
+      const target = m[1];
+      if (!regionTargets.length || regionTargets[regionTargets.length - 1] !== target) fail('赋值目标不在区域上下文里:' + target);
+      const rhs = m[2];
+      if (rhs.trim() === 'null;') { i = eol(i) + 1; return { ins: [], outs: [] }; }
+      // 生成器在这里一律走 `target = await <call>;`(emitRegion 的 decl + await)
+      const aw = /^await ([\s\S]+)$/.exec(rhs.trim());
+      if (!aw) fail('赋值右侧不是 await:' + rhs.trim().slice(0, 40));
+      const expr = aw[1].trim();
+      const cs = p + m[0].length - m[2].length + rhs.trim().indexOf('await ') + 'await '.length;   // expr 的绝对起点
+      if (/^(agent|\$retry)\(/.test(expr)) {
+        const cm = /^(agent|\$retry)\(/.exec(expr) as RegExpExecArray;
+        const close = matchBracket(src, cs + cm[0].length - 1, '(', ')');
+        if (close < 0) fail('赋值右侧调用未闭合');
+        if (src.slice(close + 1, eol(close)).trim() !== '') fail('赋值右侧调用尾部有杂质');   // emitRegion 不带分号
+        const data = parseCallInner(src.slice(cs + cm[0].length, close), cm[1] === '$retry', null);
+        const id = mknode(fresh(), 'agent', data);
+        for (const t2 of textsOf(data)) refs.push({ id, text: t2 });
+        i = eol(close) + 1;
+        return { ins: [id], outs: [id] };
+      }
+      if (/^parallel\(\[/.test(expr)) {
+        const open = cs + 'parallel('.length;
+        if (matchBracket(src, open, '(', ')') < 0) fail('赋值右侧 parallel 未闭合');
+        const got = parseThunks(eol(open) + 1, null, null);
+        // 循环体末级扇出:walk 要求"扇出必须汇于同一个 merge",而 loop 不是 merge ——
+        // 原图里这里有个 merge(脚本里不可见,名字不出现在任何一行)→ 发明一个,回环经它。
+        const tgt = nodes.find(x => x.id === target);
+        if (tgt && tgt.type === 'loop') {
+          const mx = mknode(fresh(), 'merge', {});
+          for (const a of got) edge(a, mx);
+          return { ins: got.slice(), outs: [mx] };
+        }
+        return { ins: got.slice(), outs: got.slice() };
+      }
+      fail('赋值右侧不认识:' + expr.slice(0, 40));
+    }
+    fail('无法识别的语句:' + rest.slice(0, 60));
+  };
+  const parseLoop = (id: string, at: number): St => {
+    i = at;
+    if (trim() !== '{') fail('循环块未开始');
+    nextLine();
+    if (trim() !== 'let round = 0;') fail('循环缺少 round 计数行');
+    nextLine();
+    const line = curLine();
+    const p = i + line.length - line.trimStart().length;
+    if (!/^while \(\(/.test(src.slice(p))) fail('循环缺少 while 行');
+    const open = p + 'while ('.length - 1;          // 外层 '('
+    const close = matchBracket(src, open, '(', ')');
+    if (close < 0) fail('while 条件未闭合');
+    const whole = src.slice(open + 1, close);        // `(<cond>) && round < N`
+    if (!whole.startsWith('(')) fail('while 条件形状不认识');
+    const k = matchBracket(whole, 0, '(', ')');
+    if (k < 0) fail('while 条件形状不认识');
+    const cond = whole.slice(1, k);
+    const nm = /^ && round < (\d+)$/.exec(whole.slice(k + 1));
+    if (!nm) fail('while 上界形状不认识');
+    const maxRounds = Number(nm[1]);
+    if (src.slice(close + 1, eol(close)).trim() !== '{') fail('while 行尾不是块开始');
+    i = eol(close) + 1;
+    let guard = false;
+    if (/^if \(budget\.total && budget\.remaining\(\) < \d+\) \{ log\('预算将尽,提前收束'\); break \}$/.test(trim())) { guard = true; nextLine(); }
+    if (trim() !== 'round++;') fail('循环缺少 round++ 行');
+    nextLine();
+    // loop 节点先入表:体末级扇出要靠它的类型决定要不要发明中间 merge(臂/循环的收束形态不同)
+    const lp = mknode(id, 'loop', { label: '', cond, maxRounds, budgetGuard: guard });
+    regionTargets.push(id);
+    const body = parseStmts(() => trim() === '}');
+    regionTargets.pop();
+    if (trim() !== '}') fail('循环体未闭合');
+    nextLine();
+    if (trim() !== '}') fail('循环块未闭合');
+    nextLine();
+    if (body.length) {
+      const entry = body[0].ins[0];
+      if (!entry) fail('循环体入口找不到');
+      edge(lp, entry, 'body', 'in');
+      for (const a of body[body.length - 1].outs) edge(a, lp);
+    }
+    return { ins: [lp], outs: [lp] };
+  };
+  const parseBranch = (mergeId: string, at: number): St => {
+    i = at;
+    const line = curLine();
+    const p = i + line.length - line.trimStart().length;
+    if (!/^if \(/.test(src.slice(p))) fail('分支缺少 if 行');
+    const open = p + 'if ('.length - 1;
+    const close = matchBracket(src, open, '(', ')');
+    if (close < 0) fail('if 条件未闭合');
+    const cond = src.slice(open + 1, close);
+    if (src.slice(close + 1, eol(close)).trim() !== '{') fail('if 行尾不是块开始');
+    i = eol(close) + 1;
+    // 有汇合点(let 声明)才建 merge 节点;臂末级赋值会把结果并进它,类型查询也依赖它先入表
+    const M = mergeId ? mknode(mergeId, 'merge', {}) : '';
+    regionTargets.push(mergeId);
+    const tArm = parseStmts(() => trim() === '} else {');
+    if (trim() !== '} else {') fail('true 分支未闭合');
+    nextLine();
+    const fArm = parseStmts(() => trim() === '}');
+    regionTargets.pop();
+    if (trim() !== '}') fail('false 分支未闭合');
+    nextLine();
+    const br = mknode(fresh(), 'branch', { label: '', cond });
+    const arm = (sts: St[], handle: string): void => {
+      const empty = !sts.length || (sts.length === 1 && !sts[0].ins.length && !sts[0].outs.length);
+      if (empty) { if (M) edge(br, M, handle, 'in'); else fail('空臂且无汇合点'); return; }
+      edge(br, sts[0].ins[0], handle, 'in');
+      const tails = sts[sts.length - 1].outs;
+      if (M) for (const a of tails) edge(a, M);
+      else pendingReturnTails.push(...tails);     // 无汇合点 = 双臂终止于同一个 return(收尾统一连)
+    };
+    arm(tArm, 'true');
+    arm(fArm, 'false');
+    return { ins: [br], outs: M ? [M] : [] };
+  };
+
+  // —— 顶层语句 + return 收尾 ——
+  const top = parseStmts(() => /^return\b/.test(trim()));
+  if (!/^return\b/.test(trim())) fail('缺少 return');
+  let ret = src.slice(i + 'return '.length).replace(/\n\/\/ lucid-graph:[\s\S]*$/, '').replace(/\s+$/, '');
+  const returnId = mknode(fresh(), 'return', { ret });
+  if (top.length) for (const b of top[0].ins) edge(startId, b);
+  if (top.length) for (const a of top[top.length - 1].outs) edge(a, returnId);
+  for (const a of pendingReturnTails) edge(a, returnId);
+  refEdges();
+  const d: FlowDraft = {
+    v: 2, name: meta.name, desc: meta.desc, title: meta.title, whenToUse: meta.whenToUse,
+    cwd, phases: meta.phases,
+    argsSpec: hasArgs
+      ? { schemaText: argsRequired && reqKeys.length
+          ? JSON.stringify({ type: 'object', properties: reqKeys.reduce<Record<string, unknown>>((o, k2) => (o[k2] = {}, o), {}), required: reqKeys })
+          : '', exampleText: '', required: argsRequired }
+      : { schemaText: '', exampleText: '', required: false },
+    nodes, edges, next: 1, view: { x: 20, y: 10, zoom: 1 },
+  };
+  flowAutoLayout(d);
+  return d;
+}

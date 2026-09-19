@@ -539,10 +539,15 @@ async function saveFlowDraft(overwrite: boolean): Promise<void> {
   const d = flowDraft(), ctx = flowCtx(), errs = flowValidate(d, ctx);
   if (errs.length) { flowErr(T('存在错误,无法生成') + '\n· ' + errs.join('\n· ')); flowNote(T('先修复生成错误'), false); return; }
   flowNote(T('保存中…'), true);
+  // 执行件尾部内嵌图(1.2.71):分发出的副本(项目 .claude/workflows、cp 到个人目录、跑过的运行目录)
+  // 脱离草稿库后仍能无损回到画布。**不放进 flowGenerate**——产物逐字节不变是黄金快照钉死的不变量。
+  // 超上限(服务端 SCRIPT_CAP=1MB)的巨型草稿宁可不内嵌:草图本就在库里,执行件保下来更重要。
+  const gen = flowGenerate(d, ctx), emb = flowEmbed(d);
+  const script = gen.length + emb.length <= 950000 ? gen + emb : gen;
   let r: DraftSaveResp;
   try {
     r = await (await fetch('/api/draft/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: FS.name.trim(), draft: d, script: flowGenerate(d, ctx), overwrite }) })).json() as DraftSaveResp;
+      body: JSON.stringify({ name: FS.name.trim(), draft: d, script, overwrite }) })).json() as DraftSaveResp;
   } catch (e) { flowNote(T('保存失败:%1', String((e as Error)?.message ?? e)), false); return; }
   if (!r.ok) { flowNote(T('保存失败:%1', String(r.msg || '')), false); return; }
   const alt = String(r.path || '').split('/').pop() || '';
@@ -550,6 +555,7 @@ async function saveFlowDraft(overwrite: boolean): Promise<void> {
   const wfPath = String(r.wfPath || ''), wfErr = String(r.wfErr || '');
   fWfPath = wfPath;
   const note = (conflicted ? T('已并存为 %1(同名草稿内容不同)', alt) : T('已保存: %1', String(r.path)))
+    + (script === gen ? '\n' + T('草稿较大,执行件未内嵌图(不影响执行;回载走草稿库)') : '')
     + (wfPath ? '\n' + T('已写入项目 workflow: %1', wfPath) : wfErr ? '\n' + T('项目 workflow 未写入:%1', wfErr) : '');
   flowNote(note, !wfErr);
   fRunPath = String(r.path || '');
@@ -559,14 +565,10 @@ async function saveFlowDraft(overwrite: boolean): Promise<void> {
   try { localStorage.removeItem(FLOW_LS + flowSlug()); } catch { /* 无键则已 */ }
   void loadFlowDrafts(FS.cwd);
 }
-// 草稿下拉的唯一渲染点(列表数据 + 语言)。setLang 之后必须重刷:动态拼出来的 <option> 不在
-// applyI18n 的 data-i18n 覆盖范围内,漏刷则该语言下留旧语言文案(与清 CARDS 同一类问题)。
-function renderDraftOptions(): void {
-  const sel = $<HTMLSelectElement>('fDraft');
-  if (!sel) return;
-  sel.innerHTML = `<option value="">${esc(T('载入草稿…'))}</option>` +
-    fDrafts.map(x => `<option value="${esc(x.name)}">${esc(String(x.meta?.name || x.name))}</option>`).join('');
-  const dl = $<HTMLElement>('fDraftRefs');                 // subflow 的 ref 候选 = 已保存草稿名
+// 草稿候选 datalist(subflow 的 ref 补全)的唯一渲染点。setLang 之后必须重刷:动态拼出来的
+// <option> 不在 applyI18n 的 data-i18n 覆盖范围内,漏刷则该语言下留旧语言文案(与清 CARDS 同一类问题)。
+function renderDraftRefs(): void {
+  const dl = $<HTMLElement>('fDraftRefs');
   if (dl) dl.innerHTML = fDrafts.map(x => `<option value="${esc(x.name)}"></option>`).join('');
 }
 // agentType 候选(1.2.56):后端只读枚举本机 + 插件 agents;取不到就静默回落自由文本(下拉只是起点,不是约束)
@@ -586,20 +588,129 @@ async function loadAgentTypes(): Promise<void> {
   renderATypes();
 }
 async function loadFlowDrafts(cwd: string): Promise<void> {
-  const sel = $<HTMLSelectElement>('fDraft');
   try { fDrafts = ((await (await fetch('/api/drafts?proj=' + encodeURIComponent(cwd || ''))).json() as DraftsResp).drafts) || []; }
   catch { fDrafts = []; flowNote(T('草稿列表读取失败'), false); }
-  if (!sel) return;
-  renderDraftOptions();
-  sel.onchange = () => {
-    const hit = fDrafts.find(x => x.name === sel.value); if (!hit) return;
-    const j = hit.draft as FlowDraft;
+  renderDraftRefs();
+}
+// ── 工作流库(1.2.71):「之前已经构建的工作流」的展示与回载 ──────────────────────
+// 数据面:GET /api/workflows?proj=(跨项目草稿 ∪ 项目脚本 ∪ 个人脚本 ∪ 历史运行);打开走 GET /api/workflow?path=。
+// 三种打开结果,别混:
+//   ① 有图(草稿 JSON 或执行件尾部的内嵌注释)→ 无损上画布,并按**草稿自带 cwd** 切编辑器上下文
+//      (用户 2026-09-19 拍板:载入即切上下文,保存落回原项目,不产生副本);
+//   ② 只有脚本 → flowParseVerified 按生成器文法反解 + 逐字节复核,过了才上画布(布局重排);
+//   ③ 复核不过 → 只读展示全文并写明原因(宁可不还原,也不给一张与脚本对不上的假图)。
+let fLibItems: LibItem[] = [];
+let fLibVisible = false;
+let fLibView: { kind: 'list' } | { kind: 'script'; it: LibItem; script: string; reason: string; truncated: boolean } = { kind: 'list' };
+
+function libItemByPath(p: string): LibItem | null {
+  return fLibItems.find(x => x.path === p) || null;
+}
+// 列表条目 = 名字 + 可编辑性徽标 + 描述 + 来源/时间等次要信息(徽标不承诺反解结果:打开时才知道)
+function libItemHTML(x: LibItem): string {
+  const tag = x.src === 'draft' ? T('图草稿') : x.graph ? T('内嵌图') : T('仅脚本');
+  const bits: string[] = [];
+  if (x.src === 'draft' && x.cwd) bits.push(String(x.cwd).replace(/\/+$/, '').split('/').pop() || x.cwd);
+  if (x.src === 'run') {
+    if (x.project) bits.push(String(x.project).split('/').filter(Boolean).pop() || x.project);
+    if (x.status) bits.push(x.status);
+  }
+  if (x.js) bits.push(String(x.js).split('/').pop() || '');
+  if (x.mtime) bits.push(fmtC(x.mtime * 1000));
+  return `<button type="button" class="lb-it" data-lib="${esc(x.path)}">` +
+    `<span class="nm">${esc(x.name)}</span> <span class="lb-tag ${x.graph ? 'g' : 'ro'}" title="${esc(x.graph ? T('可直接上画布编辑') : T('打开时尝试反解;反解不了只读查看'))}">${esc(tag)}</span>` +
+    (x.desc ? `<div class="ds">${esc(x.desc)}</div>` : '') +
+    `<div class="mt">${bits.map(b => `<span>${esc(b)}</span>`).join('')}</div>` +
+  `</button>`;
+}
+function renderLib(): void {
+  const body = $<HTMLElement>('fLibBody'); if (!body) return;
+  const back = $<HTMLElement>('fLibBack'); if (back) back.hidden = true;
+  fLibView = { kind: 'list' };
+  const cur = FS.cwd;
+  const secs: [string, LibItem[]][] = [
+    [T('本项目草稿'), fLibItems.filter(x => x.src === 'draft' && x.cwd === cur)],
+    [T('其他项目草稿'), fLibItems.filter(x => x.src === 'draft' && x.cwd !== cur)],
+    [T('项目脚本 · .claude/workflows'), fLibItems.filter(x => x.src === 'proj')],
+    [T('个人脚本 · ~/.claude/workflows'), fLibItems.filter(x => x.src === 'home')],
+    [T('历史运行'), fLibItems.filter(x => x.src === 'run')],
+  ];
+  body.innerHTML = secs.filter(([, arr]) => arr.length)
+    .map(([t2, arr]) => `<div class="lb-sec">${esc(t2)}</div>` + arr.map(libItemHTML).join('')).join('')
+    || `<div class="lb-empty">${esc(T('库里还没有可打开的工作流:此项目的 .claude/workflows、个人 ~/.claude/workflows 与历史运行都是空的'))}</div>`;
+  const stat = $<HTMLElement>('fLibStat');
+  if (stat) stat.textContent = fLibItems.length ? T('%1 项', fLibItems.length) : '';
+}
+async function loadWorkflows(): Promise<void> {
+  const stat = $<HTMLElement>('fLibStat');
+  if (stat) stat.textContent = T('读取中…');
+  try { fLibItems = ((await (await fetch('/api/workflows?proj=' + encodeURIComponent(FS.cwd || ''))).json() as WorkflowsResp).items) || []; }
+  catch { fLibItems = []; renderLib(); if (stat) stat.textContent = T('工作流库读取失败'); return; }
+  renderLib();
+}
+function libOpenPanel(): void {
+  const p = $<HTMLElement>('fLibPanel'); if (!p) return;
+  p.hidden = false; fLibVisible = true;
+  p.setAttribute('aria-label', T('工作流库'));
+  renderLib();
+  void loadWorkflows();
+}
+function libClose(): void {
+  const p = $<HTMLElement>('fLibPanel'); if (p) p.hidden = true;
+  fLibVisible = false;
+}
+// 图落画布(草稿/内嵌/反解三路共用):按草稿自带 cwd 切上下文——头部显示/草稿库/保存落点/命令区全部跟随。
+function libApplyGraph(d: FlowDraft, note: string, foreignSubflow = false): void {
+  const prev = FS.cwd;
+  flowApply(d);
+  if (!String(d.cwd || '').trim()) FS.cwd = prev;            // 脚本没给 cwd(不该发生):别把上下文清成空
+  const switched = FS.cwd !== prev;
+  if (switched) { $<HTMLElement>('fCwd').textContent = FS.cwd || T('(未选项目)'); void loadFlowDrafts(FS.cwd); }
+  syncHeadInputs();
+  $<HTMLElement>('fRun').hidden = true; fRunPath = ''; fWfPath = '';   // 命令区跟"本次会话保存过的草稿"走,切上下文即清
+  $<HTMLElement>('fOver').hidden = true;
+  libClose();
+  fpz?.setViewport(FS.view);
+  flowRender();
+  nextFrame(() => { flowRender(); fitFlowView(); });
+  flowNote(note + (switched ? '\n' + T('编辑器上下文已切到该项目:%1', FS.cwd) : '')
+    + (foreignSubflow ? '\n' + T('引用的子流不在当前项目,保存前需修正') : ''), !foreignSubflow);
+}
+// 只读全文(反解不了时的诚实出口;铁律 7:全文可看 + 上限写明)
+function libShowScript(it: LibItem, script: string, reason: string, truncated: boolean): void {
+  const body = $<HTMLElement>('fLibBody'); if (!body) return;
+  const back = $<HTMLElement>('fLibBack'); if (back) back.hidden = false;
+  const stat = $<HTMLElement>('fLibStat'); if (stat) stat.textContent = it.name;
+  fLibView = { kind: 'script', it, script, reason, truncated };
+  body.innerHTML = `<div class="lb-note">${esc(reason)}</div>` +
+    `<div class="lb-sec">${esc(T('来源: %1', it.path))}</div>` +
+    (truncated ? `<div class="lb-note">⚠ ${esc(T('超过读取上限(1 MB),以下仅前 1 MB'))}</div>` : '') +
+    `<pre class="lb-script">${esc(script)}</pre>`;
+}
+async function libOpenItem(it: LibItem): Promise<void> {
+  flowNote(T('读取中…'), true);
+  let r: LibReadResp;
+  try { r = await (await fetch('/api/workflow?path=' + encodeURIComponent(it.path))).json() as LibReadResp; }
+  catch (e) { flowNote(T('读取失败:%1', String((e as Error)?.message ?? e)), false); return; }
+  if (!r || r.ok === false) { flowNote(T('读取失败:%1', String(r?.msg || '')), false); return; }
+  if (r.kind === 'draft') {
+    const g = r.graph as FlowDraft | undefined;
     // 载入版本白名单与后端 save_draft 的 draft_ver_ok 同一口径(1.2.50:v1 兼容 + v2);未知版本提示而非猜测读取
-    if (!j || (j.v !== 1 && j.v !== 2)) { flowNote(T('未知草稿版本,不猜'), false); return; }
-    flowApply(j); syncHeadInputs(); sel.value = '';
-    fpz?.setViewport(FS.view);
-    flowRender(); flowNote(T('草稿已载入: %1', String(hit.meta?.name || hit.name)), true);
-  };
+    if (!g || (g.v !== 1 && g.v !== 2)) { flowNote(T('未知草稿版本,不猜'), false); return; }
+    libApplyGraph(g, T('草稿已载入: %1', it.name));
+    return;
+  }
+  const script = String(r.script || '');
+  if (!script.trim()) { flowNote(T('读取失败:脚本为空'), false); return; }
+  const g = flowDecodeGraph(script);
+  if (g) { libApplyGraph(g, T('已由内嵌图载入: %1', it.name)); return; }
+  const raw = flowParse(script);
+  const pv = raw ? flowParseVerified(script, flowCtx()) : null;
+  if (pv) { libApplyGraph(pv.draft, T('已由脚本反解载入(布局重排): %1', it.name), pv.foreignSubflow); return; }
+  const reason = raw
+    ? T('这段脚本与反解结果对不上(可能被手工改过),不冒险还原——以下为全文,仅供参考')
+    : T('这段脚本不是本编辑器生成的风格,无法反解成画布——以下为全文,仅供参考');
+  libShowScript(it, script, reason, !!r.truncated);
 }
 
 // ── 画布初始化:C8 = 六个回调全传(vendor 对 onDraggingChange/onTransformChange 无空值防护,缺则 "o is not a function")──
@@ -640,6 +751,7 @@ async function openFlow(cwd: string): Promise<void> {
   root.hidden = false; flowVisible = true;
   document.body.classList.add('flow-open');
   if (!flowWired) { wireShell(); flowWired = true; }
+  libClose();                                                // 每次从入口进来都收掉上次留下的库面板(不留陈旧列表)
   initFlowCanvas();
   FS.cwd = cwd || '';
   $<HTMLElement>('fCwd').textContent = cwd || T('(未选项目)');
@@ -699,6 +811,17 @@ function flowSeedDemo(): void {
 // 静态壳的事件接线(只连一次;#flow 在 template 里,不进 diffPaint 池)
 function wireShell(): void {
   $<HTMLElement>('fClose').onclick = closeFlow;
+  $<HTMLElement>('fLib').onclick = () => { if (fLibVisible) libClose(); else libOpenPanel(); };
+  $<HTMLElement>('fLibClose').onclick = libClose;
+  $<HTMLElement>('fLibBack').onclick = () => renderLib();
+  // 事件委托:面板内容整块重出(列表 ↔ 只读全文),逐条绑监听会在重出时丢
+  $<HTMLElement>('fLibBody').addEventListener('click', ev => {
+    let t = ev.target as HTMLElement | null;
+    while (t && !(t.classList && t.classList.contains('lb-it'))) t = t.parentElement;
+    if (!t) return;
+    const it = libItemByPath(String(t.getAttribute('data-lib') || ''));
+    if (it) void libOpenItem(it);
+  });
   $<HTMLElement>('fSave').onclick = () => void saveFlowDraft(false);
   $<HTMLElement>('fOver').onclick = () => void saveFlowDraft(true);
   $<HTMLElement>('fFit').onclick = fitFlowView;
@@ -741,7 +864,7 @@ function flowKeydown(e: KeyboardEvent): void {
     e.preventDefault(); [...FS.sel].forEach(id => flowRemoveNode(id)); FS.sel.clear(); flowRender();
   }
   if ((e.metaKey || e.ctrlKey) && k.toLowerCase() === 's') { e.preventDefault(); void saveFlowDraft(false); }
-  if (k === 'Escape') closeFlow();
+  if (k === 'Escape') { if (fLibVisible) libClose(); else closeFlow(); }   // Esc 先收面板(两层的模态,别一把全关)
 }
 function isInputNode(el: Element | null): boolean {
   return !!el && /INPUT|TEXTAREA|SELECT/.test(String((el as HTMLElement).tagName));
@@ -760,10 +883,14 @@ function nextFrame(fn: () => void): void {
 function flowRelang(): void {
   if (!$<HTMLElement>('flow')) return;
   $<HTMLElement>('fCwd').textContent = FS.cwd || T('(未选项目)');
-  renderDraftOptions();
+  renderDraftRefs();
   flowNote('', true);
   phSig = '';                                               // 阶段带的 placeholder 是动态拼的:清签名逼重绘
   renderRunBox();                                           // 命令区标签/边界文案同样是动态拼的
+  if (fLibVisible) {                                        // 库面板整块是动态拼的:按当前视图重出(列表/只读全文)
+    $<HTMLElement>('fLibPanel').setAttribute('aria-label', T('工作流库'));
+    if (fLibView.kind === 'list') renderLib(); else libShowScript(fLibView.it, fLibView.script, fLibView.reason, fLibView.truncated);
+  }
   flowRender();                                             // 内部会重跑 refreshFlowScript(错误清单同语言)
 }
 // ── 入口可见性单点:编排是**按项目**的事,没有"全部项目"的 workflow ──
@@ -977,6 +1104,36 @@ function flowSmoke(): void {
       if (!fOk) res.push('[fchip=' + (fChip ? 'y' : 'n') + ' chips=' + String(fBEl && fBEl.querySelectorAll('.fchips .chip').length)
         + ' val=' + JSON.stringify(fTa ? fTa.value : null) + ' err=' + String($<HTMLElement>('fErr').textContent).slice(0, 60) + ']');
       check('field-chips', fOk);
+      // 1.2.71 内嵌图:真机里过一遍 UTF-8 编解码往返(桩里 atob/btoa 是 Node 替身,这里才算数)
+      const embOk = (() => {
+        const g = flowDraft();
+        const back = flowDecodeGraph('x\n' + flowEmbed(g));
+        return !!back && back.name === g.name && back.nodes.length === g.nodes.length;
+      })();
+      check('embed', embOk);
+      // 1.2.71 工作流库:真实 fetch /api/workflows(冒烟 HOME 是空库,空态也要能渲染)→ 开面板、关面板
+      $<HTMLElement>('fLib').click();
+      await frames(40);
+      const lb = $<HTMLElement>('fLibPanel');
+      const libOk = !!lb && !lb.hidden && fLibVisible && (!!lb.querySelector('.lb-empty') || !!lb.querySelector('.lb-it'));
+      $<HTMLElement>('fLibClose').click();
+      check('lib-open', libOk && !!lb && lb.hidden);
+      // 1.2.71 工作流库 · 全链路:真实 HTTP 存草稿 → 库列表出现 → 点条目 → /api/workflow 读图 → 上画布。
+      // 冒烟 HOME 是空库,这一步同时把"空库"变成"有库"(前面的 lib-open 已验过空态)。
+      FS.name = 'lib-smoke';
+      const sDraft = flowDraft();
+      const saved = await (await fetch('/api/draft/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'lib-smoke', draft: sDraft, script: flowGenerate(sDraft, flowCtx()) + flowEmbed(sDraft), overwrite: false }) })).json() as DraftSaveResp;
+      const wantN = FS.nodes.length;
+      flowBlank();                                   // 清空:证明接下来这四步真的是"从库里打开"
+      flowRender();
+      $<HTMLElement>('fLib').click();
+      await frames(40);
+      const hit = Array.prototype.slice.call($<HTMLElement>('fLibBody').querySelectorAll('.lb-it'))
+        .filter((e: Element) => String(e.textContent || '').indexOf('lib-smoke') >= 0)[0] as HTMLElement | undefined;
+      if (hit) hit.click();
+      await frames(40);
+      check('lib-load', saved.ok === true && !!hit && FS.name === 'lib-smoke' && FS.nodes.length === wantN && !fLibVisible);
       refreshFlowScript();
       check('gen', /export const meta/.test($<HTMLElement>('fScript').textContent || '') && $<HTMLElement>('fErr').hidden);
       document.title = 'SMOKE ' + (res.every(r => r[0] === '✓') ? 'OK ' : 'FAIL ') + res.join(' ');

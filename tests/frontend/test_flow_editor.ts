@@ -53,10 +53,14 @@ const XY = {
 const posts: any[] = [];
 let draftsResp: any = { drafts: [] };
 let saveResp: any = { ok: true, msg: '已保存', path: '/home/u/.claude/cc-viewer/drafts/fix-abc123/demo-research.js', sha: 'abc12345' };
+let libResp: any = { items: [] };                      // 工作流库列表(1.2.71)
+let wfResp: any = { ok: false, msg: '未设桩' };        // /api/workflow?path= 单件读取
 const base = payload([JSON.parse(JSON.stringify(RUN_DONE))], [JSON.parse(JSON.stringify(SESSION_FIX))]);
 const fetchFor = (url: string, init?: any) => {
   if (url.indexOf('/api/draft/save') === 0) { posts.push(JSON.parse(String(init && init.body))); return saveResp; }
   if (url.indexOf('/api/drafts') === 0) return draftsResp;
+  if (url.indexOf('/api/workflows') === 0) return libResp;      // ⚠ 必须先于 /api/workflow 判(前缀包含)
+  if (url.indexOf('/api/workflow?') === 0) return wfResp;
   return base(url);
 };
 const mkEnv = (ls?: Record<string, string>, confirmAns = false) =>
@@ -455,7 +459,12 @@ const FAN = {
      && /^\/\/ 由 Lucid 编排器生成/m.test(String(body.script)) && /export const meta = \{/.test(String(body.script))
      && body.overwrite === false,
      JSON.stringify(Object.keys(body)));
-  ck('保存:脚本 == 生成器产物(单一真相,服务端不重编译)', body.script === env2.get('flowGenerate(flowDraft())'));
+  // 1.2.71 起执行件尾部多一行内嵌图注释(分发副本可无损回载);除该行外必须逐字节 == 生成器产物(单一真相)。
+  const genOnly = env2.get('flowGenerate(flowDraft())') as string;
+  ck('保存:脚本 == 生成器产物 + 内嵌图注释(除注释行外逐字节一致,服务端不重编译)',
+     String(body.script).indexOf(genOnly) === 0 && /\n\/\/ lucid-graph:1:[A-Za-z0-9+/=]+\n$/.test(String(body.script))
+     && !!env2.get('flowDecodeGraph(' + JSON.stringify(String(body.script)) + ')'),
+     JSON.stringify(String(body.script).slice(-64)));
   ck('保存成功 → 回显可复制的执行命令(绝对路径,防 ~ 展开坑)',
      env2.$('fRun').hidden === false && /Workflow\(\{ scriptPath: '\/home\/u\/\.claude\/cc-viewer\/drafts\/fix-abc123\/demo-research\.js', args: '<输入>' \}\)/.test(env2.$('fRunCmd').textContent),
      env2.$('fRunCmd').textContent);
@@ -478,29 +487,102 @@ const FAN = {
   await env2.flush(20);
   ck('存在错误时拒绝发请求(不往盘上丢非法草稿)+ 红条不裁',
      posts.length === nb && env2.$('fErr').hidden === false && /缺 Start/.test(env2.$('fErr').textContent));
-  // 回载:有草稿 → 开空画布 + 下拉可载入;未知版本提示不猜
-  const savedDraft = dft(CHAIN.nodes, CHAIN.edges, { name: 'loaded-one', desc: 'from server', next: 9 });
+  // 回载(1.2.71 起走「工作流库」面板):有草稿 → 开空画布 + 面板可载入;未知版本提示不猜
+  const savedDraft = dft(CHAIN.nodes, CHAIN.edges, { name: 'loaded-one', desc: 'from server', next: 9, cwd: '/work/fix' });
   draftsResp = { drafts: [{ name: 'loaded-one', meta: { name: 'loaded-one', desc: 'from server' }, mtime: 1, js: '/x/loaded-one.js', draft: savedDraft }] };
+  libResp = { items: [{ src: 'draft', name: 'loaded-one', desc: 'from server', cwd: '/work/fix', mtime: 1788884610, graph: true, path: '/x/loaded-one.json', js: '/x/loaded-one.js' }] };
+  wfResp = { ok: true, kind: 'draft', graph: savedDraft };
   const env3 = mkEnv();
   await env3.flush();
   env3.run('void openFlow("/work/fix")');
   await env3.flush(20);
-  ck('后端已有草稿时不硬塞示例(开空画布并列出草稿)', env3.get('FS.nodes.length') === 0 && /loaded-one/.test(env3.$('fDraft').innerHTML));
-  env3.run('(function(){const s=document.getElementById("fDraft");s.value="loaded-one";s.onchange({target:s})})()');
-  await env3.flush(10);
-  ck('载入草稿 → 图被替换为后端内容(回载再编辑)', env3.get('FS.nodes.length') === 4 && env3.get('FS.name') === 'loaded-one');
+  ck('后端已有草稿时不硬塞示例(开空画布,旧下拉已由工作流库取代)', env3.get('FS.nodes.length') === 0 && env3.$q('#fDraft') === null);
+  env3.$('fLib').fire('click');
+  await env3.flush(20);
+  ck('工作流库:开面板即拉列表(分区标题 + 条目 + 图草稿徽标)',
+     env3.$('fLibPanel').hidden === false && /本项目草稿/.test(env3.$('fLibBody').innerHTML)
+     && /loaded-one/.test(env3.$('fLibBody').innerHTML) && /图草稿/.test(env3.$('fLibBody').innerHTML),
+     env3.$('fLibBody').innerHTML.slice(0, 200));
+  ck('工作流库:列表请求带 proj=当前项目', env3.fetchCalls.some(u => u.indexOf('/api/workflows?proj=' + encodeURIComponent('/work/fix')) === 0), String(env3.fetchCalls));
+  env3.$q('#fLibBody .lb-it')!.fire('click');
+  await env3.flush(20);
+  ck('库载入:点条目 → 图被替换为后端内容(回载再编辑),面板自动收起',
+     env3.get('FS.nodes.length') === 4 && env3.get('FS.name') === 'loaded-one' && env3.$('fLibPanel').hidden === true);
   ck('载入后发号器只前进(不与旧 id 撞车)', env3.get('FS.next') >= 10, String(env3.get('FS.next')));
   ck('载入后脚本预览与新图一致', /loaded-one/.test(env3.$('fScript').textContent) && /const n2 = await agent\(/.test(env3.$('fScript').textContent));
   ck('载入后头部输入框同步(名字/描述可见可改)', env3.$('fName').value === 'loaded-one' && env3.$('fDesc').value === 'from server');
-  draftsResp = { drafts: [{ name: 'v9', meta: { name: 'v9' }, mtime: 1, js: '/x/v9.js', draft: { v: 9, name: 'v9', nodes: [], edges: [] } }] };
+  wfResp = { ok: true, kind: 'draft', graph: { v: 9, name: 'v9', nodes: [], edges: [] } };
+  libResp = { items: [{ src: 'draft', name: 'v9', desc: '', cwd: '/work/fix', mtime: 1, graph: true, path: '/x/v9.json', js: '/x/v9.js' }] };
   const env4 = mkEnv();
   await env4.flush();
   env4.run('void openFlow("/work/fix")');
   await env4.flush(20);
-  env4.run('(function(){const s=document.getElementById("fDraft");s.value="v9";s.onchange({target:s})})()');
+  env4.$('fLib').fire('click');
+  await env4.flush(20);
+  env4.$q('#fLibBody .lb-it')!.fire('click');
+  await env4.flush(20);
   ck('未知草稿版本 → 提示不猜(§3.1 规则:图状态保持原样,不做猜测性读取)',
      /未知草稿版本/.test(env4.$('fNote').textContent) && env4.get('FS.nodes.length') === 0 && env4.get('FS.name') === '',
      env4.$('fNote').textContent);
+  // ── 工作流库三态(1.2.71):跨项目切上下文 / 仅脚本反解 / 反解不了只读全文 ──
+  const crossDraft = dft(CHAIN.nodes, CHAIN.edges, { name: 'cross', cwd: '/other/proj' });
+  wfResp = { ok: true, kind: 'draft', graph: crossDraft };
+  libResp = { items: [
+    { src: 'draft', name: 'cross', desc: '', cwd: '/other/proj', mtime: 1, graph: true, path: '/x/cross.json', js: '/x/cross.js' },
+    { src: 'proj', name: 'gen-flow', desc: '生成的', mtime: 2, graph: false, path: '/w/gen-flow.js', js: '/w/gen-flow.js' },
+    { src: 'home', name: 'ai-flow', desc: 'AI 写的', mtime: 3, graph: false, path: '/h/ai-flow.js', js: '/h/ai-flow.js' },
+  ] };
+  const envLib = mkEnv();
+  await envLib.flush();
+  envLib.run('void openFlow("/work/fix")');
+  await envLib.flush(20);
+  envLib.$('fLib').fire('click');
+  await envLib.flush(20);
+  ck('库/分区:其他项目草稿与脚本分区各自成段', /其他项目草稿/.test(envLib.$('fLibBody').innerHTML) && /项目脚本/.test(envLib.$('fLibBody').innerHTML)
+     && /仅脚本/.test(envLib.$('fLibBody').innerHTML), envLib.$('fLibBody').innerHTML.slice(0, 260));
+  const items = envLib.$qa('#fLibBody .lb-it');
+  items[0].fire('click');                                   // cross(其他项目草稿)
+  await envLib.flush(20);
+  ck('库/载入即切上下文:FS.cwd 跟随草稿 cwd,头部与草稿库同步,注明切换',
+     envLib.get('FS.cwd') === '/other/proj' && /编辑器上下文已切到该项目/.test(envLib.$('fNote').textContent)
+     && envLib.fetchCalls.some(u => u.indexOf('/api/drafts?proj=' + encodeURIComponent('/other/proj')) === 0),
+     envLib.get('FS.cwd') + ' | ' + envLib.$('fNote').textContent);
+  // 仅脚本:反解往返(用真生成器产出的脚本喂 /api/workflow)
+  const genScript = envLib.get('flowGenerate(' + JSON.stringify(dft(CHAIN.nodes, CHAIN.edges, { name: 'gen-flow', cwd: '/other/proj' })) + ')') as string;
+  wfResp = { ok: true, kind: 'script', script: genScript };
+  envLib.$('fLib').fire('click');
+  await envLib.flush(20);
+  envLib.$qa('#fLibBody .lb-it').filter(e => e.getAttribute('data-lib') === '/w/gen-flow.js')[0].fire('click');
+  await envLib.flush(20);
+  ck('库/仅脚本:反解复核通过 → 上画布(布局重排)并写明来历',
+     envLib.get('FS.name') === 'gen-flow' && envLib.get('FS.nodes.length') === 4 && /已由脚本反解载入/.test(envLib.$('fNote').textContent),
+     envLib.get('FS.name') + ' | ' + envLib.$('fNote').textContent);
+  // 反解不了的脚本 → 只读全文(铁律 7:不假装能编辑,全文可看)
+  const aiScript = "export const meta = {\n  name: 'ai-flow',\n  description: 'x',\n}\nconst r = await parallel(\n  Array.from({ length: 2 }, (_, i) => () => agent(`t-${i}`, { label: `t${i}` }))\n)\nreturn { r }\n";
+  wfResp = { ok: true, kind: 'script', script: aiScript };
+  envLib.$('fLib').fire('click');
+  await envLib.flush(20);
+  envLib.$qa('#fLibBody .lb-it').filter(e => e.getAttribute('data-lib') === '/h/ai-flow.js')[0].fire('click');
+  await envLib.flush(20);
+  ck('库/反解不了:只读全文 + 写明原因(不冒充可编辑),返回列表入口在',
+     /无法反解成画布/.test(envLib.$('fLibBody').textContent) && envLib.$q('#fLibBody .lb-script') !== null
+     && /Array\.from/.test(envLib.$q('#fLibBody .lb-script')!.textContent) && envLib.$('fLibBack').hidden === false,
+     envLib.$('fLibBody').textContent.slice(0, 160));
+  envLib.$('fLibBack').fire('click');
+  await envLib.flush();
+  ck('库/返回列表:列表回来了(只读视图不粘住)', envLib.$q('#fLibBody .lb-script') === null && /gen-flow/.test(envLib.$('fLibBody').innerHTML),
+     envLib.$('fLibBody').innerHTML.slice(0, 160));
+  // 内嵌图通路:执行件尾部带 lucid-graph 注释 → 不经反解直接无损上画布
+  const embGraph = dft(CHAIN.nodes, CHAIN.edges, { name: 'emb-flow', cwd: '/other/proj', title: 'T' });
+  wfResp = { ok: true, kind: 'script', script: '// stub\n' + (envLib.get('flowEmbed(' + JSON.stringify(embGraph) + ')') as string) };
+  libResp = { items: [{ src: 'proj', name: 'emb-flow', desc: '', mtime: 4, graph: true, path: '/w/emb-flow.js', js: '/w/emb-flow.js' }] };
+  envLib.$('fLib').fire('click');
+  await envLib.flush(20);
+  envLib.$q('#fLibBody .lb-it')!.fire('click');
+  await envLib.flush(20);
+  ck('库/内嵌图:直接无损还原(标题等 v2 字段全在)并注明来源',
+     envLib.get('FS.name') === 'emb-flow' && envLib.get('FS.title') === 'T' && /已由内嵌图载入/.test(envLib.$('fNote').textContent),
+     envLib.get('FS.name') + '/' + envLib.get('FS.title'));
   // ── 草稿 v2(1.2.50 · Phase 1):whenToUse 头部输入 + 阶段带可编辑(title/detail)+ 双端版本判定同改 ──
   // 为什么两件事同一相位:v2 是"持久化 + 载入"两层的最小切片,漏改任一端就是"存了却看不见"(1.2.35 类)。
   draftsResp = { drafts: [] };
@@ -576,7 +658,11 @@ const FAN = {
   await envV2.flush();
   envV2.run('void openFlow("/work/fix")');
   await envV2.flush(20);
-  envV2.run('(function(){const s=document.getElementById("fDraft");s.value="v2-one";s.onchange({target:s})})()');
+  libResp = { items: [{ src: 'draft', name: 'v2-one', desc: '', cwd: '/work/fix', mtime: 1, graph: true, path: '/x/v2-one.json', js: '/x/v2-one.js' }] };
+  wfResp = { ok: true, kind: 'draft', graph: v2draft };
+  envV2.$('fLib').fire('click');
+  await envV2.flush(20);
+  envV2.$q('#fLibBody .lb-it')!.fire('click');
   await envV2.flush(10);
   ck('v2/回载:v=2 草稿被接受且 whenToUse 逐字还原到头部',
      envV2.get('FS.name') === 'v2-one' && envV2.$('fWhen').value === '只在需要审计时', envV2.$('fWhen').value);
@@ -595,7 +681,11 @@ const FAN = {
   await envV1.flush();
   envV1.run('void openFlow("/work/fix")');
   await envV1.flush(20);
-  envV1.run('(function(){const s=document.getElementById("fDraft");s.value="v1-one";s.onchange({target:s})})()');
+  libResp = { items: [{ src: 'draft', name: 'v1-one', desc: '', cwd: '/work/fix', mtime: 1, graph: true, path: '/x/v1-one.json', js: '/x/v1-one.js' }] };
+  wfResp = { ok: true, kind: 'draft', graph: dft(CHAIN.nodes, CHAIN.edges, { name: 'v1-one' }) };
+  envV1.$('fLib').fire('click');
+  await envV1.flush(20);
+  envV1.$q('#fLibBody .lb-it')!.fire('click');
   await envV1.flush(10);
   ck('v1/v=1 老草稿原样载入,whenToUse/phases 缺省为空(不猜不塞)',
      envV1.get('FS.name') === 'v1-one' && envV1.$('fWhen').value === '' && envV1.get('FS.phases.length') === 0,
@@ -609,7 +699,12 @@ const FAN = {
   await envV3.flush();
   envV3.run('void openFlow("/work/fix")');
   await envV3.flush(20);
-  envV3.run('(function(){const s=document.getElementById("fDraft");s.value="v3";s.onchange({target:s})})()');
+  libResp = { items: [{ src: 'draft', name: 'v3', desc: '', cwd: '/work/fix', mtime: 1, graph: true, path: '/x/v3.json', js: '/x/v3.js' }] };
+  wfResp = { ok: true, kind: 'draft', graph: { v: 3, name: 'v3', nodes: [], edges: [] } };
+  envV3.$('fLib').fire('click');
+  await envV3.flush(20);
+  envV3.$q('#fLibBody .lb-it')!.fire('click');
+  await envV3.flush(10);
   ck('v3/未知版本(v=3)拒绝并给可读提示,图状态不动',
      /未知草稿版本/.test(envV3.$('fNote').textContent) && envV3.get('FS.nodes.length') === 0 && envV3.get('FS.name') === '',
      envV3.$('fNote').textContent);
@@ -666,7 +761,11 @@ const FAN = {
   await envA2.flush();
   envA2.run('void openFlow("/work/fix")');
   await envA2.flush(20);
-  envA2.run('(function(){const s=document.getElementById("fDraft");s.value="args-one";s.onchange({target:s})})()');
+  libResp = { items: [{ src: 'draft', name: 'args-one', desc: '', cwd: '/work/fix', mtime: 1, graph: true, path: '/x/args-one.json', js: '/x/args-one.js' }] };
+  wfResp = { ok: true, kind: 'draft', graph: dft(CHAIN.nodes, CHAIN.edges, { name: 'args-one', argsSpec: { schemaText: '{"type":"object","properties":{"x":{}},"required":["x"]}', exampleText: '{"x":1}', required: true } }) };
+  envA2.$('fLib').fire('click');
+  await envA2.flush(20);
+  envA2.$q('#fLibBody .lb-it')!.fire('click');
   await envA2.flush(10);
   ck('args/回载:面板三字段逐字还原',
      envA2.$('fArgS').value === '{"type":"object","properties":{"x":{}},"required":["x"]}'
@@ -980,8 +1079,8 @@ const FAN = {
   ck('subflow 卡片 = ref(带草稿 datalist)+ 参数表达式 + 一层嵌套提示',
      !!sidEl.querySelector('input.f-ref') && sidEl.querySelector('input.f-ref')!.getAttribute('list') === 'fDraftRefs'
      && !!sidEl.querySelector('input.f-args') && /一层/.test(visibleText(sidEl)));
-  ck('草稿下拉与 subflow ref 候选同源(renderDraftOptions 一处刷两处)',
-     /triage-issues/.test(envC2.$('fDraftRefs').innerHTML) && /triage-issues/.test(envC2.$('fDraft').innerHTML),
+  ck('subflow ref 候选来自草稿列表(renderDraftRefs;旧 #fDraft 下拉已删)',
+     /triage-issues/.test(envC2.$('fDraftRefs').innerHTML) && envC2.$q('#fDraft') === null,
      envC2.$('fDraftRefs').innerHTML.slice(0, 80));
   // 警告区:未知全局只提示、不拦生成
   const cta = cidEl.querySelector('textarea.f-code')!;

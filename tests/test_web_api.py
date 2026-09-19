@@ -347,6 +347,17 @@ try:
        post('/api/draft/save', {'name': 'vv2', 'draft': {'v': 2, 'cwd': '/work/fix'}, 'script': 'x'})[1].get('ok') is True)
     ck('draft: 未知 draft.v=3 经 HTTP 被拒(不猜)',
        post('/api/draft/save', {'name': 'vv', 'draft': {'v': 3, 'cwd': '/work/fix'}, 'script': 'x'})[1].get('ok') is False)
+    # ── 工作流库(1.2.71):列表路由 + 白名单读取的 HTTP 往返 ──
+    wcode, wraw, _ = get('/api/workflows?proj=' + urllib.parse.quote('/work/fix'))
+    wj = json.loads(wraw)
+    ck('lib: /api/workflows 200 + 条目形状(跨项目草稿经 HTTP 可见)',
+       wcode == 200 and isinstance(wj.get('items'), list)
+       and any(x['src'] == 'draft' and x['name'] == 'e2e-flow' for x in wj['items']), wraw[:200])
+    w1 = json.loads(get('/api/workflow?path=' + urllib.parse.quote(str(jsp.with_suffix('.json'))))[1])
+    ck('lib: /api/workflow 读回草稿图(graph 为草稿原文)',
+       w1.get('ok') is True and w1.get('kind') == 'draft' and w1.get('graph', {}).get('desc') == '端到端草稿', str(w1)[:160])
+    wcode2, _, _ = get('/api/workflow?path=' + urllib.parse.quote('/etc/passwd'))
+    ck('lib: 白名单外路径经 HTTP 404(不泄露)', wcode2 == 404, str(wcode2))
     # ── 断连兜底(1.2.65 B3,真 socket):客户端取大件途中 RST,服务端写失败不许冒 traceback ──
     import struct as _struct
     _n_rst = 0

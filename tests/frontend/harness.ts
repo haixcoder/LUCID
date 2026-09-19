@@ -430,6 +430,10 @@ export function load(opts?: LoadOpts): Env {
     setTimeout: (fn: Handler, ms: number) => (timers.timeouts.push({ fn, ms }), timers.timeouts.length),
     clearTimeout: () => {},
     CSS: { escape: (s: unknown) => String(s).replace(/[^\w-]/g, (c) => '\\' + c) }, // 本项目 id 全是 [0-9a-f-]/wf_*,不触转义
+    // 内嵌图编解码(1.2.71 flowEmbed/flowDecodeGraph 用):浏览器原生 API,桩按 Node 等价物供给
+    atob: (s: string) => Buffer.from(String(s), 'base64').toString('binary'),
+    btoa: (s: string) => Buffer.from(String(s), 'binary').toString('base64'),
+    TextEncoder, TextDecoder, Uint8Array,
     HTMLDetailsElement: HTMLDetailsElementStub,
     // 模态对话框:浏览器恒在。桩默认"答否"(测试不许靠弹窗推进状态),要恢复草稿等分支用 globals 覆盖。
     confirm: () => false, alert: () => {},
