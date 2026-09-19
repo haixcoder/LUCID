@@ -67,7 +67,13 @@ Prerequisites: macOS / Linux, Claude Code 2.0+, Python 3.9+ (**no pip installs, 
 claude plugin marketplace add haixcoder/LUCID                 # this repo (marketplace.json, source "./")
 claude plugin install lucid@kw-dev-plugins                    # install the plugin
 # Version-pinned install (optional, installs a tag snapshot):
-# claude plugin marketplace add haixcoder/LUCID#v1.2.5   then the same install as above
+# claude plugin marketplace add haixcoder/LUCID#v1.2.30  then the same install as above
+#   ⚠ Use tags ≥ v1.2.26 only. v1.2.5/v1.2.8 predate the xray→lucid rename: their manifest
+#     lists `xray`, not `lucid`, so the install fails with "Plugin \"lucid\" not found in
+#     marketplace ..." — and `marketplace update` can never fix it (a pinned ref re-fetches
+#     the same snapshot). Already stuck on such a marketplace? Remove and re-add:
+#     claude plugin marketplace remove kw-dev-plugins
+#     claude plugin marketplace add haixcoder/LUCID
 ```
 
 **Option 2 (npm)** — same plugin, distributed via the npm registry as a self-contained marketplace. Needs Node.js ≥16.7 for the installer only (the plugin itself stays zero-dependency Python):

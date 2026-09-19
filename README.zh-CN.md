@@ -69,8 +69,13 @@ Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<ses
 ```bash
 claude plugin marketplace add haixcoder/LUCID                 # 即本仓库(marketplace.json, source="./")
 claude plugin install lucid@kw-dev-plugins                    # 安装插件
-# 版本锁定装法（可选，装 tag 快照）：
-# claude plugin marketplace add haixcoder/LUCID#v1.2.5   后同 install
+# 版本锁定装法(可选,装 tag 快照):
+# claude plugin marketplace add haixcoder/LUCID#v1.2.30  后同 install
+#   ⚠ 只用 ≥ v1.2.26 的 tag:v1.2.5/v1.2.8 是 xray→lucid 改名前的快照,清单里是 `xray`
+#     不是 `lucid`——照抄旧示例会得到 `Plugin "lucid" not found in marketplace ...`,且钉死的
+#     ref 连 `marketplace update` 也救不回。已中招的设备:先移除再重挂:
+#     claude plugin marketplace remove kw-dev-plugins
+#     claude plugin marketplace add haixcoder/LUCID
 ```
 
 **方式二（npm）**——同一个插件经 npm registry 分发，包内自带市场。安装器需 Node.js ≥16.7（仅安装时用；插件本体仍是零依赖 Python）：
