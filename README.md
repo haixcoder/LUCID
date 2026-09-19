@@ -61,41 +61,28 @@ Scan scope: the "lookback window" (N days, default 14, adjustable in ⚙ Setting
 
 Prerequisites: macOS / Linux, Claude Code 2.0+, Python 3.9+ (**no pip installs, nothing at all**). The primary self-start entry is the plugin's SessionStart hook (works on any version); the official background monitor (`monitors/monitors.json`) is a second trigger door requiring Claude Code ≥2.1.105 and host support.
 
-**Option 1 (recommended, GitHub marketplace)** — this repository is a standard marketplace, installable from any machine:
+**Install (GitHub marketplace — works on any machine)** — this repository is a standard marketplace:
 
 ```bash
 claude plugin marketplace add haixcoder/LUCID                 # this repo (marketplace.json, source "./")
 claude plugin install lucid@kw-dev-plugins                    # install the plugin
-# Version-pinned install (optional, installs a tag snapshot):
-# claude plugin marketplace add haixcoder/LUCID#v1.2.30  then the same install as above
-#   ⚠ Use tags ≥ v1.2.26 only. v1.2.5/v1.2.8 predate the xray→lucid rename: their manifest
-#     lists `xray`, not `lucid`, so the install fails with "Plugin \"lucid\" not found in
-#     marketplace ..." — and `marketplace update` can never fix it (a pinned ref re-fetches
-#     the same snapshot). Already stuck on such a marketplace? Remove and re-add:
-#     claude plugin marketplace remove kw-dev-plugins
-#     claude plugin marketplace add haixcoder/LUCID
 ```
 
-**Option 2 (npm)** — same plugin, distributed via the npm registry as a self-contained marketplace. Needs Node.js ≥16.7 for the installer only (the plugin itself stays zero-dependency Python):
-
-> ⚠ **Not published yet (as of 2026-09-19): `kw-lucid` is not on the npm registry** (`npx -y kw-lucid` fails with E404), so this channel does not work today — **use Option 1**. The setup below is complete; it becomes usable once the maintainer publishes (`npm login` + `npm publish`).
+**Got `Plugin "lucid" not found in marketplace "kw-dev-plugins"`?** That machine holds a stale registration — typically an old pinned tag (`#v1.2.5` / `#v1.2.8`, see below) or a registered path that no longer exists. Remove and re-add:
 
 ```bash
-npx -y kw-lucid                      # one-liner: registers the bundled marketplace + installs (idempotent; rerun to upgrade)
-# or explicit global install:
-npm install -g kw-lucid
-claude plugin marketplace add "$(npm root -g)/kw-lucid"
-claude plugin install lucid@kw-dev-plugins
+claude plugin marketplace remove kw-dev-plugins
+claude plugin marketplace add haixcoder/LUCID
 ```
 
-**Option 3 (local development)**:
+**Version-pinned install** (optional, installs a tag snapshot): only tags **≥ v1.2.26** — e.g. `claude plugin marketplace add haixcoder/LUCID#v1.2.39`. (Tags v1.2.5/v1.2.8 predate the xray→lucid rename — their manifest lists `xray`, not `lucid` — and a pinned ref is never repaired by `marketplace update`: it re-fetches the same old snapshot.)
 
-```bash
-claude plugin marketplace add ~/projectDir/cc-viewer     # register the local marketplace (this dir doubles as kw-dev-plugins)
-claude plugin install lucid@kw-dev-plugins                # install the plugin
-```
+**Other channels**:
 
-> The GitHub and npm channels share the marketplace name `kw-dev-plugins` — pick one (the `npx` script detects a name clash and keeps whichever channel is already registered).
+- **npm** — not available yet: as of 2026-09-19 `kw-lucid` is not on the npm registry (`npx -y kw-lucid` fails with E404). The package is ready; once the maintainer publishes (`npm login` + `npm publish`) it becomes a one-liner: `npx -y kw-lucid` (registers the bundled marketplace + installs, idempotent — rerun to upgrade).
+- **Local development** (repo checked out): `claude plugin marketplace add ~/projectDir/cc-viewer`, then the same install as above.
+
+> The GitHub and npm channels share the marketplace name `kw-dev-plugins` — pick one (the npm installer keeps whichever channel is already registered).
 
 Verify:
 

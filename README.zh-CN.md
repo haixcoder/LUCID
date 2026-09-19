@@ -64,40 +64,28 @@ Claude Code 把 workflow 运行状态落盘在 `~/.claude/projects/<项目>/<ses
 
 前提：macOS / Linux，Claude Code 2.0+，Python 3.9+（**无需 pip 任何东西**）。自启动主入口是插件 SessionStart 钩子（任意版本可用）；官方后台 monitor（`monitors/monitors.json`）作为同类触发口需 Claude Code ≥2.1.105 且宿主支持。
 
-**方式一（推荐，GitHub 市场）**——本仓库即标准市场，任何机器均可安装：
+**安装（GitHub 市场——任何机器均可用）**——本仓库即标准市场：
 
 ```bash
 claude plugin marketplace add haixcoder/LUCID                 # 即本仓库(marketplace.json, source="./")
 claude plugin install lucid@kw-dev-plugins                    # 安装插件
-# 版本锁定装法(可选,装 tag 快照):
-# claude plugin marketplace add haixcoder/LUCID#v1.2.30  后同 install
-#   ⚠ 只用 ≥ v1.2.26 的 tag:v1.2.5/v1.2.8 是 xray→lucid 改名前的快照,清单里是 `xray`
-#     不是 `lucid`——照抄旧示例会得到 `Plugin "lucid" not found in marketplace ...`,且钉死的
-#     ref 连 `marketplace update` 也救不回。已中招的设备:先移除再重挂:
-#     claude plugin marketplace remove kw-dev-plugins
-#     claude plugin marketplace add haixcoder/LUCID
 ```
 
-**方式二（npm）**——同一个插件经 npm registry 分发，包内自带市场。安装器需 Node.js ≥16.7（仅安装时用；插件本体仍是零依赖 Python）：
-
-> ⚠ **尚未发布（截至 2026-09-19）：`kw-lucid` 不在 npm registry 上**（`npx -y kw-lucid` 直接 E404），此渠道当前不可用——**请用方式一**。下面的命令已就绪，维护者完成 `npm login` + `npm publish` 后即可用。
+**报 `Plugin "lucid" not found in marketplace "kw-dev-plugins"`？** 这台机器的市场注册已失效——多见于钉在旧 tag（`#v1.2.5` / `#v1.2.8`，见下），或注册的路径已不存在。先移除再重挂：
 
 ```bash
-npx -y kw-lucid                      # 一行装:注册包内市场 + 安装(幂等,重跑即升级)
-# 或显式全局安装:
-npm install -g kw-lucid
-claude plugin marketplace add "$(npm root -g)/kw-lucid"
-claude plugin install lucid@kw-dev-plugins
+claude plugin marketplace remove kw-dev-plugins
+claude plugin marketplace add haixcoder/LUCID
 ```
 
-**方式三（本地开发）**：
+**版本锁定装法**（可选，装 tag 快照）：只用 **≥ v1.2.26** 的 tag——如 `claude plugin marketplace add haixcoder/LUCID#v1.2.39`。（v1.2.5/v1.2.8 是 xray→lucid 改名前的快照，清单里是 `xray` 不是 `lucid`；且钉死的 ref 连 `marketplace update` 也救不回——它只会重新拉取同一个旧快照。）
 
-```bash
-claude plugin marketplace add ~/projectDir/cc-viewer     # 注册本地市场(本目录兼作市场 kw-dev-plugins)
-claude plugin install lucid@kw-dev-plugins                # 安装插件
-```
+**其他渠道**：
 
-> GitHub 与 npm 两个渠道共用市场名 `kw-dev-plugins`,二选一即可(`npx` 脚本检测到同名市场会保留已注册渠道)。
+- **npm**——暂不可用：截至 2026-09-19 `kw-lucid` 不在 npm registry 上（`npx -y kw-lucid` 直接 E404）。包已就绪，维护者完成 `npm login` + `npm publish` 后即恢复一行安装：`npx -y kw-lucid`（注册包内市场 + 安装，幂等，重跑即升级）。
+- **本地开发**（已克隆本仓库）：`claude plugin marketplace add ~/projectDir/cc-viewer`，后同上安装。
+
+> GitHub 与 npm 两个渠道共用市场名 `kw-dev-plugins`，二选一即可（npm 安装器检测到同名市场会保留已注册渠道）。
 
 验证：
 
