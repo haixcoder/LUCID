@@ -37,7 +37,8 @@ interface RunsResp { now: number; ver?: string; recentDays?: number; runs: Run[]
 interface SessionsResp { now: number; sessions: SessionState[] }
 interface Conf { enabled: boolean; format: string; url: string; insecure: boolean; port: number; recentDays: number; notifyInput: string }
 interface LastHook { at: number; ok: boolean | null; status: string; reply: string }
-interface ConfResp { conf: Conf; last: LastHook }
+interface PluginInfo { name: string; version: string }  // 运行副本自己的 .claude-plugin/plugin.json(1.2.72)
+interface ConfResp { conf: Conf; last: LastHook; plugin?: PluginInfo }  // plugin 可缺(旧后端)——展示层按「未知」回落
 interface SaveResp { ok?: boolean; msg?: string; reloc?: string; conf?: Conf }
 interface TestResp { ok?: boolean; msg?: string; last?: LastHook }
 interface FullResp { prompt: string; result: string; miss?: boolean }

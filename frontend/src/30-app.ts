@@ -34,6 +34,9 @@ hookbtn.onclick = async () => {
     hena.checked = !!d.conf.enabled; hfmt.value = d.conf.format; hurl.value = d.conf.url; hinsec.checked = !!d.conf.insecure;
     hinp.value = d.conf.notifyInput || 'blocked';
     hport.value = String(d.conf.port || location.port); hdays.value = String(d.conf.recentDays || 14); hsave.classList.remove('dirty'); showLast(d.last);
+    // 07 插件版本:面板每次打开按当日数据源填值——拿不到(旧后端无 plugin 字段/副本被裁剪)显式「未知」
+    const pi = d.plugin;
+    $('pver').textContent = pi && pi.version ? (pi.name ? pi.name + ' ' : '') + 'v' + pi.version : T('未知');
   } catch (e) { hmsg.textContent = T('配置读取失败'); }
 };
 hsave.onclick = async () => {
@@ -282,7 +285,9 @@ const onToggle = (e: Event) => {
 };
 $('list').addEventListener('toggle', onToggle, true);
 $('sess').addEventListener('toggle', onToggle, true);
-$('verB').textContent = VER ? 'v' + VER : '';  // 版本角标:旧标签页(无此角标)= 陈旧代码,请刷新
+const verB = $('verB');
+verB.textContent = VER ? 'v' + VER : '';  // 版本角标:旧标签页(无此角标)= 陈旧代码,请刷新
+verB.title = T('构建戳(页面代码指纹),非插件版本;插件版本见 ⚙ 设置');  // 12 位十六进制容易被当成版本号——tooltip 交代它不是(1.2.72)
 setInterval(() => { if (auto) void tick(); }, 2000); void tick();
 // 后台标签页节流补偿:浏览器(Chrome 严格节流/Safari 挂起)会把隐藏页的 setInterval 降到 ~1 次/分钟——
 // 用户在终端输入后切回页面,切回瞬间看到的是降频前的旧状态(真实反馈:"输入内容后不能立刻看到最近任务执行的信息")。

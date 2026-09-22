@@ -302,6 +302,11 @@ try:
     ck('test: 无 URL 时明确失败原因(不假装送达)', r.get('ok') is False and 'webhook URL' in r.get('msg', ''), str(r))
     code, r, _ = post('/api/config/test', {'kind': 'input_required'})
     ck('test: input_required 分型走同一条通路', r.get('ok') is False and 'webhook URL' in r.get('msg', ''), str(r))
+    # 1.2.72:设置中心「插件版本」——/api/config 必带"本服务正在跑的副本"自己的清单版本(此服务由本仓库代码起,与仓库 plugin.json 对账)
+    code, r, _ = get('/api/config')
+    pi = json.loads(r).get('plugin') or {}
+    pv = json.loads((REPO / '.claude-plugin' / 'plugin.json').read_text(encoding='utf-8'))['version']
+    ck('config: plugin 版本 == 运行副本清单', code == 200 and pi.get('name') == 'lucid' and pi.get('version') == pv, str(pi))
 
     # ── 编排器物料(1.2.43):白名单静态件 + 草稿 save/list 全链路 ──
     code, raw, hd = get('/static/xyflow.system.umd.js')

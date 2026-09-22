@@ -25,6 +25,23 @@ INDEX_HTML = (Path(__file__).parent / 'static' / 'index.html').read_text(encodin
 _m = re.search(r'<script>\n([\s\S]*)\n</script></body>', INDEX_HTML)  # 主脚本块(boot 片段在 head,非 greedy 会错抓,用尾锚点定位)
 VER = hashlib.md5(_m.group(1).encode('utf-8')).hexdigest()[:12] if _m else ''
 
+
+# 插件版本(1.2.72,设置中心「插件版本」的数据源):读**本进程正在跑的那份副本**自己的清单——
+# 相对本文件定位,源码仓 / 安装副本 cache/<market>/<plugin>/<ver>/ / npm 自足市场三处布局同构。
+# import 期读一次 = 与 INDEX_HTML/VER 同语义:显示的就是"这份代码"的版本,升级后重启服务才随新副本变;
+# 读不到(被裁剪的副本/手工部署)一律空串,页面显式显示「未知」而不是报错或静默留白。
+def plugin_info(root=None):
+    """root 仅供测试注入;None = 本文件所在插件根。恒返回 {'name','version'}(读不到为空串)。"""
+    p = Path(root) if root else Path(__file__).resolve().parents[2]
+    try:
+        d = json.loads((p / '.claude-plugin' / 'plugin.json').read_text(encoding='utf-8'))
+    except Exception:
+        return {'name': '', 'version': ''}
+    return {'name': str(d.get('name') or ''), 'version': str(d.get('version') or '')}
+
+
+PLUGIN = plugin_info()
+
 # ── 编排器物料(1.2.43):vendored 静态件白名单 + 草稿落盘/枚举。判定与消毒只住这一处,handler 只调用 ──
 # 铁律 1:vendor 是提交入库的构建产物(同 bin/install.js 先例),不新增运行时依赖;
 # 铁律 2(1.2.59 起):服务写域 = CONF_DIR/drafts/ **+ 请求里那个 cwd 下的 .claude/workflows/<name>.js**
@@ -474,7 +491,7 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:
                 self._json({'error': str(e)})  # 单 agent 读取异常按 JSON 报错回,页面侧走 miss 提示
         elif u.path == '/api/config':
-            self._json({'conf': load_conf(), 'last': LAST_HOOK})
+            self._json({'conf': load_conf(), 'last': LAST_HOOK, 'plugin': PLUGIN})
         elif u.path == '/api/drafts':
             q = parse_qs(u.query)
             self._json(list_drafts((q.get('proj') or [''])[0]))
